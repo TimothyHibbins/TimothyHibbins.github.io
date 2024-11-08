@@ -18,7 +18,7 @@ body {
 }
 #dropcap:first-letter {
 
-  background-image: url(TimothyHibbins.github.io/dropcaps/dropcap_a.png);
+  background-image: url(/dropcaps/dropcap_a.png);
   background-size: contain;
   background-repeat: no-repeat;
   background-center: center center;
