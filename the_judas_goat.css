@@ -16,6 +16,9 @@ body {
   text-justify: inter-word;
 
 }
+#space {
+  color: transparent;
+}
 #dropcap:first-letter {
 
   background-image: url(/dropcaps/dropcap_a_red.png);
