@@ -15,5 +15,17 @@ body {
   text-align: justify;
   text-justify: inter-word;
 
+}
+#dropcap:first-letter {
+
+  background-image: url(TimothyHibbins.github.io/dropcaps/dropcap_a.png);
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-center: center center;
+  float: left;
+  color: transparent;
+
+  padding: 200px 0 0 200px;
+  margin-right: 9px;
 
 }
