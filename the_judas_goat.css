@@ -6,7 +6,7 @@ body {
   font-family: "Garamond", serif;
   font-size: 16pt;
   line-height: 24px;
-  word-wrap: break-word;
+  hyphens: auto;
 
 
 }
