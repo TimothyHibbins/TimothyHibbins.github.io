@@ -17,22 +17,6 @@ body {
   margin-bottom: 30%;
 }
 
-
-@media only screen and (max-width: 950px) {
-   body {
-      margin-left: 5%;
-      margin-right: 5%;
-      margin-top: 5%;
-      margin-bottom: 30%;
-   }
-
-   #dropcap:first-letter {
-
-    padding: 2em 0 0 2em;
-
-  }
-}
-
 #space {
   color: rgba(0, 0, 0, 0);
 }
@@ -49,3 +33,19 @@ body {
   margin-right: 0.5em;
 
 }
+
+@media only screen and (max-width: 950px) {
+   body {
+      margin-left: 5%;
+      margin-right: 5%;
+      margin-top: 5%;
+      margin-bottom: 30%;
+   }
+
+   #dropcap:first-letter {
+
+    padding: 4em 0 0 4em;
+
+  }
+}
+
