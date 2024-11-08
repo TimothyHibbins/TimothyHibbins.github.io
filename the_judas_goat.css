@@ -20,21 +20,21 @@ body {
 #space {
   color: rgba(0, 0, 0, 0);
 }
-#dropcap:first-letter {
+#dropcap {
 
-  background-image: url(/dropcaps/dropcap_a_red.png);
+/*  background-image: url(/dropcaps/dropcap_a_red.png);
   background-size: contain;
   background-repeat: no-repeat;
-  background-center: center center;
+  background-center: center center;*/
   float: left;
   color: transparent;
 
-  padding: 8em 0 0 8em;
-  margin-right: 0.5em;
+/*  padding: 8em 0 0 8em;*/
+  margin-right: 0.3em;
 
 }
 
-@media only screen and (max-width: 950px) {
+/*@media only screen and (max-width: 950px) {
    body {
       margin-left: 5%;
       margin-right: 5%;
@@ -47,5 +47,5 @@ body {
     padding: 4.8em 0 0 4.8em;
 
   }
-}
+}*/
 
