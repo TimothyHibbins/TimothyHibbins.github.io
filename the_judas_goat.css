@@ -6,7 +6,8 @@ body {
   font-family: "Garamond", serif;
   font-size: 16pt;
   line-height: 24px;
-  hyphens: auto;
+  text-align: justify;
+  text-justify: inter-word;
 
 
 }
