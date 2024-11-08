@@ -1,5 +1,5 @@
 body {
-  background-color: #fffbf9;
+/*  background-color: #fffbf9;*/
 
   font-family: "Garamond", serif;
   font-size: 15pt;
@@ -28,7 +28,7 @@ body {
 
    #dropcap:first-letter {
 
-    padding: 100px 0 0 100px;
+    padding: 4em 0 0 4em;
 
   }
 }
@@ -45,7 +45,7 @@ body {
   float: left;
   color: transparent;
 
-  padding: 100px 0 0 100px;
+  padding: 4em 0 0 4em;
   margin-right: 9px;
 
 }
