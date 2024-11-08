@@ -3,10 +3,14 @@ body {
   margin-left: 30%;
   margin-right: 30%;
   margin-top: 10%;
+  margin-bottom: 30%;
   font-family: "Garamond", serif;
-  font-size: 16pt;
-  line-height: 2;
-  word-break: break-all;
+  font-size: 15pt;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  -moz-hyphens: auto;
+  -webkit-hyphens: auto;
+  -ms-hyphens: auto;
   hyphens: auto;
   text-align: justify;
   text-justify: inter-word;
