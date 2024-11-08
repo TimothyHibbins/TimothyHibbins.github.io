@@ -18,14 +18,14 @@ body {
 }
 #dropcap:first-letter {
 
-  background-image: url(/dropcaps/dropcap_a.png);
+  background-image: url(/dropcaps/dropcap_a_red.png);
   background-size: contain;
   background-repeat: no-repeat;
   background-center: center center;
   float: left;
   color: transparent;
 
-  padding: 151px 0 0 151px;
+  padding: 190px 0 0 190px;
   margin-right: 9px;
 
 }
