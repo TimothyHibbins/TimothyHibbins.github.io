@@ -11,20 +11,14 @@ body {
   hyphens: auto;
   text-align: justify;
   text-justify: inter-word;
-
+  margin-left: 30%;
+  margin-right: 30%;
+  margin-top: 10%;
+  margin-bottom: 30%;
 }
 
 
 @media only screen and (max-width: 950px) {
-   body {
-      margin-left: 30%;
-      margin-right: 30%;
-      margin-top: 5%;
-      margin-bottom: 30%;
-   }
-}
-
-@media only screen and (max-width: 600px) {
    body {
       margin-left: 5%;
       margin-right: 5%;
@@ -32,8 +26,6 @@ body {
       margin-bottom: 30%;
    }
 }
-
-
 
 #space {
   color: rgba(0, 0, 0, 0);
