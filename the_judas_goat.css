@@ -7,8 +7,9 @@ body {
   font-size: 16pt;
   line-height: 24px;
   word-break: break-all;
-/*  text-align: justify;
-  text-justify: inter-word;*/
+  hyphens: auto;
+  text-align: justify;
+  text-justify: inter-word;
 
 
 }
