@@ -17,7 +17,7 @@ body {
 
 }
 #space {
-  color: transparent;
+  color: rgba(0, 0, 0, 0);
 }
 #dropcap:first-letter {
 
