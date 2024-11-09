@@ -29,23 +29,23 @@ body {
   float: left;
   color: transparent;
 
-  max-width: 6em;
+  max-width: 10em;
   margin-right: 0.3em;
 
 }
 
-/*@media only screen and (max-width: 950px) {
-   body {
-      margin-left: 5%;
-      margin-right: 5%;
-      margin-top: 5%;
-      margin-bottom: 30%;
-   }
+@media only screen and (max-width: 950px) {
+  body {
+    margin-left: 5%;
+    margin-right: 5%;
+    margin-top: 5%;
+    margin-bottom: 30%;
+  }
 
-   #dropcap:first-letter {
+/*   #dropcap:first-letter {
 
     padding: 4.8em 0 0 4.8em;
 
-  }
-}*/
+  }*/
+}
 
