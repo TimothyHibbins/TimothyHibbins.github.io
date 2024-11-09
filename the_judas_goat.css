@@ -42,10 +42,10 @@ body {
     margin-bottom: 30%;
   }
 
-/*   #dropcap:first-letter {
+  #dropcap:first-letter {
 
-    padding: 4.8em 0 0 4.8em;
+    max-width: 7em;
 
-  }*/
+  }
 }
 
