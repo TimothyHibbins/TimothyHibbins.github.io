@@ -175,7 +175,7 @@ function setup() {
     new Molecule('Carbon Dioxide (CO2)',
     [
       new Atom(createVector(width/2 - rest_length - initial_x, height/2), createVector(0, 0), createVector(0, 0), -1),
-      new Atom(createVector(width/2, height/2), createVector(0, 0.5), createVector(0, 0), 1),
+      new Atom(createVector(width/2, height/2), createVector(0, 0.5), createVector(0, 0), 2),
       new Atom(createVector(width/2 + rest_length + initial_x, height/2), createVector(0, 0), createVector(0, 0), -1)
       
     ],
