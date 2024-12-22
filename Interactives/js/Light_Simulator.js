@@ -167,8 +167,8 @@ class Atom {
 }
 
 function setup() {
-  myCanvas2 = document.getElementById("myCanvas")
-  createCanvas(myCanvas2.offsetWidth, myCanvas2.offsetHeight, myCanvas2);
+  myCanvas = document.getElementById("p5canvas")
+  createCanvas(myCanvas.offsetWidth, myCanvas.offsetHeight, myCanvas);
   //fullscreen(true);
   
   molecules = [

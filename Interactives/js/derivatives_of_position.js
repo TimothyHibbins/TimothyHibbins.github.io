@@ -52,8 +52,6 @@ class Marker {
       return false;
     }
     
-    
-    
   }
   
 }
@@ -107,7 +105,7 @@ class Frame {
 
 function setup() {
 
-  myCanvas = document.getElementById("derivatives_of_position")
+  myCanvas = document.getElementById("p5canvas")
   createCanvas(myCanvas.offsetWidth, myCanvas.offsetHeight, myCanvas);
   
   origin = createVector(width/2, height/2);
@@ -130,7 +128,7 @@ function setup() {
 }
 
 function draw() {
-  background(255);
+  background(frameCount, 0, 0);
   // noCursor();
   
   pos_frame.draw();
