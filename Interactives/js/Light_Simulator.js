@@ -4,6 +4,8 @@ var molecules;
 
 var electric_field;
 
+var field_direction = 0;
+
 var rest_length = 150;
 
 var initial_x = 0;
@@ -113,11 +115,8 @@ class Atom {
   }
   
   render() {
-    fill(255);
-    
-    stroke(this.colour);
-    
-    strokeWeight(10);
+    fill(this.colour);
+    noStroke();
     circle(this.pos.x, this.pos.y, 100);
     
     
@@ -134,7 +133,8 @@ class Atom {
       let arrow_scale = 700;
       let arrow_head_length = 8;
       let arrow_head_base = 9;
-
+      
+      stroke(255);
       strokeWeight(3);
       line(this.pos.x, this.pos.y, this.pos.x+(x*700), this.pos.y+(y*700));
 
@@ -146,7 +146,7 @@ class Atom {
       rotate(electric_force.heading());
 
       noStroke();
-      fill(this.colour);
+      fill(255);
 
       triangle(0,arrow_head_base/2,arrow_head_length,0,0,-arrow_head_base/2);
 
@@ -169,14 +169,13 @@ class Atom {
 function setup() {
   myCanvas = document.getElementById("p5canvas")
   createCanvas(myCanvas.offsetWidth, myCanvas.offsetHeight, myCanvas);
-  //fullscreen(true);
   
   molecules = [
     new Molecule('Carbon Dioxide (CO2)',
     [
-      new Atom(createVector(width/2 - rest_length - initial_x, height/2), createVector(0, 0), createVector(0, 0), -1),
-      new Atom(createVector(width/2, height/2), createVector(0, 0.5), createVector(0, 0), 2),
-      new Atom(createVector(width/2 + rest_length + initial_x, height/2), createVector(0, 0), createVector(0, 0), -1)
+      new Atom(createVector(width/2 - rest_length - initial_x, height/2), createVector(0, -1), createVector(0, 0), -1),
+      new Atom(createVector(width/2, height/2), createVector(0, 2), createVector(0, 0), 1),
+      new Atom(createVector(width/2 + rest_length + initial_x, height/2), createVector(0, -1), createVector(0, 0), -1)
       
     ],
     [
@@ -186,9 +185,9 @@ function setup() {
     
     new Molecule('Water (H20)',
     [
-      new Atom(createVector(width/2 - 100, height/2+60), createVector(0, 1), createVector(0, 0), -1),
+      new Atom(createVector(width/2 - 100, height/2+60), createVector(0, 0), createVector(0, 0), -1),
       new Atom(createVector(width/2, height/2), createVector(0, 0), createVector(0, 0), 1),
-      new Atom(createVector(width/2 + 100, height/2+60), createVector(0, 1), createVector(0, 0), -1)
+      new Atom(createVector(width/2 + 100, height/2+60), createVector(0, 0), createVector(0, 0), -1)
       
     ],
     [
@@ -243,12 +242,30 @@ function apply_bond(atomA, atomB, bondVector) {
   
 }
 
+function mouseWheel(event) {
+  
+  
+  // If scrolling down
+  if (event.delta > 0) {
+    // Counter-clockwise
+    field_direction += TAU/36;
+  } 
+  
+  // If scrolling up
+  else {
+    // Clockwise
+    field_direction -= TAU/36;
+  }
+  // Uncomment to prevent any default behavior.
+  return false;
+}
+
 function update_electric_field() {
   f = mouseX/width;
   
   if (mouseIsPressed) {
     
-    electric_field = createVector(0.05*sin(f * frameCount), 0);
+    electric_field = createVector(0.05*sin(f * frameCount), 0).rotate(field_direction);
     
   } else {
     electric_field = createVector(0, 0);
@@ -293,5 +310,20 @@ function draw() {
   selected_molecule.apply_bonds();
   
   selected_molecule.update();
+  
+  var total_energy = 0;
+  var energies = [];
+  
+  for (var i = 0; i < selected_molecule.atoms.length; i++) {
+    
+    total_energy += selected_molecule.atoms[i].vel.mag();
+    
+  }
+  
+  strokeWeight(0);
+  fill(0);
+  text("Total energy: " + round(total_energy), 50, 50);
+  
+  circle(50, 100, total_energy*2);
   
 }
