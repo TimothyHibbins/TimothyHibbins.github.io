@@ -66,6 +66,10 @@ let g = 9.81;               // gravity (m/s^2)
 
 let track;
 
+function preload() {
+  img = loadImage("wheel.png");
+}
+
 function setup() {
   createCanvas(windowWidth, windowHeight);
 
@@ -287,18 +291,25 @@ function angleDiff(a, b) {
 
 function drawSteeringWheel(pos, angle, radius) {
 
-  strokeWeight(radius / 4);
-  noFill();
+  // strokeWeight(radius / 4);
+  // noFill();
 
   push();
   translate(pos.x, pos.y);
   rotate(angle);
 
-  circle(0, 0, radius * 2);
-  line(-radius, 0, radius, 0);
-  line(0, 0, 0, 0 + radius);
+  // circle(0, 0, radius * 2);
+  // line(-radius, 0, radius, 0);
+  // line(0, 0, 0, 0 + radius);
+  image(img, -125, -125, 250, 250);
 
   pop();
+
+
+
+}
+
+function drawSpeedometer() {
 
 
 
