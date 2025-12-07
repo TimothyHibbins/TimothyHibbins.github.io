@@ -7,7 +7,11 @@ let currentAngle;
 
 let HAND_MODE = "hand mode";
 let ARROW_MODE = "arrow mode";
-let wheelControlMode = HAND_MODE;
+let MODES = [
+  HAND_MODE,
+  ARROW_MODE
+];
+let selectedMode = 0;
 
 let steeringWheelLock;
 
@@ -66,12 +70,41 @@ let g = 9.81;               // gravity (m/s^2)
 
 let track;
 
+// gamepad buttons
+
+const R3 = 11;
+
+const DPAD_UP = 12;
+const DPAD_DOWN = 13;
+const DPAD_LEFT = 14;
+const DPAD_RIGHT = 15;
+
+const X_BUTTON = 0;
+const CIRCLE_BUTTON = 1;
+const SQUARE_BUTTON = 2;
+const TRIANGLE_BUTTON = 3;
+
+let gamepadButtonMappings;
+let prevGamepadButtonState = {};
+
 function preload() {
   img = loadImage("wheel.png");
 }
 
+
+
 function setup() {
   createCanvas(windowWidth, windowHeight);
+
+  gamepadButtonMappings = {
+    [CIRCLE_BUTTON]: () => cycleMode(),
+    // [DPAD_UP]: () => cameraFOV += radians(5),
+    // [DPAD_DOWN]: () => cameraFOV -= radians(5),
+    // [DPAD_LEFT]: () => changeSens(-1),
+    // [DPAD_RIGHT]: () => changeSens(1),
+
+    // [CIRCLE_BUTTON]: () => toggle(overlaysToDisplay, "gamepadOverlay")
+  }
 
   steeringWheelLock = TAU * 1.2; // can perform two full rotations of the wheel either way before it locks
 
@@ -135,14 +168,6 @@ function setup() {
 
   track = [
 
-
-
-
-    // new Straight(100 * M),
-    // new Turn(50 * M, radians(160), RIGHT_HANDER),
-    // new Straight(50 * M),
-    // new Turn(30 * M, TAU / 4, LEFT_HANDER),
-
     // Monaco
     new Turn(360101.02078975295, 0.07896110894552388, RIGHT_HANDER),
     new Turn(17354.878700783545, 0.5541687775400661, RIGHT_HANDER),
@@ -193,7 +218,6 @@ function setup() {
     new Turn(3344.4636286069667, 0.7302326140478155, RIGHT_HANDER),
     new Turn(53324.03530122656, 0.1762438819371315, LEFT_HANDER),
     new Turn(39512.779944379356, 0.4447317499154917, RIGHT_HANDER),
-    new Turn(13587.198973079778, 0.879139894061512, LEFT_HANDER),
 
   ];
 
@@ -252,7 +276,7 @@ function drawTrack(x, y, track) {
 
   translate(x, y)
 
-  for (let trackSegment of track) {
+  for (let [i, trackSegment] of track.entries()) {
 
     if (trackSegment.segmentType == STRAIGHT) {
 
@@ -268,10 +292,63 @@ function drawTrack(x, y, track) {
         [RIGHT_HANDER]: { start: TAU / 2, stop: TAU / 2 + trackSegment.angle },
       }
 
+      // draw red and white curbs
+      strokeWeight(M * 35);
+
+      let anglePerColourSwitch = radians(1);
+      const RED = "red";
+      const WHITE = "white";
+
+      if (i == -1) {
+
+        let currentColor = RED;
+
+        for (
+          let a = angles[trackSegment.direction].start;
+          a < angles[trackSegment.direction].stop;
+          a += trackSegment.direction * anglePerColourSwitch
+        ) {
+
+          if (currentColor == RED) {
+            stroke("#ff2121ff");
+            currentColor = WHITE;
+          } else {
+            stroke("#e7e7e7ff");
+            currentColor = RED;
+          }
+
+
+
+          arc(trackSegment.radius * trackSegment.direction, 0,
+            trackSegment.radius * 2, trackSegment.radius * 2,
+            a,
+            a + anglePerColourSwitch);
+
+
+        }
+
+      }
+
+
+
+      strokeWeight(M * 31);
+      stroke("#e5e5e5ff");
       arc(trackSegment.radius * trackSegment.direction, 0,
         trackSegment.radius * 2, trackSegment.radius * 2,
         angles[trackSegment.direction].start,
         angles[trackSegment.direction].stop);
+
+      strokeWeight(M * 30);
+      stroke("#727272ff");
+      arc(trackSegment.radius * trackSegment.direction, 0,
+        trackSegment.radius * 2, trackSegment.radius * 2,
+        angles[trackSegment.direction].start,
+        angles[trackSegment.direction].stop);
+
+
+
+
+
 
       translate(trackSegment.radius * trackSegment.direction, 0);
       rotate(trackSegment.angle * trackSegment.direction);
@@ -309,7 +386,110 @@ function drawSteeringWheel(pos, angle, radius) {
 
 }
 
-function drawSpeedometer() {
+function resetCar() {
+  car.pos.set(0, 0);
+
+  car.lateralVel = 0;
+
+  v = 0;
+
+  car.heading = radians(0);
+
+}
+
+function drawSpeedometer(x, y, diameter) {
+
+  let radius = diameter / 2;
+
+  fill("#000000ff");
+  circle(x, y, diameter);
+  fill("#646464ff");
+  circle(x, y, diameter / 10);
+
+  fill("#1cf5f9ff");
+  text("km/h", x, y + diameter / 2 - diameter / 6);
+
+  stroke("#1cf5f9ff");
+  strokeWeight(2);
+  noFill();
+  // arc(x, y, diameter * 0.8, diameter * 0.8, radians(90 + 45), radians(45));
+
+  let maxSpeed = 200;
+  let start = -135;
+  let stop = 135;
+  let angularRange = stop - start;
+  let ticks = 10;
+  let angularIncrementPerTick = angularRange / ticks;
+  let tick = 0;
+
+  for (let a = start; a <= stop; a += angularIncrementPerTick) {
+    push();
+    translate(x, y);
+    rotate(radians(a));
+    translate(0, -radius * 0.8);
+
+    line(0, 0, 0, -radius * 0.05);
+
+    translate(0, radius * 0.15)
+    rotate(-radians(a));
+    textSize(15);
+    textAlign(CENTER, CENTER);
+    noStroke();
+    fill("#1cf5f9ff");
+    text(tick / ticks * maxSpeed, 0, 0);
+
+    pop();
+
+    tick += 1;
+  }
+
+  let currentSpeed = v / M * 3600 / 1000;
+
+  push();
+  translate(x, y);
+  rotate(radians(start + (currentSpeed / maxSpeed * angularRange)));
+  fill("#ff1d1dff");
+  noStroke();
+  triangle(
+    0, -radius,
+    radius / 30, radius * 0.2,
+    -radius / 30, radius * 0.2
+  );
+  pop();
+
+
+
+
+}
+
+function cycleMode() {
+  selectedMode += 1;
+  if (selectedMode >= MODES.length) selectedMode = 0;
+}
+
+function updateGamepad() {
+  const gps = navigator.getGamepads();
+  if (!gps) return;
+
+  const gp = gps[0];
+  if (!gp) return;
+
+
+
+  gp.buttons.forEach((btn, i) => {
+    const wasPressed = prevGamepadButtonState[i] || false;
+    const isPressed = btn.pressed;
+
+    // Button was pressed this frame *but not* last frame
+    const justPressed = isPressed && !wasPressed;
+
+    if (justPressed && gamepadButtonMappings[i]) {
+      gamepadButtonMappings[i]();    // call your anonymous function
+    }
+
+    // Store for next frame
+    prevGamepadButtonState[i] = isPressed;
+  });
 
 
 
@@ -381,7 +561,7 @@ function updateSteeringAndThrottleFromInput() {
 
   }
 
-  if (wheelControlMode == HAND_MODE) {
+  if (MODES[selectedMode] == HAND_MODE) {
 
     if (currentAngle && prevAngle) {
       steeringWheelAngle += angleDiff(currentAngle, prevAngle);
@@ -397,7 +577,7 @@ function updateSteeringAndThrottleFromInput() {
 
     }
 
-  } else if (wheelControlMode == ARROW_MODE) {
+  } else if (MODES[selectedMode] == ARROW_MODE) {
 
     if (currentAngle) {
 
@@ -766,9 +946,15 @@ function updateCarFromPhysics() {
   car.pos.y += vy_world * dt;
 }
 
+function keyPressed() {
+  if (key == "r") {
+    resetCar();
+  }
+}
+
 
 function draw() {
-  background(220);
+  background("#65ff96ff");
 
 
   updateSteeringAndThrottleFromInput();
@@ -794,30 +980,30 @@ function draw() {
 
 
 
-  noStroke();
+  // noStroke();
 
-  gridUnit = M * 2;
-  for (let x = 0; x < ((width * 1.6 / zoom) / gridUnit); x++) {
-    for (let y = 0; y < ((height * 1.8 / zoom) / gridUnit); y++) {
+  // gridUnit = M * 2;
+  // for (let x = 0; x < ((width * 1.6 / zoom) / gridUnit); x++) {
+  //   for (let y = 0; y < ((height * 1.8 / zoom) / gridUnit); y++) {
 
-      let extra = 0;
+  //     let extra = 0;
 
-      // checkerboard pattern
-      if (abs(x) % 2 != abs(y) % 2) {
-        fill("#ffe2b1ff");
-        extra = 1;
-      } else {
-        fill("#ffa915ff");
-      }
+  //     // checkerboard pattern
+  //     if (abs(x) % 2 != abs(y) % 2) {
+  //       fill("#ffe2b1ff");
+  //       extra = 1;
+  //     } else {
+  //       fill("#ffa915ff");
+  //     }
 
-      rect(
-        (car.pos.x - car.pos.x % (gridUnit * 2)) - carPosOnScreen.x * 1.6 / zoom + x * gridUnit,
-        (car.pos.y - car.pos.y % (gridUnit * 2)) - carPosOnScreen.y * 1.8 / zoom + y * gridUnit,
-        gridUnit, gridUnit
-      );
+  //     rect(
+  //       (car.pos.x - car.pos.x % (gridUnit * 2)) - carPosOnScreen.x * 1.6 / zoom + x * gridUnit,
+  //       (car.pos.y - car.pos.y % (gridUnit * 2)) - carPosOnScreen.y * 1.8 / zoom + y * gridUnit,
+  //       gridUnit, gridUnit
+  //     );
 
-    }
-  }
+  //   }
+  // }
 
   fill("#FF0000");
   circle(10 * M, 10 * M, M);
@@ -866,7 +1052,7 @@ function draw() {
 
   // draw "hand"
   textAlign(CENTER);
-  if (wheelControlMode == HAND_MODE && currentAngle) {
+  if (MODES[selectedMode] == HAND_MODE && currentAngle) {
     let handPos = p5.Vector.add(steeringWheelDisplayCentre, p5.Vector.fromAngle(currentAngle).mult(steeringWheelDisplayRadius));
     fill("#ffd000ff");
     strokeWeight(1);
@@ -877,7 +1063,7 @@ function draw() {
 
   let s = steeringWheelDisplayRadius / 4;
   // draw arrow
-  if (wheelControlMode == ARROW_MODE && currentAngle) {
+  if (MODES[selectedMode] == ARROW_MODE && currentAngle) {
     fill("#22cfffff");
     strokeWeight(1);
     push();
@@ -928,13 +1114,22 @@ function draw() {
 
 
 
+  drawSpeedometer(
+    steeringWheelDisplayCentre.x + steeringWheelDisplayRadius * 3.3,
+    steeringWheelDisplayCentre.y,
+    steeringWheelRadius * 3
+  );
+
+
+
+
   fill(255);
   stroke(0);
-  strokeWeight(2);
+  strokeWeight(0);
   textSize(20);
   textAlign(CENTER, CENTER);
   text(round(degrees(steeringWheelAngle), 1) + "°", steeringWheelDisplayCentre.x, steeringWheelDisplayCentre.y);
-  fill("#00FFFF");
+  fill("#000000ff");
   text(round(v / M * 3600 / 1000) + " km/h", steeringWheelDisplayCentre.x, steeringWheelDisplayCentre.y + 50);
 
   // if (sliding) {
@@ -952,11 +1147,19 @@ function draw() {
     text(`FPS: ${round(frameRate())}`, 25, 25);
   }
 
+  textAlign(LEFT);
+  text("zoom: " + round(zoom, 1) + " ×", 25, 50);
+
   textAlign(RIGHT);
-  text("zoom: " + zoom + "×", width - 25, 25);
+  text(
+    `Controls:
+R to reset car
+Circle to change wheel control mode
 
+Wheel Control Mode:
+${MODES[selectedMode]}`, width - 25, 50);
 
-
+  updateGamepad();
 
 
 
