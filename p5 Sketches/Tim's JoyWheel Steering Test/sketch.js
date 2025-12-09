@@ -1199,14 +1199,14 @@ function draw() {
   textSize(20);
   textAlign(CENTER, CENTER);
   text(round(degrees(steeringWheelAngle), 1) + "°", steeringWheelDisplayCentre.x, steeringWheelDisplayCentre.y);
-  fill("#000000ff");
-  text(round(v / M * 3600 / 1000) + " km/h", steeringWheelDisplayCentre.x, steeringWheelDisplayCentre.y + 50);
 
   // if (sliding) {
   //   text("sliding " + car.lateralVel, carPosOnScreen.x, carPosOnScreen.y + 75);
   // }
 
-  stroke(0);
+  // stroke(0);
+  noStroke();
+  fill("#000000ff")
   textSize(25);
   strokeWeight(1.5);
   textAlign(LEFT, TOP);
