@@ -104,20 +104,20 @@ let selectedMode = 1;
 
 
 // keys
-const FORWARD_KEY  = 87; // W
+const FORWARD_KEY = 87; // W
 const BACKWARD_KEY = 83; // S
-const LEFT_KEY     = 65; // A
-const RIGHT_KEY    = 68; // D
+const LEFT_KEY = 65; // A
+const RIGHT_KEY = 68; // D
 
 
 // gamepad buttons
 
 const R3 = 11;
 
-const DPAD_UP      =  12;
-const DPAD_DOWN    =  13;
-const DPAD_LEFT    =  14;
-const DPAD_RIGHT   =  15;
+const DPAD_UP = 12;
+const DPAD_DOWN = 13;
+const DPAD_LEFT = 14;
+const DPAD_RIGHT = 15;
 
 const X_BUTTON = 0;
 const CIRCLE_BUTTON = 1;
@@ -165,21 +165,21 @@ let lastFrameTime;
 let dt;
 
 function preload() {
-  
+
   img = loadImage('citrus_orchard_road_puresky.jpg');
-  
+
   inconsolata = loadFont("Inconsolata-VariableFont_wdth,wght.ttf");
-  
+
 }
 
 function setup() {
-  
-  
-  
-  
+
+
+
+
   c = createCanvas(windowWidth, windowHeight, WEBGL);
   c.id("worldCanvas");
-  
+
   // create HUD canvas
   hud = new p5((s) => {
     s.setup = () => {
@@ -187,55 +187,55 @@ function setup() {
       h.id("hudCanvas");
       s.clear();
     };
-    s.draw = () => {}; // we draw manually below
+    s.draw = () => { }; // we draw manually below
   });
-  
-  
+
+
   aspect = width / height;
-  
+
   let desiredHorizontalFOV = radians(90);
   cameraFOV = desiredHorizontalFOV / aspect;
-  
-  
+
+
   near = 0.1;
   far = 10000;
   perspective(cameraFOV, aspect, near, far);
-  
+
   radius = 50//50 / tan(cameraFOV/2);
-  
+
   worldUp = createVector(0, 1, 0);
   north = createVector(cos(player.pitch) * sin(player.yaw),
     sin(player.pitch),
     -cos(player.pitch) * cos(player.yaw)
   );
   east = north.copy();
-  east = rotateVectorAroundAxis(east, worldUp, TAU/4);
-  
+  east = rotateVectorAroundAxis(east, worldUp, TAU / 4);
+
   up = worldUp.copy(); // world up
-  
+
   cam = createCamera();
-  
+
   textFont(inconsolata);
   textSize(26);
   textAlign(CENTER);
-  
+
   lastFrameTime = millis();
   dt = 0;
-  
+
   player.position = createVector(0, 0, 0); // feet at ground
   moveInput = createVector(0, 0, 0);
-  
+
   zero = createVector(0, 0);
-  
+
   rsSmoothed = createVector(0, 0);
-  
-  
-  
+
+
+
   sens = {
 
-    [MOUSE]: {x: 0.5, y: 0.5, increment: 0.05},
-    [REGULAR]: {x: 0.1, y: 0.1, increment: 0.01},
-    [TIMSTICK]: {x: cameraFOV*aspect/2, y: cameraFOV/2, increment: radians(10)},
+    [MOUSE]: { x: 0.5, y: 0.5, increment: 0.05 },
+    [REGULAR]: { x: 0.1, y: 0.1, increment: 0.01 },
+    [TIMSTICK]: { x: cameraFOV * aspect / 2, y: cameraFOV / 2, increment: radians(10) },
 
   }
 
@@ -251,18 +251,18 @@ function setup() {
       cursor();
     }
   });
-  
+
   currentNeutral = createVector(0, 0);
-  
-  
-  
+
+
+
   gamepadButtonMappings = {
     [R3]: () => cycleMode(),
     [DPAD_UP]: () => cameraFOV += radians(5),
     [DPAD_DOWN]: () => cameraFOV -= radians(5),
     [DPAD_LEFT]: () => changeSens(-1),
     [DPAD_RIGHT]: () => changeSens(1),
-    
+
     [CIRCLE_BUTTON]: () => toggle(overlaysToDisplay, "gamepadOverlay")
   }
 
@@ -273,30 +273,30 @@ function toggle(obj, key) {
 }
 
 function changeSens(amt) {
-  
+
   sens[MODES[selectedMode]].x += amt * sens[MODES[selectedMode]].increment;
   sens[MODES[selectedMode]].y += amt * sens[MODES[selectedMode]].increment;
-  
+
 }
 
 function cycleMode() {
   selectedMode += 1;
   if (selectedMode >= MODES.length) selectedMode = 0;
-  
+
   zero.x = player.yaw;
   zero.y = player.pitch;
 }
 
 function windowResized() {
   oldHeight = height;
-  
+
   resizeCanvas(windowWidth, windowHeight);
-  
+
   aspect = width / height;
   cameraFOV *= height / oldHeight;
   sens[TIMSTICK].y = cameraFOV / 2;
   sens[TIMSTICK].x = sens[TIMSTICK].y * aspect;
-  
+
   hud.resizeCanvas(windowWidth, windowHeight);
 }
 
@@ -407,30 +407,30 @@ function updateCameraFromInput() {
   let gamepads = navigator.getGamepads();
   if (gamepads[0]) {
     let gp = gamepads[0];
-    
+
     rs = createVector(gp.axes[2], gp.axes[3]);
-    
-    
+
+
     // forcibly circularise input
     // if (rs.mag() > 1) {
     //   rs.normalize();
     // }
 
-    
+
     if (MODES[selectedMode] == REGULAR) {
       const rsDeadzone = 0.05;
-    
+
       // Right stick camera
-      if (abs(rs.x) > rsDeadzone) player.yaw += (rs.x-rsDeadzone) * (sens[REGULAR].x*(1+rsDeadzone));
-      if (abs(rs.y) > rsDeadzone) player.pitch += (rs.y-rsDeadzone) * (sens[REGULAR].y*(1+rsDeadzone));
-      
+      if (abs(rs.x) > rsDeadzone) player.yaw += (rs.x - rsDeadzone) * (sens[REGULAR].x * (1 + rsDeadzone));
+      if (abs(rs.y) > rsDeadzone) player.pitch += (rs.y - rsDeadzone) * (sens[REGULAR].y * (1 + rsDeadzone));
+
     } else if (MODES[selectedMode] == TIMSTICK) {
-      
+
       if (prevRSX == false || prevRSY == false) {
-        
+
         prevRSX = rs.x;
         prevRSY = rs.y;
-        
+
       }
 
       let inwardsVec = createVector(-rs.x, -rs.y);
@@ -443,61 +443,61 @@ function updateCameraFromInput() {
       if (inwardsVec.mag() < prevInwardsVec.mag() * 0.8) {
         snappingBack = true;
         console.log(snappingBack);
-        
-        
-        
+
+
+
         smoothRx = 0;
         smoothRy = 0;
-        
+
       } else if (snappingBack == true) {
-        
-        
+
+
         // if stick has stopped moving
         if (rs.x == prevRSX || rs.y == prevRSY) {
-          
+
           snappingBack = false;
-          
+
           zero.x = player.yaw;
           zero.y = player.pitch;
           currentNeutral = rs.copy();
-          
-        
-//         console.log(currentNeutral);
+
+
+          //         console.log(currentNeutral);
         }
-        
+
         // exponential smoothing
         rsSmoothed.x = rs.x;
         rsSmoothed.y = rs.y;
-        
-        
+
+
       } else {
-        
-        
-        
+
+
+
         if (flickstickActive) {
-          
+
           player.yaw = flickstickStartingYaw + (rs.heading() - flickstickStartingStickHeading);
           console.log("flickstick active");
-          
+
         } else {
-          
+
           player.yaw = zero.x + (rsSmoothed.x - currentNeutral.x) * sens[TIMSTICK].x;
-          
+
           // console.log(zero.x, rsSmoothed.x, currentNeutral.x);
 
           player.pitch = zero.y + (rsSmoothed.y - currentNeutral.y) * sens[TIMSTICK].y;
-          
+
         }
-        
+
         // if stick in edge activation ring
         if (rs.mag() > 0.95) {
-          
+
           if (!flickstickActive) {
             flickstickActive = true;
             flickstickStartingYaw = player.yaw;
             flickstickStartingStickHeading = rs.heading();
           }
-          
+
         } else {
           if (flickstickActive) {
             flickstickActive = false;
@@ -506,24 +506,24 @@ function updateCameraFromInput() {
             currentNeutral.x = 0;
             currentNeutral.y = 0;
           }
-          
+
         }
-        
+
       }
-      
+
 
 
       prevInwardsVec = inwardsVec;
 
       prevRSX = rs.x;
       prevRSY = rs.y;
-      
+
       // exponential smoothing
       rsSmoothed.x = rsSmoothed.x + (rs.x - rsSmoothed.x) * smoothing;
       rsSmoothed.y = rsSmoothed.y + (rs.y - rsSmoothed.y) * smoothing;
-      
+
     }
-    
+
 
   }
 
@@ -540,7 +540,7 @@ function rotateMoveVector(localVec, yaw) {
 }
 
 // ========== GAMEPAD ==========
-function updateGamepad() {
+function runButtonChecks() {
   const gps = navigator.getGamepads();
   if (!gps) return;
 
@@ -566,9 +566,9 @@ function updateGamepad() {
 
   // BUTTON 0: jump
   if (gp.buttons[0].pressed) tryJump();
-  
-  
-  
+
+
+
   gp.buttons.forEach((btn, i) => {
     const wasPressed = prevGamepadButtonState[i] || false;
     const isPressed = btn.pressed;
@@ -583,9 +583,9 @@ function updateGamepad() {
     // Store for next frame
     prevGamepadButtonState[i] = isPressed;
   });
-  
-  
-  
+
+
+
 }
 
 
@@ -614,14 +614,14 @@ function resolveHorizontal(pos) {
     let topY = b.topY();
     if (pos.y >= topY) continue;
 
-    let closestX = constrain(px, b.position.x - b.boxWidth/2, b.position.x + b.boxWidth/2);
-    let closestZ = constrain(pz, b.position.z - b.boxDepth/2, b.position.z + b.boxDepth/2);
+    let closestX = constrain(px, b.position.x - b.boxWidth / 2, b.position.x + b.boxWidth / 2);
+    let closestZ = constrain(pz, b.position.z - b.boxDepth / 2, b.position.z + b.boxDepth / 2);
 
     let dx = px - closestX;
     let dz = pz - closestZ;
-    let distSq = dx*dx + dz*dz;
+    let distSq = dx * dx + dz * dz;
 
-    if (distSq < PLAYER_RADIUS*PLAYER_RADIUS - 0.001) {
+    if (distSq < PLAYER_RADIUS * PLAYER_RADIUS - 0.001) {
       let distP = sqrt(distSq);
       let nx = distP > 0.001 ? dx / distP : 1;
       let nz = distP > 0.001 ? dz / distP : 0;
@@ -637,14 +637,14 @@ function resolveHorizontal(pos) {
 function checkLanding(prevY, pos) {
   for (let b of boxes) {
     let topY = b.topY();
-    let closestX = constrain(pos.x, b.position.x - b.boxWidth/2, b.position.x + b.boxWidth/2);
-    let closestZ = constrain(pos.z, b.position.z - b.boxDepth/2, b.position.z + b.boxDepth/2);
+    let closestX = constrain(pos.x, b.position.x - b.boxWidth / 2, b.position.x + b.boxWidth / 2);
+    let closestZ = constrain(pos.z, b.position.z - b.boxDepth / 2, b.position.z + b.boxDepth / 2);
 
     let dx = pos.x - closestX;
     let dz = pos.z - closestZ;
-    let distSq = dx*dx + dz*dz;
+    let distSq = dx * dx + dz * dz;
 
-    if (distSq <= PLAYER_RADIUS*PLAYER_RADIUS) {
+    if (distSq <= PLAYER_RADIUS * PLAYER_RADIUS) {
       if (prevY <= topY && pos.y >= topY) return topY;
     }
   }
@@ -658,7 +658,7 @@ function checkStanding(pos, eps) {
     let closest = b.closestPointXZ(pos.x, pos.z);
     let dx = pos.x - closest.x;
     let dz = pos.z - closest.z; // fixed: use .z for Z coordinate
-    let distSq = dx*dx + dz*dz;
+    let distSq = dx * dx + dz * dz;
     if (distSq <= PLAYER_RADIUS * PLAYER_RADIUS) {
       let top = b.topY();
       if (pos.y >= top - eps && pos.y <= top + eps) return true;
@@ -670,14 +670,14 @@ function checkStanding(pos, eps) {
 // ========== PLAYER UPDATE ==========
 function updatePlayer() {
   // Gamepad input first
-  updateGamepad();
+  runButtonChecks();
 
   // WASD keyboard input
   getMoveInput();
 
   let horizMove = moveInput.mag() > 0
-      ? rotateMoveVector(moveInput, player.yaw).mult(speed)
-      : createVector(0,0,0);
+    ? rotateMoveVector(moveInput, player.yaw).mult(speed)
+    : createVector(0, 0, 0);
 
   let desired = player.position.copy().add(horizMove);
 
@@ -704,35 +704,35 @@ function updatePlayer() {
 
 // ========== DRAW ==========
 function draw() {
-  
+
   let now = millis();
   dt = (now - lastFrameTime) / 1000; // dt in seconds
   // console.log(dt);
   lastFrameTime = now;
-  
+
   panorama(img);
   imageLight(img);
 
   getMoveInput();                // moveInput is updated
   updatePlayer();            // apply movement + collision
-  
+
   updateCameraFromInput();   // update yaw/pitch from mouse + right stick
-  
+
 
   forward = createVector(
     cos(player.pitch) * sin(player.yaw),
     sin(player.pitch),
     -cos(player.pitch) * cos(player.yaw)
   );
-  
+
   right = createVector(sin(player.yaw - HALF_PI), 0, -cos(player.yaw - HALF_PI));
-  
+
   camPos = createVector(
     player.position.x,
     player.position.y + player.cameraHeight,
     player.position.z
   )
-  
+
   lookAtPoint = p5.Vector.add(camPos, forward);
 
   camera(
@@ -747,7 +747,7 @@ function draw() {
 
 
   push();
-  translate(0, GROUND_Y-50, 0);
+  translate(0, GROUND_Y - 50, 0);
   specularMaterial("#FFFFFF");
   metalness(50);
   shininess(75);
@@ -756,13 +756,13 @@ function draw() {
   pop();
 
   for (let b of boxes) b.draw();
-  
-  
-  
-    
+
+
+
+
   perspective(cameraFOV, aspect, near, far);
-  
-  
+
+
   drawHUD();
   drawHUDGlobe();
   strokeWeight(0.1);
@@ -783,86 +783,86 @@ function draw() {
 // Drawing mapping of analog stick on screen
 //
 function drawInputRangeOverlay() {
-  
+
   stroke("#FF5722");
-  
+
   let rxOffset = 0;
   let ryOffset = 0;
-  
+
   if (MODES[selectedMode] == TIMSTICK) {
     rxOffset = -rsSmoothed.x * sens[TIMSTICK].x;
     ryOffset = -rsSmoothed.y * sens[TIMSTICK].y;
   }
-    
-  drawAngularGlobeRing(sens[TIMSTICK].x*TRUE_MAX_STICK_INPUT, sens[TIMSTICK].y*TRUE_MAX_STICK_INPUT, rxOffset, ryOffset, sens[TIMSTICK].x, sens[TIMSTICK].y);
+
+  drawAngularGlobeRing(sens[TIMSTICK].x * TRUE_MAX_STICK_INPUT, sens[TIMSTICK].y * TRUE_MAX_STICK_INPUT, rxOffset, ryOffset, sens[TIMSTICK].x, sens[TIMSTICK].y);
 
   // mag 1
   drawAngularGlobeRing(sens[TIMSTICK].x, sens[TIMSTICK].y, rxOffset, ryOffset);
 
   // mag 0.5
   let stickMag = 0.5;
-  drawAngularGlobeRing(sens[TIMSTICK].x*stickMag, sens[TIMSTICK].y*stickMag, rxOffset, ryOffset);
+  drawAngularGlobeRing(sens[TIMSTICK].x * stickMag, sens[TIMSTICK].y * stickMag, rxOffset, ryOffset);
 
 
-  
+
   // horizontal
   drawLinearYawPitchCurve(
     rxOffset - sens[TIMSTICK].x,
     ryOffset,
     rxOffset + sens[TIMSTICK].x,
     ryOffset);
-  
+
   // vertical
   drawLinearYawPitchCurve(
     rxOffset,
     ryOffset - sens[TIMSTICK].y,
     rxOffset,
     ryOffset + sens[TIMSTICK].y);
-  
+
   // SW -> NE
   drawLinearYawPitchCurve(
-    rxOffset + sens[TIMSTICK].x*TRUE_MAX_STICK_INPUT * cos(TAU*3/8),
-    ryOffset + sens[TIMSTICK].y*TRUE_MAX_STICK_INPUT * sin(TAU*3/8),
-    rxOffset + sens[TIMSTICK].x*TRUE_MAX_STICK_INPUT * cos(TAU*7/8),
-    ryOffset + sens[TIMSTICK].y*TRUE_MAX_STICK_INPUT * sin(TAU*7/8)
+    rxOffset + sens[TIMSTICK].x * TRUE_MAX_STICK_INPUT * cos(TAU * 3 / 8),
+    ryOffset + sens[TIMSTICK].y * TRUE_MAX_STICK_INPUT * sin(TAU * 3 / 8),
+    rxOffset + sens[TIMSTICK].x * TRUE_MAX_STICK_INPUT * cos(TAU * 7 / 8),
+    ryOffset + sens[TIMSTICK].y * TRUE_MAX_STICK_INPUT * sin(TAU * 7 / 8)
   );
-  
+
   // NW -> SE
   drawLinearYawPitchCurve(
-    rxOffset + sens[TIMSTICK].x*TRUE_MAX_STICK_INPUT * cos(TAU*1/8),
-    ryOffset + sens[TIMSTICK].y*TRUE_MAX_STICK_INPUT * sin(TAU*1/8),
-    rxOffset + sens[TIMSTICK].x*TRUE_MAX_STICK_INPUT * cos(TAU*5/8),
-    ryOffset + sens[TIMSTICK].y*TRUE_MAX_STICK_INPUT * sin(TAU*5/8)
+    rxOffset + sens[TIMSTICK].x * TRUE_MAX_STICK_INPUT * cos(TAU * 1 / 8),
+    ryOffset + sens[TIMSTICK].y * TRUE_MAX_STICK_INPUT * sin(TAU * 1 / 8),
+    rxOffset + sens[TIMSTICK].x * TRUE_MAX_STICK_INPUT * cos(TAU * 5 / 8),
+    ryOffset + sens[TIMSTICK].y * TRUE_MAX_STICK_INPUT * sin(TAU * 5 / 8)
   );
 
   strokeWeight(0.5);
-  
+
   if (MODES[selectedMode] == TIMSTICK) {
     drawLinearYawPitchCurve(0, 0, rxOffset, ryOffset);
   } else if (MODES[selectedMode] == REGULAR) {
     drawLinearYawPitchCurve(0, 0, rs.x * sens[TIMSTICK].x, rs.y * sens[TIMSTICK].y);
   }
-  
-  
-  
+
+
+
 }
 
 
 
 
 function drawHUD() {
-  
-  
+
+
   // draw HUD
   hud.clear();
-  
+
   hud.noStroke();
   hud.fill(255);
 
   hud.textSize(20);
   hud.textFont(inconsolata)
   hud.text(
-`HUD Overlay
+    `HUD Overlay
 Framerate ${round(frameRate())}
 Vertical FOV: ${round(degrees(cameraFOV))}°
 Timstick Sens: ${sens[TIMSTICK].x, sens[TIMSTICK].y}
@@ -874,69 +874,69 @@ Mag: ${dist(0, 0, rsSmoothed.x, rsSmoothed.y)}`, 20, 40);
   // screen centre
   let cx = hud.width / 2;
   let cy = hud.height / 2;
-  
-//   // crosshair
-//   let crosshairSize = 10;
-//   hud.stroke("#0BF100");
-//   hud.strokeWeight(2);
-  
-//   hud.line(cx - crosshairSize, cy, cx + crosshairSize, cy);
-//   hud.line(cx, cy - crosshairSize, cx, cy + crosshairSize);
-  
+
+  //   // crosshair
+  //   let crosshairSize = 10;
+  //   hud.stroke("#0BF100");
+  //   hud.strokeWeight(2);
+
+  //   hud.line(cx - crosshairSize, cy, cx + crosshairSize, cy);
+  //   hud.line(cx, cy - crosshairSize, cx, cy + crosshairSize);
+
 }
 
 
 
 
-function positionFromPitchAndYaw(pitch, yaw, absolute=false) {
+function positionFromPitchAndYaw(pitch, yaw, absolute = false) {
   let dir;
-  
+
   if (absolute) {
     dir = north.copy();
-    
+
     dir = rotateVectorAroundAxis(dir, east, pitch);
     dir = rotateVectorAroundAxis(dir, worldUp, yaw);
   } else {
-    
+
     dir = forward.copy();
-    
+
     dir = rotateVectorAroundAxis(dir, right, pitch);
     dir = rotateVectorAroundAxis(dir, up, yaw);
-    
+
   }
-  
+
   dir.normalize();
-  
+
   return createVector(dir.x * radius, dir.y * radius, dir.z * radius);
-  
+
 }
 
 
 
-function vertexFromPitchAndYaw(pitch, yaw, absolute=false) {
+function vertexFromPitchAndYaw(pitch, yaw, absolute = false) {
   let dir;
-  
+
   if (absolute) {
     dir = north.copy();
-    
+
     dir = rotateVectorAroundAxis(dir, east, pitch);
     dir = rotateVectorAroundAxis(dir, worldUp, yaw);
   } else {
-    
+
     dir = forward.copy();
-    
+
     dir = rotateVectorAroundAxis(dir, right, pitch);
     dir = rotateVectorAroundAxis(dir, up, yaw);
-    
+
   }
-  
+
   dir.normalize();
-  
+
   vertex(dir.x * radius, dir.y * radius, dir.z * radius);
-  
+
 }
 
-function drawAngularGlobeRing(yawTheta, pitchTheta=yawTheta, yawOffset=0, pitchOffset=0, yawClampAngle=false, pitchClampAngle=false, steps = 64) {
+function drawAngularGlobeRing(yawTheta, pitchTheta = yawTheta, yawOffset = 0, pitchOffset = 0, yawClampAngle = false, pitchClampAngle = false, steps = 64) {
   push();
   translate(camPos.x, camPos.y, camPos.z);
 
@@ -946,15 +946,15 @@ function drawAngularGlobeRing(yawTheta, pitchTheta=yawTheta, yawOffset=0, pitchO
     let alpha = map(i, 0, steps, 0, TAU); // radial direction angle
     let dYaw = yawTheta * cos(alpha);
     let dPitch = pitchTheta * sin(alpha);
-    
+
     if (yawClampAngle) {
       dYaw = constrain(dYaw, -yawClampAngle, yawClampAngle);
       dPitch = constrain(dPitch, -pitchClampAngle, pitchClampAngle);
     }
-    
+
     dYaw += yawOffset;
     dPitch += pitchOffset;
-    
+
     vertexFromPitchAndYaw(dPitch, dYaw);
   }
   endShape(CLOSE);
@@ -965,7 +965,7 @@ function drawAngularGlobeRing(yawTheta, pitchTheta=yawTheta, yawOffset=0, pitchO
 // Draw a spherical curve where yaw and pitch each interpolate linearly.
 // yawA, pitchA, yawB, pitchB are angular OFFSETS (radians) relative to current crosshair.
 // steps = number of segments, radius = visual radius from head.
-function drawLinearYawPitchCurve(yawA, pitchA, yawB, pitchB, absolute=false, steps = 64) {
+function drawLinearYawPitchCurve(yawA, pitchA, yawB, pitchB, absolute = false, steps = 64) {
   push();
 
   // center at camera/head
@@ -976,7 +976,7 @@ function drawLinearYawPitchCurve(yawA, pitchA, yawB, pitchB, absolute=false, ste
 
   beginShape();
   for (let i = 0; i <= steps; i++) {
-    
+
     let yawOffset = map(i, 0, steps, yawA, yawB);
     let pitchOffset = map(i, 0, steps, pitchA, pitchB);
 
@@ -988,72 +988,72 @@ function drawLinearYawPitchCurve(yawA, pitchA, yawB, pitchB, absolute=false, ste
 }
 
 function convertYawToBearing() {
-  
+
   let yaw = player.yaw;
-  
+
   while (yaw < 0) {
     yaw += TAU;
   }
-  
+
   return round(degrees(yaw % TAU))
 }
 
 function drawHUDGlobe() {
 
   const steps = 36;
-  const maxPitchAngle = TAU/4;
-  const maxYawAngle = TAU/2;
-  
-//   push();
-//   translate(worldPos.x, worldPos.y, worldPos.z);
-  
-//   strokeWeight(10);
-//   point();
-  
-//   pop();
-  
+  const maxPitchAngle = TAU / 4;
+  const maxYawAngle = TAU / 2;
+
+  //   push();
+  //   translate(worldPos.x, worldPos.y, worldPos.z);
+
+  //   strokeWeight(10);
+  //   point();
+
+  //   pop();
+
   let pitchColor = color("#FF9119");
   let yawColor = color("#17E438");
-  
-  
-  
+
+
+
   billboardText(
-    `${convertYawToBearing()}°`, 
+    `${convertYawToBearing()}°`,
     camPos.copy().add(forward.copy().mult(radius)),
-    {alignY: TOP, alignX: LEFT, strokeColor: 0, strokeWeightVal: 0.3, fillColor: yawColor}
+    { alignY: TOP, alignX: LEFT, strokeColor: 0, strokeWeightVal: 0.3, fillColor: yawColor }
   );
-  
+
   billboardText(
-    `${round(degrees(player.pitch))}°`, 
+    `${round(degrees(player.pitch))}°`,
     camPos.copy().add(forward.copy().mult(radius)),
-    {alignY: BOTTOM, alignX: LEFT, strokeColor: 0, strokeWeightVal: 0.3, fillColor: pitchColor}
+    { alignY: BOTTOM, alignX: LEFT, strokeColor: 0, strokeWeightVal: 0.3, fillColor: pitchColor }
   );
 
   strokeWeight(0.1);
   stroke(red(yawColor), green(yawColor), blue(yawColor), 200);
-  
+
   drawLinearYawPitchCurve(-maxYawAngle, 0, maxYawAngle, 0);
-  
-  
+
+
   stroke(red(pitchColor), green(pitchColor), blue(pitchColor), 200);
   drawLinearYawPitchCurve(0, -maxPitchAngle, 0, maxPitchAngle);
-  
-  
-  
-  // Latitude lines (fixed relative to horizon)
-//   for (let i = -steps; i <= steps; i++) {
-//     let pitchOffset = map(i, -steps, steps, -maxPitchAngle, maxPitchAngle);
-    
-//     drawLinearYawPitchCurve(-maxYawAngle, pitchOffset, maxYawAngle, pitchOffset, true);
-//   }
 
-//   // Longitude lines (constant yaw relative to camera)
-//   for (let i = -steps; i <= steps; i++) {
-//     let yawOffset = map(i, -steps, steps, -maxYawAngle, maxYawAngle);
-    
-//     drawLinearYawPitchCurve(yawOffset, -maxPitchAngle, yawOffset, maxPitchAngle, true);
-//   }
-  
+
+
+  // Latitude lines (fixed relative to horizon)
+  //   for (let i = -steps; i <= steps; i++) {
+  //     let pitchOffset = map(i, -steps, steps, -maxPitchAngle, maxPitchAngle);
+
+  //     drawLinearYawPitchCurve(-maxYawAngle, pitchOffset, maxYawAngle, pitchOffset, true);
+  //   }
+
+  //   // Longitude lines (constant yaw relative to camera)
+  //   for (let i = -steps; i <= steps; i++) {
+  //     let yawOffset = map(i, -steps, steps, -maxYawAngle, maxYawAngle);
+
+  //     drawLinearYawPitchCurve(yawOffset, -maxPitchAngle, yawOffset, maxPitchAngle, true);
+  //   }
+
 }
 
 // Convert a 3D world position (p5.Vector) to 2D screen coordinates
@@ -1145,11 +1145,11 @@ function rotateVectorAroundAxis(vec, axis, angle) {
 }
 
 function mouseWheel(event) {
-  
-  cameraFOV += radians( 0.1 * Math.floor(event.delta/30) );
-  
+
+  cameraFOV += radians(0.1 * Math.floor(event.delta / 30));
+
   perspective(cameraFOV, aspect, near, far);
-  
+
 }
 
 function doubleClicked() {

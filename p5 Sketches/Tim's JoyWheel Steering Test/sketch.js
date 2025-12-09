@@ -5,13 +5,15 @@ let steeringWheelAngle = 0;
 let handGripLevel = 0; // between 0 and 1
 let currentAngle;
 
+let NORMAL_MODE = "normal mode";
 let HAND_MODE = "hand mode";
 let ARROW_MODE = "arrow mode";
 let MODES = [
+  NORMAL_MODE,
   HAND_MODE,
   ARROW_MODE
 ];
-let selectedMode = 0;
+let selectedMode = 1;
 
 let steeringWheelLock;
 
@@ -87,6 +89,19 @@ const TRIANGLE_BUTTON = 3;
 let gamepadButtonMappings;
 let prevGamepadButtonState = {};
 
+
+let keyMappings = {};
+let prevKeyStates = {};
+
+let prevMouseClicked = false;
+let handGripping = false;
+
+let P_key = "p";
+let M_key = 77;
+let W_key = 87;
+let S_key = 83;
+let R_key = 82;
+
 function preload() {
   img = loadImage("wheel.png");
 }
@@ -104,6 +119,11 @@ function setup() {
     // [DPAD_RIGHT]: () => changeSens(1),
 
     // [CIRCLE_BUTTON]: () => toggle(overlaysToDisplay, "gamepadOverlay")
+  }
+
+  keyMappings = {
+    [M_key]: () => cycleMode(),
+    [R_key]: () => resetCar(),
   }
 
   steeringWheelLock = TAU * 1.2; // can perform two full rotations of the wheel either way before it locks
@@ -467,7 +487,26 @@ function cycleMode() {
   if (selectedMode >= MODES.length) selectedMode = 0;
 }
 
-function updateGamepad() {
+function runButtonChecks() {
+
+  Object.keys(keyMappings).forEach((keyNo) => {
+
+    const wasPressed = prevGamepadButtonState[keyNo] || false;
+    const isPressed = keyIsDown(keyNo);
+
+    // Button was pressed this frame *but not* last frame
+    const justPressed = isPressed && !wasPressed;
+
+    if (justPressed && keyMappings[keyNo]) {
+      keyMappings[keyNo]();    // call your anonymous function
+    }
+
+    // Store for next frame
+    prevGamepadButtonState[keyNo] = isPressed;
+
+  });
+
+
   const gps = navigator.getGamepads();
   if (!gps) return;
 
@@ -547,16 +586,54 @@ function updateSteeringAndThrottleFromInput() {
     prevLS = ls.copy();
 
 
-  } else if (mouseIsPressed) {
+  } else {
 
-    if (justStarted) {
-      justStarted = false;
+    if (!handGripping) {
+
+      if (mouseIsPressed && !prevMouseClicked) {
+
+        justStarted = true;
+        handGripping = true;
+
+      }
+
     } else {
-      currentAngle = createVector(mouseX - steeringWheelDisplayCentre.x, mouseY - steeringWheelDisplayCentre.y).heading();
 
-      prevAngle = createVector(pmouseX - steeringWheelDisplayCentre.x, pmouseY - steeringWheelDisplayCentre.y).heading();
+      if (mouseIsPressed && !prevMouseClicked) {
+
+        handGripping = false;
+        justStarted = false;
+
+      }
+
+    }
+
+    if (handGripping) {
+
+      if (justStarted) {
+        justStarted = false;
+      } else {
+        currentAngle = createVector(mouseX - steeringWheelDisplayCentre.x, mouseY - steeringWheelDisplayCentre.y).heading();
+
+        prevAngle = createVector(pmouseX - steeringWheelDisplayCentre.x, pmouseY - steeringWheelDisplayCentre.y).heading();
 
 
+      }
+
+    }
+
+    prevMouseClicked = mouseIsPressed;
+
+    if (keyIsDown(W_key)) {
+      throttle = 1;
+    } else {
+      throttle = 0;
+    }
+
+    if (keyIsDown(S_key)) {
+      brake = 1;
+    } else {
+      brake = 0;
     }
 
   }
@@ -946,13 +1023,6 @@ function updateCarFromPhysics() {
   car.pos.y += vy_world * dt;
 }
 
-function keyPressed() {
-  if (key == "r") {
-    resetCar();
-  }
-}
-
-
 function draw() {
   background("#65ff96ff");
 
@@ -1159,7 +1229,7 @@ Circle to change wheel control mode
 Wheel Control Mode:
 ${MODES[selectedMode]}`, width - 25, 50);
 
-  updateGamepad();
+  runButtonChecks();
 
 
 
