@@ -538,9 +538,25 @@ function setup() {
 
 
   coordinatesVisible = { [FLAG]: false };
+  fullscreenMode = { [FLAG]: false };
   buttons = [
 
-    new Button(boardX + boardSidelength + margin * 2, height - margin - spacing / 2, spacing * 3, spacing / 2, "Visible Coordinates", coordinatesVisible)
+    new Button(
+      boardX + boardSidelength + margin * 2,
+      height - margin - spacing / 2,
+      spacing * 3,
+      spacing / 2,
+      "Visible Coordinates", coordinatesVisible
+    ),
+
+    new Button(
+      boardX + boardSidelength + margin * 2,
+      height - margin - spacing / 2 - spacing / 2,
+      spacing * 3,
+      spacing / 2,
+      "Fullscreen", fullscreenMode
+    )
+
 
   ];
 
@@ -563,7 +579,7 @@ function playNote(freq, delayMs) {
 
 class Button {
 
-  constructor(x, y, w, h, txt, toggleVariable) {
+  constructor(x, y, w, h, txt, toggleVariable = false) {
 
     this.x = x;
     this.y = y;
@@ -591,6 +607,8 @@ class Button {
   }
 
   draw() {
+
+    fullscreen(fullscreenMode[FLAG]);
 
 
     let word;
@@ -2131,7 +2149,7 @@ function drawBoard() {
   strokeWeight(1);
 
   fill("#FFFFFF");
-  rect(0, 0, boardEdge + spacing * 7 + boardEdge, boardEdge + spacing * 7 + boardEdge, boardCornerRadius);
+  // rect(0, 0, boardEdge + spacing * 7 + boardEdge, boardEdge + spacing * 7 + boardEdge, boardCornerRadius);
 
   // drawPlayerToMove();
 

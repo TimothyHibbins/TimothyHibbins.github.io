@@ -1,3 +1,40 @@
+/*
+
+
+Features to add:
+- fullscreen
+- disable scrolling
+
+- force arrows
+
+- camera zooms out in order to cover braking distance
+
+- toggleable visual guides for:
+  - stopping distance 
+  - turning circle
+  - turning circles beyond grip level at velocity
+
+- curbs
+
+- lap timing
+
+- ghost
+
+- rewind
+
+- persistent tire marks
+
+
+
+Bugs to fix:
+- make track connect
+
+
+
+*/
+
+
+
 let M = 75; // pixels per metre
 
 
