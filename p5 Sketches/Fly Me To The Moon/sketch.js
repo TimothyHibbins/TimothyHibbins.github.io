@@ -662,7 +662,7 @@ class Ship {
         // If it has passed a certain length of time and we are more or less back where we started, then we have completed an orbit and can end the projection
 
         console.log(initialMoonT, i);
-        angle = abs(p5.Vector.angleBetween(
+        let angle = abs(p5.Vector.angleBetween(
           this.posHistory[initialMoonT].copy().sub(initialMoonPos),
           this.posHistory[i].copy().sub(moonPos)
         ))
@@ -1016,8 +1016,9 @@ function mouseWheel(event) {
   return false;
 }
 
-function mouseClicked() {
-  controlMode == MOUSE;
+function mousePressed() {
+
+  controlMode = MOUSE;
 }
 
 function keyPressed(event) {
