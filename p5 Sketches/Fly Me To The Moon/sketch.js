@@ -2,6 +2,7 @@
 
 Bugs to fix:
 - peripasis apoapsis flickering
+- moon crash glitch
 
 
 Feature to-do list:
@@ -46,6 +47,10 @@ Finished features:
 
 */
 
+const KEYS = 'keys';
+const MOUSE = 'mouse'
+let controlMode = KEYS;
+
 let cameraMode;
 
 let rollingFrameRateAverage;
@@ -78,6 +83,7 @@ let closestBody = 0;
 let camera;
 
 let moonOrbit = [];
+let moonHillSphereRadius;
 
 let gravitationalFieldHistory = [];
 
@@ -122,6 +128,17 @@ function setup() {
 
   // // hypot
   gridSize = round(Math.sqrt(width * width + height * height));
+
+  let a = p5.Vector.dist(bodies[0].pos, bodies[1].pos);
+  let m1 = bodies[0].mass;
+  let m2 = bodies[1].mass;
+  moonHillSphereRadius = a * Math.cbrt(m2 / 3 * (m1 + m2));
+
+}
+
+function generateGravitationalFieldBuffer() {
+
+  return;
 
   // // Precompute the field into an offscreen buffer
   // fieldBuffer = createGraphics(gridSize, gridSize);
@@ -256,6 +273,7 @@ class Ship {
 
     this.trajectoryType = false;
     this.shipOrbitingMoon = false;
+    this.shipOrbitingMoonEndOfFirstOrbit = false;
 
   }
 
@@ -390,8 +408,10 @@ class Ship {
 
         stroke("#d8ff58ff");
 
-        let posRelativeToMoon = p5.Vector.sub(this.posHistory[PT], moonOrbit[PT % moonOrbit.length]);
-        point(bodies[1].pos.x + posRelativeToMoon.x, bodies[1].pos.y + posRelativeToMoon.y);
+        if (this.shipOrbitingMoon && PT < this.shipOrbitingMoonEndOfFirstOrbit) {
+          let posRelativeToMoon = p5.Vector.sub(this.posHistory[PT], moonOrbit[PT % moonOrbit.length]);
+          point(bodies[1].pos.x + posRelativeToMoon.x, bodies[1].pos.y + posRelativeToMoon.y);
+        }
       }
 
       // if (this.shipOrbitingMoon) {
@@ -469,9 +489,9 @@ class Ship {
     drawArrow(this.posHistory[T], accArrowEndpoint);
 
     //earth grav
-    // stroke(earthColor);
+    stroke(earthColor);
     let earthGravArrowEndpoint = pos.copy().add(bodies[0].getGravitationalAcceleration(pos).mult(accArrowScale));
-    // drawArrow(this.posHistory[T], earthGravArrowEndpoint);
+    drawArrow(this.posHistory[T], earthGravArrowEndpoint);
 
     stroke(moonColor);
     let moonGravArrowEndpoint = pos.copy().add(bodies[1].getGravitationalAcceleration(pos, moonPos).mult(accArrowScale));
@@ -483,8 +503,8 @@ class Ship {
 
     stroke("#fff");
     drawArrow(velArrowEndpoint, p5.Vector.add(accArrowEndpoint, this.velHistory[T].copy().mult(200)));
-    // stroke(earthColor);
-    // drawArrow(velArrowEndpoint, p5.Vector.add(earthGravArrowEndpoint, this.velHistory[T].copy().mult(200)));
+    stroke(earthColor);
+    drawArrow(velArrowEndpoint, p5.Vector.add(earthGravArrowEndpoint, this.velHistory[T].copy().mult(200)));
     stroke(moonColor);
     drawArrow(velArrowEndpoint, p5.Vector.add(moonGravArrowEndpoint, this.velHistory[T].copy().mult(200)));
 
@@ -548,6 +568,7 @@ class Ship {
       // camera.maxX = ship.pos.x;
 
       this.shipOrbitingMoon = false;
+      this.shipOrbitingMoonEndOfFirstOrbit = false;
 
 
       this.boostingHistory[T] = true;
@@ -578,10 +599,26 @@ class Ship {
     // Trajectory Projection
     //
 
-    let i;
+    this.shipOrbitingMoon = false;
+    this.shipOrbitingMoonEndOfFirstOrbit = false;
+
+    let initialMoonT = false;
+    let initialMoonPos = false;
+
+    for (let i = T; i < this.posHistory.length; i++) {
+
+      let moonPos = moonOrbit[i % moonOrbit.length];
+
+      if (initialMoonT == false && this.posHistory[i].dist(moonPos) < moonHillSphereRadius) {
+        initialMoonT = i;
+        initialMoonPos = moonPos.copy();
+        break;
+      }
+
+    }
 
     outer:
-    for (i = this.posHistory.length; (i - T < moonOrbit.length) && !(this.trajectoryType == 'Collision Course'); i++) {
+    for (let i = this.posHistory.length; (i - T < moonOrbit.length) && !(this.trajectoryType == 'Collision Course'); i++) {
 
       this.posHistory.push(this.posHistory[i - 1].copy());
       this.velHistory.push(this.velHistory[i - 1].copy());
@@ -598,6 +635,12 @@ class Ship {
 
       this.posHistory[i].add(this.velHistory[i]);
 
+
+      if (initialMoonT == false && this.posHistory[i].dist(moonPos) < moonHillSphereRadius) {
+        initialMoonT = i;
+        initialMoonPos = moonPos.copy();
+      }
+
       // trajectory detection
 
       if (i - T > 50) {
@@ -613,11 +656,21 @@ class Ship {
           break outer;
         }
 
-        // if (p5.Vector.dist(initialPosRelativeToMoon, projectionPosRelativeToMoon) < 5) {
-        //   this.shipOrbitingMoon = true;
-        //   console.log("moon orbit achieved");
-        // }
+      }
 
+      if (initialMoonT != false && !this.shipOrbitingMoon && i - initialMoonT > 25) {
+        // If it has passed a certain length of time and we are more or less back where we started, then we have completed an orbit and can end the projection
+
+        console.log(initialMoonT, i);
+        angle = abs(p5.Vector.angleBetween(
+          this.posHistory[initialMoonT].copy().sub(initialMoonPos),
+          this.posHistory[i].copy().sub(moonPos)
+        ))
+        if (angle <= TAU / 360) {
+          this.shipOrbitingMoon = true;
+          this.shipOrbitingMoonEndOfFirstOrbit = i;
+
+        }
       }
 
       for (let body of bodies) {
@@ -630,7 +683,14 @@ class Ship {
           break outer;
         }
       }
+
+
     }
+
+    // if (initialMoonT) {
+    //   console.log(initialMoonT);
+    // }
+
 
   }
 
@@ -705,27 +765,39 @@ class Ship {
 
   update() {
 
-    let cursorPos = camera.screenToWorld(mouseX, mouseY);
-
-    cursorPos.sub(this.posHistory[T]);
-
-    // line(this.pos.x, this.pos.y, this.pos.x+(this.orientation.x*10), this.pos.y+(this.orientation.y*10))
-    // console.log(this.orientation.heading());
-
-    let angle = p5.Vector.angleBetween(this.orientationHistory[T], cursorPos);
 
     let turnVel = TAU / 100;
     let amt = false;
 
-    if (abs(angle) > turnVel) {
-      if (angle > 0) {
-        amt = turnVel;
-      } else if (angle < 0) {
-        amt = -turnVel;
+    if (controlMode == MOUSE) {
+      let cursorPos = camera.screenToWorld(mouseX, mouseY);
+
+      cursorPos.sub(this.posHistory[T]);
+
+      // line(this.pos.x, this.pos.y, this.pos.x+(this.orientation.x*10), this.pos.y+(this.orientation.y*10))
+      // console.log(this.orientation.heading());
+
+      let angle = p5.Vector.angleBetween(this.orientationHistory[T], cursorPos);
+
+      if (abs(angle) > turnVel) {
+        if (angle > 0) {
+          amt = turnVel;
+        } else if (angle < 0) {
+          amt = -turnVel;
+        }
       }
+    } else if (controlMode == KEYS) {
+
+      if (keyIsDown(LEFT_ARROW)) {
+        amt = -turnVel / 2;
+      } else if (keyIsDown(RIGHT_ARROW)) {
+        amt = turnVel / 2;
+      }
+
     }
 
-    this.projectTrajectory(mouseIsPressed, amt);
+
+    this.projectTrajectory((mouseIsPressed || (keyIsDown(UP_ARROW))), amt);
 
   }
 }
@@ -944,7 +1016,17 @@ function mouseWheel(event) {
   return false;
 }
 
+function mouseClicked() {
+  controlMode == MOUSE;
+}
+
 function keyPressed(event) {
+
+  if (keyCode == LEFT_ARROW || keyCode == RIGHT_ARROW || keyCode == UP_ARROW) {
+    controlMode = KEYS;
+
+  }
+
   if (key == 'p' & !crashedOut) {
     paused = !paused; // toggles
   }
@@ -987,15 +1069,9 @@ function draw() {
 
   }
 
-  let a = p5.Vector.dist(bodies[0].pos, bodies[1].pos);
-  let m1 = bodies[0].mass;
-  let m2 = bodies[1].mass;
-
   // draw hill sphere boundary
-  let R = a * Math.cbrt(m2 / 3 * (m1 + m2));
-
   noFill();
-  circle(bodies[1].pos.x, bodies[1].pos.y, R * 2);
+  circle(bodies[1].pos.x, bodies[1].pos.y, moonHillSphereRadius * 2);
 
 
   bodies[1].pos = moonOrbit[T % moonOrbit.length].copy();
@@ -1027,11 +1103,12 @@ function draw() {
   offset = ship.length / 2;
 
   if (crashedOut) {
+    noStroke();
     textAlign(RIGHT, TOP);
     text("You have crashed.", ship.posHistory[T].x - offset, ship.posHistory[T].y + offset);
   }
 
-  if (mouseIsPressed) {
+  if (mouseIsPressed || keyIsDown(UP_ARROW)) {
     launched = true;
   }
 
