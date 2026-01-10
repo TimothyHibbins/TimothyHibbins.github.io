@@ -1,9 +1,17 @@
 /*
 
+Fixed bugs:
+- false 'orbit' depicted when it should be collission course when setting low velocity
+  - something wrong with collision detection in projectTrajectory
+    - nope this is actually caused by it detecting an orbit because the angle hasn't changed after 50 frames
+- orbital extension glitch
+
+
 Bugs to fix:
 - peripasis apoapsis flickering
-- orbital extension glitch
 - showing trajectory relative to moon even outside of hillsphere when trajectory type is collission and there doesn't appear to be a complete moon orbit
+- orbit not updating to collision course without boost
+
 
 
 Feature to-do list:
@@ -16,9 +24,6 @@ Feature to-do list:
 
 - quick launch
 
-- instantaneous impulse control
-  - show projection for how orbit will *shift* as you boost
-
 - dynamic camera
 
 - reset button
@@ -30,6 +35,8 @@ Feature to-do list:
 
 - live framerate visualiser diagnostic
 
+- bubble appearance for hill sphere
+
 
 Finished features:
 - prebake lunar movement
@@ -40,6 +47,8 @@ Finished features:
 - show velocity and gravitational force vectors
 - add orbital velocity when launching from the moon + relative velocity when calculating crash
 - visualise gravity
+- instantaneous impulse control
+  - show projection for how orbit will *shift* as you boost
 
 */
 
@@ -97,13 +106,21 @@ let exhaustPlumeLengthRandomCycle = [];
 
 
 let accArrowScale = 40000;
+let velArrowScale = 100;
 
 
 let gravFieldImg;
+let polarImg;
 
 let stars = [];
 
 let instantaneousMode = false;
+
+let framerateHistory = [];
+let dt;
+let lastFrameTime;
+
+let frameDT;
 
 function setup() {
 
@@ -128,6 +145,8 @@ function setup() {
   rollingFrameRateAverage = frameRate();
 
   gravFieldImg = loadImage("gravitationalField.png");
+  polarImg = loadImage("polar.png");
+
 
   // // hypot
   gridSize = round(Math.sqrt(width * width + height * height));
@@ -156,75 +175,166 @@ function setup() {
     exhaustPlumeLengthRandomCycle.push(random(0.9, 1.1));
   }
 
+  lastFrameTime = millis();
+  dt = 0;
+
+}
+
+
+function drawFramerateHistory(x, y) {
+
+  let xScale = 150;
+  let yScale = 1;
+
+  let duration = 2;
+
+  noStroke();
+  fill(255);
+
+  let i = 0;
+  let w = (duration * xScale)
+
+  for (let frame of framerateHistory) {
+
+    // if (frameCount % 2 == 0) {
+    //   if (i % 2 == 0) {
+    //     fill(200);
+    //   } else {
+    //     fill(255);
+    //   }
+    // } else {
+    //   if (i % 2 == 0) {
+    //     fill(255);
+    //   } else {
+    //     fill(200);
+    //   }
+    // }
+
+    if (w < x) {
+      framerateHistory.splice(i + 1);
+    }
+
+    rect(x + w, y + (yScale / 1 / 60), (frame.dt) * xScale, -(yScale / frame.dt));
+    w -= (frame.dt * xScale);
+    i++;
+
+  }
+}
+
+function generatePolarCoordinateImage() {
+
+  polarBuffer = createGraphics(180, gridSize);
+  polarBuffer.loadPixels();
+
+  for (let theta = 0; theta < 180; theta++) {
+
+    for (let alt = 0; alt < gridSize; alt++) {
+
+      let pos = p5.Vector.fromAngle(-TAU / 4 + radians(theta));
+      pos.setMag(alt);
+
+      let earthGrav = bodies[0].getGravitationalAcceleration(pos);
+      let moonGrav = bodies[1].getGravitationalAcceleration(pos, moonOrbit[0 % moonOrbit.length]);
+      let netGrav = p5.Vector.add(earthGrav, moonGrav);
+
+      let mix = lerpColor(earthColor, moonColor, moonGrav.mag() / netGrav.mag());
+
+      let gMax = 0.007;
+      let gMin = 0.00005; // small value to avoid log(0)
+
+      let g = netGrav.mag(); // your per-pixel g
+
+      // Linearize using log2
+      let normalized = (Math.log10(g + gMin) - Math.log10(gMin)) /
+        (Math.log10(gMax) - Math.log10(gMin));
+
+      // Clamp to 0–1
+      normalized = constrain(normalized, 0, 1);
+
+      // surface grav = 0.005
+
+      let idx = 4 * (theta + alt * 180);
+
+      polarBuffer.pixels[idx] = red(mix);
+      polarBuffer.pixels[idx + 1] = green(mix);
+      polarBuffer.pixels[idx + 2] = blue(mix);
+
+      polarBuffer.pixels[idx + 3] = normalized * 255;
+
+    }
+
+  }
+
+  polarBuffer.updatePixels();
+  save(polarBuffer, 'png');
+
 }
 
 function generateGravitationalFieldBuffer() {
 
-  return;
+  // Precompute the field into an offscreen buffer
+  fieldBuffer = createGraphics(gridSize, gridSize);
+  fieldBuffer.loadPixels();
 
-  // // Precompute the field into an offscreen buffer
-  // fieldBuffer = createGraphics(gridSize, gridSize);
-  // fieldBuffer.loadPixels();
+  for (let y = 0; y < gridSize; y++) {
+    for (let x = 0; x < gridSize / 2 + 1; x++) {
+      let gravAtPoint = {
+        pos: createVector(x - gridSize / 2, y - gridSize / 2),
+        earthGrav: false,
+        moonGrav: false,
+        netGrav: false
+      };
 
-  // for (let y = 0; y < gridSize; y++) {
-  //   for (let x = 0; x < gridSize / 2 + 1; x++) {
-  //     let gravAtPoint = {
-  //       pos: createVector(x - gridSize / 2, y - gridSize / 2),
-  //       earthGrav: false,
-  //       moonGrav: false,
-  //       netGrav: false
-  //     };
+      gravAtPoint.earthGrav = bodies[0].getGravitationalAcceleration(gravAtPoint.pos);
+      gravAtPoint.moonGrav = bodies[1].getGravitationalAcceleration(gravAtPoint.pos);
+      gravAtPoint.netGrav = p5.Vector.add(gravAtPoint.earthGrav, gravAtPoint.moonGrav);
 
-  //     gravAtPoint.earthGrav = bodies[0].getGravitationalAcceleration(gravAtPoint.pos);
-  //     gravAtPoint.moonGrav = bodies[1].getGravitationalAcceleration(gravAtPoint.pos);
-  //     gravAtPoint.netGrav = p5.Vector.add(gravAtPoint.earthGrav, gravAtPoint.moonGrav);
+      let mix = lerpColor(earthColor, moonColor, gravAtPoint.moonGrav.mag() / gravAtPoint.netGrav.mag());
 
-  //     let mix = lerpColor(earthColor, moonColor, gravAtPoint.moonGrav.mag() / gravAtPoint.netGrav.mag());
+      let idx = 4 * (x + y * gridSize);
 
-  //     let idx = 4 * (x + y * gridSize);
+      // Encode as grayscale (or color map)
+      fieldBuffer.pixels[idx] = red(mix);
+      fieldBuffer.pixels[idx + 1] = green(mix);
+      fieldBuffer.pixels[idx + 2] = blue(mix);
 
-  //     // Encode as grayscale (or color map)
-  //     fieldBuffer.pixels[idx] = red(mix);
-  //     fieldBuffer.pixels[idx + 1] = green(mix);
-  //     fieldBuffer.pixels[idx + 2] = blue(mix);
+      let gMax = 0.007;
+      let gMin = 0.00005; // small value to avoid log(0)
 
-  //     let gMax = 0.007;
-  //     let gMin = 0.00005; // small value to avoid log(0)
+      let g = gravAtPoint.netGrav.mag(); // your per-pixel g
 
-  //     let g = gravAtPoint.netGrav.mag(); // your per-pixel g
+      // Linearize using log2
+      let normalized = (Math.log10(g + gMin) - Math.log10(gMin)) /
+        (Math.log10(gMax) - Math.log10(gMin));
 
-  //     // Linearize using log2
-  //     let normalized = (Math.log10(g + gMin) - Math.log10(gMin)) /
-  //       (Math.log10(gMax) - Math.log10(gMin));
+      // Clamp to 0–1
+      normalized = constrain(normalized, 0, 1);
 
-  //     // Clamp to 0–1
-  //     normalized = constrain(normalized, 0, 1);
+      fieldBuffer.pixels[idx + 3] = normalized * 255;
 
-  //     fieldBuffer.pixels[idx + 3] = normalized * 255;
+      // surface grav = 0.005
+    }
+  }
 
-  //     // surface grav = 0.005
-  //   }
-  // }
+  // mirror
+  for (let y = 0; y < gridSize; y++) {
+    for (let x = 0; x < gridSize / 2; x++) {
 
-  // // mirror
-  // for (let y = 0; y < gridSize; y++) {
-  //   for (let x = 0; x < gridSize / 2; x++) {
+      let mirrorIdx = 4 * ((gridSize / 2 - x) + y * gridSize)
 
-  //     let mirrorIdx = 4 * ((gridSize / 2 - x) + y * gridSize)
+      let idx = 4 * ((gridSize / 2 + x) + y * gridSize);
 
-  //     let idx = 4 * ((gridSize / 2 + x) + y * gridSize);
+      fieldBuffer.pixels[idx] = fieldBuffer.pixels[mirrorIdx];
+      fieldBuffer.pixels[idx + 1] = fieldBuffer.pixels[mirrorIdx + 1];
+      fieldBuffer.pixels[idx + 2] = fieldBuffer.pixels[mirrorIdx + 2];
+      fieldBuffer.pixels[idx + 3] = fieldBuffer.pixels[mirrorIdx + 3];
 
-  //     fieldBuffer.pixels[idx] = fieldBuffer.pixels[mirrorIdx];
-  //     fieldBuffer.pixels[idx + 1] = fieldBuffer.pixels[mirrorIdx + 1];
-  //     fieldBuffer.pixels[idx + 2] = fieldBuffer.pixels[mirrorIdx + 2];
-  //     fieldBuffer.pixels[idx + 3] = fieldBuffer.pixels[mirrorIdx + 3];
+    }
+  }
 
-  //   }
-  // }
+  fieldBuffer.updatePixels();
 
-  // fieldBuffer.updatePixels();
-
-  // save(fieldBuffer, 'png');
+  save(fieldBuffer, 'png');
 
 }
 
@@ -269,13 +379,6 @@ function generateMoonOrbit() {
 
 }
 
-
-class Projection {
-  constructor(pos, vel) {
-    this.pos = pos;
-    this.vel = vel;
-  }
-}
 
 class Ship {
   constructor(startingPos, l) {
@@ -431,8 +534,12 @@ class Ship {
       //   point(this.posHistory[PT].x, this.posHistory[PT].y);
       // }
       if (PT > T) {
-        stroke(lineColor);
+        stroke(red(lineColor), green(lineColor), blue(lineColor), 50);
         point(this.posHistory[PT].x, this.posHistory[PT].y);
+
+        if (PT % 50 == 0) {
+          drawArrow(this.posHistory[PT], p5.Vector.add(this.posHistory[PT], this.velHistory[PT].copy().mult(velArrowScale)));
+        }
 
         stroke("#d8ff58ff");
 
@@ -470,11 +577,11 @@ class Ship {
         pos.x + offset, pos.y - offset);
 
       text(
-        "Periapsis: " + round(this.periapsis_alt) + "px",
+        "Periapsis: " + round(this.periapsisAlt) + "px",
         this.periapsis.x + offset, this.periapsis.y + offset);
 
       text(
-        "Apoapsis: " + round(this.apoapsis_alt) + "px",
+        "Apoapsis: " + round(this.apoapsisAlt) + "px",
         this.apoapsis.x + offset, this.apoapsis.y + offset);
 
       // periapsis
@@ -517,7 +624,7 @@ class Ship {
     let moonPos = moonOrbit[T % moonOrbit.length];
 
     let arrowsFromShip = false;
-    let arrowsFromVel = true;
+    let arrowsFromVel = false;
 
 
     let accArrowEndpoint = this.accHistory[T].copy().mult(accArrowScale);
@@ -527,7 +634,7 @@ class Ship {
 
     let boostForceArrow = accArrowEndpoint.copy().sub(p5.Vector.add(earthGravArrowEndpoint, moonGravArrowEndpoint));
 
-    let velArrowEndpoint = this.velHistory[T].copy().mult(200);
+    let velArrowEndpoint = this.velHistory[T].copy().mult(velArrowScale);
 
     // Draw force arrows from ship
 
@@ -646,18 +753,12 @@ class Ship {
       // camera.minX = this.posHistory[T].x;
       // camera.maxX = this.posHistory[T].x;
 
-      this.periapsis_alt = 1000000;
-      // for (let b = 0; b < bodies.length; b++) {
-      //   let distToBody = this.pos.dist(bodies[b].pos) - bodies[b].radius;
-      //   if (distToBody < this.periapsis_alt) {
-      //     this.periapsis_alt = distToBody;
-      //     closest_body = b;
-      //   }
 
-      // }
+      this.periapsis = this.posHistory[T].copy();
+      this.periapsisAlt = bodies[0].getAltitude(this.periapsis);
 
       this.apoapsis = this.posHistory[T].copy();
-      this.apoapsis_alt = 0;
+      this.apoapsisAlt = bodies[0].getAltitude(this.apoapsis);
 
 
     }
@@ -672,7 +773,18 @@ class Ship {
     let initialMoonT = false;
     let initialMoonPos = false;
 
+    let cumulativeAngularChangeAroundEarth = 0;
+    let cumulativeAngularChangeAroundMoon = 0;
+
     for (let i = T; i < this.posHistory.length; i++) {
+
+      if (i > 0) {
+        cumulativeAngularChangeAroundEarth += p5.Vector.angleBetween(
+          this.posHistory[i].copy().sub(bodies[0].pos),
+          this.posHistory[i - 1].copy().sub(bodies[0].pos)
+        );
+      }
+
 
       let moonPos = moonOrbit[i % moonOrbit.length];
 
@@ -682,20 +794,18 @@ class Ship {
         // console.log("past " + initialMoonT);
       }
 
-      if (initialMoonT != false && !this.shipOrbitingMoon && i - initialMoonT > 25) {
+      if (initialMoonT != false && !this.shipOrbitingMoon) {
         // If it has passed a certain length of time and we are more or less back where we started, then we have completed an orbit and can end the projection
 
+        cumulativeAngularChangeAroundMoon += p5.Vector.angleBetween(
+          this.posHistory[i].copy().sub(bodies[1].pos),
+          this.posHistory[i - 1].copy().sub(bodies[1].pos)
+        );
 
-        let angle = abs(p5.Vector.angleBetween(
-          this.posHistory[initialMoonT].copy().sub(initialMoonPos),
-          this.posHistory[i].copy().sub(moonPos)
-        ));
-        // console.log(initialMoonT, i, degrees(angle));
-        if (angle <= TAU / 360) {
+        if (abs(cumulativeAngularChangeAroundMoon) >= TAU) {
           this.shipOrbitingMoon = true;
           this.shipOrbitingMoonEndOfFirstOrbit = i;
 
-        } else {
         }
       }
 
@@ -725,6 +835,18 @@ class Ship {
       this.posHistory[i].add(this.velHistory[i]);
 
 
+
+      cumulativeAngularChangeAroundEarth += p5.Vector.angleBetween(
+        this.posHistory[i].copy().sub(bodies[0].pos),
+        this.posHistory[i - 1].copy().sub(bodies[0].pos)
+      );
+
+      if (abs(cumulativeAngularChangeAroundEarth) > TAU) {
+        this.trajectoryType = 'Orbit';
+        break outer;
+      }
+
+
       if (initialMoonT == false && this.posHistory[i].dist(moonPos) < moonHillSphereRadius) {
         initialMoonT = i;
         initialMoonPos = moonPos.copy();
@@ -733,36 +855,35 @@ class Ship {
 
       // trajectory detection
 
-      if (i - T > 50) {
+      // if (i - T > 50) {
 
-        // If it has passed a certain length of time and we are more or less back where we started, then we have completed an orbit and can end the projection
-        if (
-          abs(p5.Vector.angleBetween(
-            this.posHistory[T].copy().sub(bodies[0].pos),
-            this.posHistory[i].copy().sub(bodies[0].pos)
-          ))
-          <= TAU / 360) {
-          this.trajectoryType = 'Orbit';
-          break outer;
-        }
+      //   // If it has passed a certain length of time and we are more or less back where we started, then we have completed an orbit and can end the projection
+      //   if (
+      //     abs(p5.Vector.angleBetween(
+      //       this.posHistory[T].copy().sub(bodies[0].pos),
+      //       this.posHistory[i].copy().sub(bodies[0].pos)
+      //     ))
+      //     <= TAU / 360) {
+      //     this.trajectoryType = 'Orbit';
+      //     break outer;
+      //   }
 
-      }
+      // }
 
       if (initialMoonT != false && !this.shipOrbitingMoon && i - initialMoonT > 25) {
         // If it has passed a certain length of time and we are more or less back where we started, then we have completed an orbit and can end the projection
 
+        cumulativeAngularChangeAroundMoon += p5.Vector.angleBetween(
+          this.posHistory[i].copy().sub(bodies[1].pos),
+          this.posHistory[i - 1].copy().sub(bodies[1].pos)
+        );
 
-        let angle = abs(p5.Vector.angleBetween(
-          this.posHistory[initialMoonT].copy().sub(initialMoonPos),
-          this.posHistory[i].copy().sub(moonPos)
-        ));
-        // console.log(initialMoonT, i, degrees(angle));
-        if (angle <= TAU / 360) {
+        if (abs(cumulativeAngularChangeAroundMoon) >= TAU) {
           this.shipOrbitingMoon = true;
           this.shipOrbitingMoonEndOfFirstOrbit = i;
 
-        } else {
         }
+
       }
 
       for (let [b, body] of bodies.entries()) {
@@ -774,20 +895,16 @@ class Ship {
         } else {
           alt = body.getAltitude(this.posHistory[i]);
 
-          if (i > 5) {
 
-            if (alt < this.periapsis_alt) {
-              this.periapsis = this.posHistory[i].copy();
-              this.periapsis_alt = alt;
-            } else if (alt > this.apoapsis_alt) {
-              this.apoapsis = this.posHistory[i].copy();
-              this.apoapsis_alt = alt;
-            }
-
+          if (alt < this.periapsisAlt) {
+            this.periapsis = this.posHistory[i].copy();
+            this.periapsisAlt = alt;
+          } else if (alt > this.apoapsisAlt) {
+            this.apoapsis = this.posHistory[i].copy();
+            this.apoapsisAlt = alt;
           }
-        }
 
-        // wrong moon pos
+        }
 
         if (alt < this.length / 2) {
           this.trajectoryType = 'Collision Course';
@@ -1204,9 +1321,9 @@ function drawFrame() {
 
   ship.draw();
 
-  strokeWeight(5);
-  stroke("#fff");
-  point(ship.apoapsis.x, ship.apoapsis.y);
+  // strokeWeight(5);
+  // stroke("#fff");
+  // point(ship.apoapsis.x, ship.apoapsis.y);
 
   for (let i = 0; i < particles.length; i++) {
     particles[i].draw();
@@ -1378,10 +1495,91 @@ function draw() {
   // screenspace HUD
 
 
+  // fill('#ffffff');
+  // noStroke();
+  // textFont("menlo");
+  // let tString = "T = " + round(T / 100, 1) + " hectoframes since launch\nHistory: " + round(ship.posHistory.length / 100, 1) + "\nFPS: " + round(rollingFrameRateAverage, 0);
+  // if (paused) {
+  //   tString += " (PAUSED)";
+  // }
+  // if (instantaneousMode) {
+  //   tString += " (INSTANTANEOUS MODE)";
+  // }
+  // textAlign(LEFT, TOP);
+  // text(tString, 30, 30);
+
+
+  let now = millis();
+  dt = (now - lastFrameTime) / 1000; // dt in seconds
+  // console.log(dt);
+  lastFrameTime = now;
+
+  // framerateHistory.unshift({ rate: frameRate(), dt: dt });
+
+  // drawFramerateHistory(10, 140);
+
+  drawTimeline();
+
+
+}
+
+function timelineMask() {
+  let h = height / 10;
+  // fill(0);
+  noStroke();
+  rect(0, height - h, width, h);
+}
+
+function drawTimeline() {
+
+  push();
+  clip(timelineMask);
+
+  let h = height / 10;
+  fill(0);
+  rect(0, height - h, width, h);
+
+  framesPerPixel = 5;
+
+  for (let PT = 0; PT < ship.posHistory.length; PT += framesPerPixel) {
+
+    let x = width / 2 + (PT - (T - (T % framesPerPixel))) / framesPerPixel;
+
+    relativePos = ship.posHistory[PT].copy().sub(bodies[0].pos);
+    moonPosRelativeToEarth = moonOrbit[PT % moonOrbit.length].copy().sub(bodies[0].pos);
+
+    theta = abs(p5.Vector.angleBetween(relativePos, moonPosRelativeToEarth));
+
+
+    push();
+    translate(x, height);
+    scale(1, -1);
+
+    image(polarImg, 0, 0, 1, h, 0, 0, round(degrees(theta)), round(ship.apoapsisAlt + 50));
+
+    pop();
+
+
+    stroke(rocketColor);
+    point(x, height - (h * 9 / 10 * bodies[0].getAltitude(ship.posHistory[PT]) / (ship.apoapsisAlt + 50)));
+
+
+  }
+
+  fill(0, 0, 0, 100);
+  noStroke();
+  rect(0, height - h, width, h / 10);
+
+  noFill();
+  let x = width / 2;
+  stroke("#ffffffff");
+  strokeWeight(1);
+  line(x, height - h * 9 / 10, x, height);
+
   fill('#ffffff');
   noStroke();
   textFont("menlo");
-  let tString = "T = " + round(T / 100, 1) + " hectoframes since launch\nHistory: " + round(ship.posHistory.length / 100, 1) + "\nFPS: " + round(rollingFrameRateAverage, 0);
+  let tString = "T = " + round(T / 100, 1) + " hf";
   if (paused) {
     tString += " (PAUSED)";
   }
@@ -1389,7 +1587,8 @@ function draw() {
     tString += " (INSTANTANEOUS MODE)";
   }
   textAlign(LEFT, TOP);
-  text(tString, 30, 30);
+  text(tString, x, height - h);
 
+  pop();
 
 }
