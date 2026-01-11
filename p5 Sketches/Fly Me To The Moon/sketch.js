@@ -14,6 +14,8 @@ Bugs to fix:
 
 
 
+- arrow behind ship?
+
 Feature to-do list:
 - orbital description HUD
   - elliptical:
@@ -1310,8 +1312,8 @@ function drawFrame() {
 
 
   bodies[1].pos = moonOrbit[T % moonOrbit.length].copy();
-  for (let b = 0; b < bodies.length; b++) {
-    bodies[b].draw();
+  for (let body of bodies) {
+    body.draw();
   }
 
   stroke("#fff");
@@ -1541,6 +1543,9 @@ function drawTimeline() {
 
   framesPerPixel = 5;
 
+  sliceMinAlt = 0;
+  sliceMaxAlt = floor(bodies[0].radius + ship.apoapsisAlt + 100);
+
   for (let PT = 0; PT < ship.posHistory.length; PT += framesPerPixel) {
 
     let x = width / 2 + (PT - (T - (T % framesPerPixel))) / framesPerPixel;
@@ -1555,13 +1560,24 @@ function drawTimeline() {
     translate(x, height);
     scale(1, -1);
 
-    image(polarImg, 0, 0, 1, h, 0, 0, round(degrees(theta)), round(ship.apoapsisAlt + 50));
+    //image(img, dx, dy, dWidth, dHeight, sx, sy, [sWidth], [sHeight], [fit], [xAlign], [yAlign])
+
+    image(
+      polarImg, // img
+      0, 0, // dx, dy
+      1, h, //dWidth, dHeight
+      floor(degrees(theta)), 0, // sx, sy
+      1, sliceMaxAlt // sWidth, sHeight
+    );
 
     pop();
+    stroke(bodies[0].bColor);
+
+    line(x, height - (h * bodies[0].radius / sliceMaxAlt), x, height);
 
 
     stroke(rocketColor);
-    point(x, height - (h * 9 / 10 * bodies[0].getAltitude(ship.posHistory[PT]) / (ship.apoapsisAlt + 50)));
+    point(x, height - (h * 9 / 10 * p5.Vector.dist(bodies[0].pos, ship.posHistory[PT]) / sliceMaxAlt));
 
 
   }
