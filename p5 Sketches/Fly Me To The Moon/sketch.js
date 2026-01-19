@@ -128,7 +128,6 @@ function setup() {
 
   pixelDensity(1);
   createCanvas(windowWidth, windowHeight);
-  // fullscreen(true);
 
   rocketColor = color("#ff00b3ff");
   earthColor = color("#00ffffff");
@@ -527,7 +526,8 @@ class Ship {
 
     strokeWeight(1);
 
-    let lineColor = rocketColor;
+    let lineColor = color("#ff57fcd6");
+    let frameSkip = 5;
 
     for (let PT = 0; PT < this.posHistory.length; PT++) {
 
@@ -535,20 +535,72 @@ class Ship {
       //   stroke("#36f725ff");
       //   point(this.posHistory[PT].x, this.posHistory[PT].y);
       // }
+
+
       if (PT > T) {
-        stroke(red(lineColor), green(lineColor), blue(lineColor), 50);
-        point(this.posHistory[PT].x, this.posHistory[PT].y);
-
-        if (PT % 50 == 0) {
-          drawArrow(this.posHistory[PT], p5.Vector.add(this.posHistory[PT], this.velHistory[PT].copy().mult(velArrowScale)));
-        }
-
-        stroke("#d8ff58ff");
 
         let posRelativeToMoon = p5.Vector.sub(this.posHistory[PT], moonOrbit[PT % moonOrbit.length]);
+        let drawInHillSphere = false;
         if (posRelativeToMoon.mag() < moonHillSphereRadius || (this.shipOrbitingMoon && PT < this.shipOrbitingMoonEndOfFirstOrbit)) {
-          point(bodies[1].pos.x + posRelativeToMoon.x, bodies[1].pos.y + posRelativeToMoon.y);
+          drawInHillSphere = true;
         }
+
+        strokeWeight(3);
+        stroke(lineColor);
+        lineColor.setAlpha(255);
+
+
+
+        if (PT + frameSkip < this.posHistory.length) {
+
+          if (PT % frameSkip == 0) {
+
+            if (drawInHillSphere) {
+
+              let nextPosRelativeToMoon = p5.Vector.sub(this.posHistory[PT + frameSkip], moonOrbit[(PT + frameSkip) % moonOrbit.length])
+
+              line(bodies[1].pos.x + posRelativeToMoon.x, bodies[1].pos.y + posRelativeToMoon.y,
+                bodies[1].pos.x + nextPosRelativeToMoon.x, bodies[1].pos.y + nextPosRelativeToMoon.y);
+
+              lineColor.setAlpha(50);
+              stroke(lineColor);
+
+            }
+
+            line(this.posHistory[PT].x, this.posHistory[PT].y,
+              this.posHistory[PT + frameSkip].x, this.posHistory[PT + frameSkip].y);
+
+
+
+          }
+
+        } else if (PT != this.posHistory.length - 1) {
+
+          if (drawInHillSphere) {
+
+            let nextPosRelativeToMoon = p5.Vector.sub(this.posHistory[this.posHistory.length - 1], moonOrbit[(this.posHistory.length - 1) % moonOrbit.length])
+
+            line(bodies[1].pos.x + posRelativeToMoon.x, bodies[1].pos.y + posRelativeToMoon.y,
+              bodies[1].pos.x + nextPosRelativeToMoon.x, bodies[1].pos.y + nextPosRelativeToMoon.y);
+
+            lineColor.setAlpha(50);
+            stroke(lineColor);
+
+          }
+
+          line(this.posHistory[PT].x, this.posHistory[PT].y,
+            this.posHistory[this.posHistory.length - 1].x, this.posHistory[this.posHistory.length - 1].y);
+
+        }
+
+        // if (PT % 50 == 0) {
+        //   drawArrow(this.posHistory[PT], p5.Vector.add(this.posHistory[PT], this.velHistory[PT].copy().mult(velArrowScale)));
+        // }
+
+        // // stroke("#d8ff58ff");
+        // point(this.posHistory[PT].x, this.posHistory[PT].y);
+
+
       }
 
 
@@ -964,7 +1016,7 @@ class Ship {
       return;
     }
 
-    let turnVel = TAU / 100;
+    let turnVel = TAU / 50;
     let amt = false;
 
     if (controlMode == MOUSE) {
@@ -1004,7 +1056,7 @@ class Ship {
 
     this.orientationHistory[T] = cursorPos.copy().normalize();
 
-    let magDenominator = 5;
+    let magDenominator = 3; // smaller means more sensitive
 
     let boostThrottle = cursorPos.copy().mag() / magDenominator;
     // console.log(boostThrottle);
@@ -1231,6 +1283,8 @@ class Particle {
 }
 
 function mouseWheel(event) {
+
+  instantaneousMode = false;
   if (event.delta > 0 && launched && !crashedOut) {
     framesToSkip = event.delta;
   }
@@ -1249,6 +1303,11 @@ function mousePressed() {
 
 }
 
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+
 function keyPressed(event) {
 
   if (keyCode == LEFT_ARROW || keyCode == RIGHT_ARROW || keyCode == UP_ARROW) {
@@ -1256,9 +1315,19 @@ function keyPressed(event) {
 
   }
 
+  if (key == 'f') {
+    fullscreen(true);
+  }
+
   if (key == 'i') {
     paused = true;
     instantaneousMode = true;
+  }
+
+  if (key == 'r') {
+    T = 0;
+    launched = false;
+
   }
 
   if (key == 'p' & !crashedOut) {
@@ -1417,9 +1486,36 @@ function draw() {
               ship.landingPos = upright;
               ship.bodyLandedOn = body;
 
+
+              if (body == bodies[1]) {
+                window.parent.postMessage(
+                  {
+                    type: "moonLanding"
+                  },
+                  "*"
+                );
+              }
+
+
+
             } else {
               crashedOut = true;
               paused = true;
+
+              let msgType;
+
+              if (body == bodies[0]) {
+                msgType = "earthCrash";
+              } else if (body == bodies[1]) {
+                msgType = "moonCrash";
+              }
+              window.parent.postMessage(
+                {
+                  type: msgType
+                },
+                "*"
+              );
+
             }
 
             // landed
@@ -1520,6 +1616,8 @@ function draw() {
 
   // drawFramerateHistory(10, 140);
 
+  // drawPlayBack();
+
   drawTimeline();
 
 
@@ -1530,6 +1628,25 @@ function timelineMask() {
   // fill(0);
   noStroke();
   rect(0, height - h, width, h);
+}
+
+function drawPlayBack() {
+  fill("#fff");
+  let h = height / 10;
+  let w = width / 3;
+  rect(width / 2 - w / 2, height - h * 2, w, h);
+
+  let playBackScale = 3;
+  let playBackUnit = 1;
+  let playBackUnitScale = width / 3 / 7;
+  for (let i = -(playBackUnit * playBackScale); i <= (playBackUnit * playBackScale); i++) {
+
+    let x = width / 2 - (i * playBackUnitScale);
+    stroke(0);
+    strokeWeight(2);
+    line(x, height - h * 2, x, height - h);
+
+  }
 }
 
 function drawTimeline() {
@@ -1577,7 +1694,8 @@ function drawTimeline() {
 
 
     stroke(rocketColor);
-    point(x, height - (h * 9 / 10 * p5.Vector.dist(bodies[0].pos, ship.posHistory[PT]) / sliceMaxAlt));
+    let y = height - (h * 9 / 10 * p5.Vector.dist(bodies[0].pos, ship.posHistory[PT]) / sliceMaxAlt)
+    line(x, y - 1, x, y + 1);
 
 
   }

@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="mystyle.css">
+    <title>Fly Me To The Moon</title>
+</head>
+<style>
+    body {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        position: relative;
+    }
+
+    #myCanvas {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+
+    /* Slide System Styles */
+    .slide-container {
+        position: relative;
+        width: 100%;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .slide {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        padding: 0;
+        box-sizing: border-box;
+        overflow: hidden;
+        display: flex;
+        visibility: hidden;
+        opacity: 0;
+        animation: fadeIn 0.5s forwards;
+        pointer-events: none;
+    }
+
+    .slide.active {
+        visibility: visible;
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .slide-left {
+        width: 50%;
+        height: 100%;
+        padding: 0;
+        box-sizing: border-box;
+        overflow: hidden;
+        background-color: #f0f0f0;
+    }
+
+    .slide-right {
+        width: 50%;
+        height: 100%;
+        padding: 40px;
+        box-sizing: border-box;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .slide-right .slide-controls {
+        display: none;
+    }
+
+    .slide-controls {
+        position: absolute;
+        bottom: 0;
+        right: 0;
+        width: 50%;
+        flex: 0 0 auto;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 15px;
+        padding: 15px 0;
+        border-top: 1px solid #ddd;
+        background: white;
+        flex-wrap: wrap;
+    }
+
+    .slide-btn {
+        padding: 10px 20px;
+        font-size: 16px;
+        border: none;
+        background-color: #4CAF50;
+        color: white;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s;
+    }
+
+    .slide-btn:hover {
+        background-color: #45a049;
+    }
+
+    .slide-btn:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+    }
+
+    .slide-indicator {
+        text-align: center;
+        margin: 10px 0;
+        color: #666;
+        font-size: 14px;
+    }
+
+    #fullscreenBtn {
+        position: absolute;
+        right: 15px;
+        bottom: 50%;
+        transform: translateY(50%);
+    }
+
+    .message {
+        opacity: 0;
+        transition: opacity 2s ease;
+    }
+
+    .message:not([hidden]) {
+        opacity: 1;
+    }
+
+    #settingsGear {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        cursor: pointer;
+        width: 40px;
+        height: 40px;
+        transition: transform 0.3s ease, opacity 0.3s ease;
+        z-index: 1000;
+        opacity: 0.4;
+        color: currentColor;
+        background: none;
+        border: none;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    #settingsGear svg {
+        width: 100%;
+        height: 100%;
+    }
+
+    #settingsGear:hover {
+        opacity: 0.8;
+    }
+
+    #settingsGear.menu-open {
+        opacity: 1;
+    }
+
+    #settingsGear.spin {
+        animation: spinGear 0.6s ease-in-out;
+    }
+
+    #settingsGear.spin-reverse {
+        animation: spinGearReverse 0.6s ease-in-out;
+    }
+
+    @keyframes spinGear {
+        from {
+            transform: rotate(0deg);
+        }
+
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    @keyframes spinGearReverse {
+        from {
+            transform: rotate(0deg);
+        }
+
+        to {
+            transform: rotate(-360deg);
+        }
+    }
+
+    #settingsMenu {
+        position: fixed;
+        top: 70px;
+        right: 20px;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 3px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        display: flex;
+        flex-direction: column;
+        z-index: 999;
+        overflow: visible;
+        transform-origin: top center;
+        transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s ease;
+        opacity: 0;
+        transform: scaleY(0);
+        pointer-events: none;
+        visibility: hidden;
+    }
+
+    #settingsMenu.show {
+        opacity: 1;
+        transform: scaleY(1);
+        pointer-events: auto;
+        visibility: visible;
+    }
+
+    .theme-btn {
+        padding: 8px 12px;
+        border: none;
+        background: white;
+        cursor: pointer;
+        font-size: 13px;
+        transition: all 0.2s;
+        white-space: nowrap;
+        text-align: center;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+
+    .theme-btn:hover {
+        background-color: #f5f5f5;
+    }
+
+    .theme-btn.active {
+        background-color: #e8e8e8;
+    }
+
+    .icon-svg {
+        width: 20px;
+        height: 20px;
+        color: currentColor;
+    }
+
+    .theme-btn-label {
+        position: absolute;
+        right: 100%;
+        margin-right: 8px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+        font-weight: 500;
+        font-size: 13px;
+    }
+
+    .theme-btn:hover .theme-btn-label {
+        opacity: 1;
+    }
+
+    body.dark-mode {
+        background-color: #1e1e1e;
+        color: white;
+    }
+
+    body.dark-mode .slide-right {
+        background-color: #2d2d2d;
+        color: white;
+    }
+
+    body.dark-mode .slide-left {
+        background-color: #1a1a1a;
+    }
+
+    body.dark-mode .slide-controls {
+        background-color: #2d2d2d;
+        color: white;
+        border-top-color: #444;
+    }
+
+    body.dark-mode .slide-btn {
+        background-color: #404040;
+        color: white;
+    }
+
+    body.dark-mode .slide-btn:hover {
+        background-color: #505050;
+    }
+
+    body.dark-mode #settingsMenu {
+        background-color: #2d2d2d;
+        border-color: #444;
+    }
+
+    body.dark-mode .theme-btn {
+        background-color: #2d2d2d;
+        color: white;
+    }
+
+    body.dark-mode .theme-btn:hover {
+        background-color: #3d3d3d;
+    }
+
+    body.dark-mode .theme-btn.active {
+        background-color: #404040;
+    }
+
+    body.dark-mode .theme-btn-label {
+        color: white;
+    }
+
+    body.dark-mode .slide-indicator {
+        color: #aaa;
+    }
+</style>
+<script>
+    const revealed = [];
+
+    window.addEventListener("message", (event) => {
+        const type = event.data?.type;
+        if (!type) return;
+
+        revealNext(type);
+    });
+
+    function revealNext(type) {
+        const msg = document.querySelector(
+            `.message[data-event="${type}"]:not([data-shown])`
+        );
+
+        if (!msg) return;
+
+        msg.hidden = false;
+        msg.dataset.shown = "true";
+        document.getElementById("log").appendChild(msg);
+    }
+</script>
+
+<body>
+    <button id="settingsGear" aria-label="Settings">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+            <path fill="currentColor"
+                d="M495.9 166.6c3.2 8.7 .5 18.4-6.4 24.6l-43.3 39.4c1.1 8.3 1.7 16.8 1.7 25.4s-.6 17.1-1.7 25.4l43.3 39.4c6.9 6.2 9.6 15.9 6.4 24.6c-4.4 11.9-9.7 23.3-15.8 34.3l-4.7 8.1c-6.6 11-14 21.4-22.1 31.2c-5.9 7.2-15.7 9.6-24.5 6.8l-55.7-17.7c-13.4 10.3-28.2 18.9-44 25.4l-12.5 57.1c-2 9.1-9 16.3-18.2 17.8c-13.8 2.3-28 3.5-42.5 3.5s-28.7-1.2-42.5-3.5c-9.2-1.5-16.2-8.7-18.2-17.8l-12.5-57.1c-15.8-6.5-30.6-15.1-44-25.4L83.1 425.9c-8.8 2.8-18.6 .3-24.5-6.8c-8.1-9.8-15.5-20.2-22.1-31.2l-4.7-8.1c-6.1-11-11.4-22.4-15.8-34.3c-3.2-8.7-.5-18.4 6.4-24.6l43.3-39.4C64.6 273.1 64 264.6 64 256s.6-17.1 1.7-25.4L22.4 191.2c-6.9-6.2-9.6-15.9-6.4-24.6c4.4-11.9 9.7-23.3 15.8-34.3l4.7-8.1c6.6-11 14-21.4 22.1-31.2c5.9-7.2 15.7-9.6 24.5-6.8l55.7 17.7c13.4-10.3 28.2-18.9 44-25.4l12.5-57.1c2-9.1 9-16.3 18.2-17.8C227.3 1.2 241.5 0 256 0s28.7 1.2 42.5 3.5c9.2 1.5 16.2 8.7 18.2 17.8l12.5 57.1c15.8 6.5 30.6 15.1 44 25.4l55.7-17.7c8.8-2.8 18.6-.3 24.5 6.8c8.1 9.8 15.5 20.2 22.1 31.2l4.7 8.1c6.1 11 11.4 22.4 15.8 34.3zM256 336a80 80 0 1 0 0-160 80 80 0 1 0 0 160z">
+            </path>
+        </svg>
+    </button>
+
+    <div id="settingsMenu">
+        <button class="theme-btn" id="themeLight" onclick="setTheme('light')" title="Light Mode">
+            <span class="theme-btn-label">Light</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-svg">
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+        </button>
+        <button class="theme-btn" id="themeDark" onclick="setTheme('dark')" title="Dark Mode">
+            <span class="theme-btn-label">Dark</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-svg">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+        </button>
+        <button class="theme-btn" id="themeAuto" onclick="setTheme('auto')" title="Auto Mode">
+            <span class="theme-btn-label">Auto</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-svg">
+                <!-- Sun (light) -->
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                <!-- Moon (dark) overlay -->
+                <path d="M17 12.79A5 5 0 1 1 11.21 7 3.5 3.5 0 0 0 17 12.79z"></path>
+            </svg>
+        </button>
+    </div>
+
+    <div class="slide-container">
+        <!-- Slide 1: Introduction -->
+        <div class="slide active">
+            <div class="slide-left">
+                <iframe id="myCanvas" src="p5 Sketches/Fly Me To The Moon/index.html"></iframe>
+            </div>
+            <div class="slide-right">
+                <h1>Fly Me To The Moon</h1>
+
+                <p>
+                    Below is an interactive simulation which allows you to pilot a rocket ship to the Moon.
+                </p>
+
+                <p>
+                    This simulation is, of course, greatly simplified, in many respects–for example:
+                <ul>
+                    <li>It is purely 2-dimensional.</li>
+                    <li>It is wildly not-to-scale (the moon is actually much further away and much smaller).</li>
+                    <li>The rocket itself has infinite fuel.</li>
+                    <li>The Earth and Moon are both completely stationary.</li>
+                </ul>
+                Nevertheless, I promise that it is physically realistic in the key respects that make it so the
+                basic
+                principles
+                of piloting this simulated rocketship to the moon are identical to piloting a real one.
+
+                These simplifications are so that those basic principles will be all that you need to successfully
+                land
+                on the
+                moon.
+                </p>
+                <p>
+                    So, give it a go. Press up to fire the rocket and use the left and right arrow keys to set your
+                    heading
+                    (the
+                    direction the nose of the rocketship is pointing).
+                </p>
+
+                <div id="log">
+                    <p class="message" data-event="earthCrash" hidden>
+                        Ouch! You crashed. Well, don't feel bad–what I didn't mention is that even in this simplified
+                        simulation,
+                        its not
+                        quite as simple as just pointing the ship in the direction of the moon and firing the rocket.
+
+                        You can have another go first, if you like, but the rest of this essay will show you the secrets
+                        of
+                        spaceflight.
+                        By the end, you'll be able to fly to the moon with your eyes closed—without crashing.
+
+                        I won't say it ain't rocket science cause, well, it is. But it's probably much easier than you'd
+                        expect
+                        from
+                        this first time trying.
+                    </p>
+
+                    <p class="message" data-event="moonCrash" hidden>
+                        Well... you did certainly *reach* the Moon, at least! Maybe not in one piece, but still, that's
+                        gotta
+                        count for
+                        something right? In any case, you have now learned that safely *landing* on the moon is not
+                        quite as
+                        easy as
+                        getting there. Feel free to have another go first if you like, but if you want to learn the
+                        secrets
+                        of
+                        (survivable) spaceflight, read on.
+                    </p>
+
+                    <p class="message" data-event="moonLanding" hidden>Woah, well done! Either you're really smart,
+                        really
+                        lucky, or you've done this before. Regardless,
+                        read
+                        on to
+                        learn the secrets of your successful landing so that you can replicate it with ease-and perhaps
+                        even
+                        venture
+                        much further afield.
+                    </p>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Slide 2: Falling in Style -->
+        <div class="slide">
+            <div class="slide-left">
+            </div>
+            <div class="slide-right">
+                <h2>Falling in Style</h2>
+
+                <p>I'll admit, flying to the moon is maybe a slightly ambitious goal to begin with. Lets start with a
+                    more
+                    immediate
+                    problem: not crashing after launch.</p>
+
+                <p>Getting up into the sky is easy, but to paraphrase Sir Isaac Newton, 'what goes up must come down'.
+                    You
+                    might
+                    think we just need to get far enough away from the earth that we no longer feel its gravity.
+                    However,
+                    although
+                    that is possible*, its not going to work for getting to the moon.</p>
+
+                <p>If you stand on top of a tall tower and you drop one metal ball off the edge at the same time as
+                    firing
+                    another
+                    one from a cannon, then all other things being equal, they would hit the water at the same time,
+                    although
+                    obviously the cannonball would have travelled a significant horizontal distance. This is because
+                    they
+                    *fall* at
+                    the same rate. However, the direction of 'down' is not constant. If you travel far enough on a
+                    curved
+                    planet,
+                    then the
+                    direction of down will change considerably. If you walk halfway around the planet, then the
+                    direction of
+                    down
+                    will be perpendicular to the direction of down where you started!</p>
+
+                <p>To help you out, we're going to add a projection of your trajectory so you can see how it changes
+                    live.
+                </p>
+            </div>
+        </div>
+
+        <!-- Slide 3: Orbits Explanation -->
+        <div class="slide">
+            <div class="slide-left">
+            </div>
+            <div class="slide-right">
+                <p>We therefore see that there is nothing fundamentally special about orbits. Any object, were it able
+                    to
+                    pass
+                    through the ground like a ghost, would not stop upon reaching the centre of the earth. This would be
+                    a
+                    1-dimensional orbit, one with 'infinite' eccentricity. If it had a little bit of sideways momentum,
+                    like
+                    the
+                    cannonball, then it would carve out a veeeery eccentric but still 2-dimensional eliptical orbit. The
+                    more
+                    momentum, the less eccentric it would become. Eventually, given the exact right amount of momentum,
+                    it
+                    would be
+                    a perfect circle. Adding more would make it elliptical again but on a perpenduclar axis.</p>
+
+                <p>Therefore, we do not so much as need to "achieve orbit" as achieve *an* orbit which *doesn't
+                    intersect
+                    the
+                    surface of the planet*. In the real-world, we also need to achieve a minimum altitude to avoid
+                    atmospheric drag
+                    slowing us down and de-orbiting, but in our simplified simulation we don't even need to worry about
+                    that.</p>
+
+                <p>So, step 1 of getting to the moon is achieving a stable orbit. To do this, rather than pointing 'up',
+                    we
+                    need to
+                    point 'forward' in the direction we'd like to orbit, like the cannonball. This is called 'firing
+                    prograde'. Try
+                    it now!</p>
+            </div>
+        </div>
+
+        <!-- Slide 7: Orbital Maneuvering -->
+        <div class="slide">
+            <div class="slide-left">
+            </div>
+            <div class="slide-right">
+                <p>Congratulations, you have achieved orbit. Remember, you are still constantly falling. There is no way
+                    to
+                    stay
+                    still in space (well there is, but we'll get to that). So from now on, we're not so much moving the
+                    rocketship
+                    directly as we are changing our orbit. Spoiler alert, but we need to move to a higher altitude orbit
+                    if
+                    we're
+                    going to reach the moon. Have a go at trying to achieve such an orbit. What direction should we fire
+                    the
+                    rocket?
+                </p>
+
+                <p>It is intuitive to fire 'up', since we want to gain altitude. But remember, we didn't achieve orbit
+                    in
+                    the first
+                    place by firing up, because what goes up must come down. Indeed, you'll see that you gain altitude
+                    initially
+                    from this manouvre, but you fall right back down.</p>
+            </div>
+        </div>
+
+        <!-- Slide 4: Hohmann Transfer -->
+        <div class="slide">
+            <div class="slide-left">
+            </div>
+            <div class="slide-right">
+                <p>Well done! Your logic is correct; if firing prograde is what got us into orbit, then surely we'd fire
+                    prograde to
+                    increase our altitude. The issue is, as you can see, whilst this has increased the peak altitude or
+                    apoapsis,
+                    one half orbit ahead of where we fired, it hasn't lifted the whole orbit. The minimum altitude, or
+                    peripasis,
+                    remains the same. Don't fret though; it turns out you can't achieve the desired higher altitude
+                    circular
+                    orbit
+                    with just one firing of the rocket (one 'burn'), but this burn was the necessary first step. What do
+                    you
+                    think
+                    is the second step?</p>
+
+                <p>Ding ding ding! Your logic is correct again. If firing raises the altitude a half orbit ahead of
+                    where we
+                    are,
+                    then if we want to raise the periapsis to 'circularise' the orbit, we must do another prograde burn
+                    at
+                    the
+                    apoapsis. You now have the manouvre to raise your orbital altitude as much as you like. What if we
+                    want
+                    to lower
+                    the altitude? You should be able to figure this one out; what's the opposite of what we did before?
+                </p>
+
+                <p>Bingo! That's called a 'retro-grade' burn. One more a half orbit ahead and you'll circularise the
+                    orbit
+                    at the
+                    new lower altitude. Now, you have the power to orbit at any altitude you like! Lets test your
+                    skills.
+                </p>
+            </div>
+        </div>
+
+        <!-- Slide 5: Impulse Control -->
+        <div class="slide">
+            <div class="slide-left">
+            </div>
+            <div class="slide-right">
+                <h2>Impulse Control</h2>
+                <p>So far, you've been controlling the rocket by turning it on and off again. There hasn't been any way
+                    to
+                    control
+                    the throttle, so getting the right amount of force is a matter of timing the burn. This is actually
+                    realistic
+                    for how most rockets work! Only some special rockets have the ability to change the exhaust
+                    velocity.
+                    That's
+                    okay for normal missions though, because the amount of time spent burning is very, very small
+                    compared
+                    to the
+                    the rocketship effectively remains more or less in the same
+                    place for
+                    the duration of the burn.</p>
+            </div>
+        </div>
+
+        <!-- Slide 6: Lunar Orbit -->
+        <div class="slide">
+            <div class="slide-left">
+            </div>
+            <div class="slide-right">
+                <p>Ok, clearly you've got the hang of orbital manouvreing. Its time to bring back the Moon. Before we
+                    can
+                    land on
+                    the moon, we first need to get into orbit around it. This can be achieved with what you already
+                    know, we
+                    just
+                    need to put our apoapsis in the close vicinity of the moon, so that when we reach it we are
+                    'captured'
+                    by its
+                    gravity. Have a go.</p>
+
+                <p>Incredible! You're in lunar orbit. Now all we need to do is land. This, admittedly, is a bit more
+                    complex
+                    than
+                    just lowering your orbit. You essentially have to *launch* in reverse. That means firing retrograde
+                    until you
+                    have a collision trajectory, then firing 'up' in short bursts in order to slow your fall so that
+                    your
+                    landing
+                    velocity is almost zero.
+                </p>
+
+                <p>Absolutely brilliant, you've done it! Just for fun, I'll let you hop out and do a moon walk. When
+                    you're
+                    ready,
+                    hop back in the rocketship and see if you can use the same principles to get back home.</p>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="slide-controls">
+        <button class="slide-btn" id="prevBtn" onclick="changeSlide(-1)">← Previous</button>
+        <div class="slide-indicator">
+            <span id="slideNumber">1</span> / <span id="totalSlides">12</span>
+        </div>
+        <button class="slide-btn" id="nextBtn" onclick="changeSlide(1)">Next →</button>
+        <button class="slide-btn" id="fullscreenBtn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+    </div>
+
+    <script>
+        let currentSlide = 0;
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+
+        document.getElementById('totalSlides').textContent = totalSlides;
+
+        function showSlide(n) {
+            slides.forEach(slide => slide.classList.remove('active'));
+            slides[n].classList.add('active');
+            document.getElementById('slideNumber').textContent = n + 1;
+
+            // Update button states
+            document.getElementById('prevBtn').disabled = n === 0;
+            document.getElementById('nextBtn').disabled = n === totalSlides - 1;
+        }
+
+        function changeSlide(direction) {
+            currentSlide += direction;
+            if (currentSlide < 0) currentSlide = 0;
+            if (currentSlide >= totalSlides) currentSlide = totalSlides - 1;
+            showSlide(currentSlide);
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') changeSlide(-1);
+            if (e.key === 'ArrowRight') changeSlide(1);
+        });
+
+        function toggleFullscreen() {
+            const elem = document.documentElement;
+            const isFullscreen = document.fullscreenElement;
+
+            if (!isFullscreen) {
+                elem.requestFullscreen().catch(err => {
+                    console.error(`Error attempting to enable fullscreen: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // Update fullscreen button text when fullscreen state changes
+        document.addEventListener('fullscreenchange', () => {
+            const btn = document.getElementById('fullscreenBtn');
+            if (document.fullscreenElement) {
+                btn.textContent = '⛶ Exit Fullscreen';
+            } else {
+                btn.textContent = '⛶ Fullscreen';
+            }
+        });
+
+        // Settings menu functions
+        function toggleSettingsMenu() {
+            const menu = document.getElementById('settingsMenu');
+            const gear = document.getElementById('settingsGear');
+            if (menu && gear) {
+                const isOpening = !menu.classList.contains('show');
+                menu.classList.toggle('show');
+                gear.classList.toggle('menu-open');
+
+                if (isOpening) {
+                    gear.classList.add('spin');
+                    setTimeout(() => gear.classList.remove('spin'), 600);
+                } else {
+                    gear.classList.add('spin-reverse');
+                    setTimeout(() => gear.classList.remove('spin-reverse'), 600);
+                }
+            }
+        }
+
+        // Add click handler to settings gear button
+        const gearButton = document.getElementById('settingsGear');
+        if (gearButton) {
+            gearButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleSettingsMenu();
+            });
+        }
+
+        function updateThemeButtons() {
+            const theme = localStorage.getItem('theme') || 'auto';
+            document.getElementById('themeLight').classList.remove('active');
+            document.getElementById('themeDark').classList.remove('active');
+            document.getElementById('themeAuto').classList.remove('active');
+
+            if (theme === 'light') {
+                document.getElementById('themeLight').classList.add('active');
+            } else if (theme === 'dark') {
+                document.getElementById('themeDark').classList.add('active');
+            } else {
+                document.getElementById('themeAuto').classList.add('active');
+            }
+        }
+
+        function setTheme(theme) {
+            const body = document.body;
+
+            if (theme === 'dark') {
+                body.classList.add('dark-mode');
+                localStorage.setItem('theme', 'dark');
+            } else if (theme === 'light') {
+                body.classList.remove('dark-mode');
+                localStorage.setItem('theme', 'light');
+            } else if (theme === 'auto') {
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (prefersDark) {
+                    body.classList.add('dark-mode');
+                } else {
+                    body.classList.remove('dark-mode');
+                }
+                localStorage.setItem('theme', 'auto');
+            }
+
+            updateThemeButtons();
+        }
+
+        // Close settings menu when clicking outside
+        document.addEventListener('click', (e) => {
+            const gear = document.getElementById('settingsGear');
+            const menu = document.getElementById('settingsMenu');
+            if (!gear.contains(e.target) && !menu.contains(e.target)) {
+                menu.classList.remove('show');
+            }
+        });
+
+        // Load saved theme preference
+        const savedTheme = localStorage.getItem('theme') || 'auto';
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+        } else if (savedTheme === 'auto') {
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (prefersDark) {
+                document.body.classList.add('dark-mode');
+            }
+        }
+
+        // Update button states on load
+        updateThemeButtons();
+
+        // Initialize
+        showSlide(0);
+    </script>
+</body>
+
+</html>

@@ -1,9 +1,8 @@
-
 body {
-/*  background-color: #fffbf9;*/
+  /*  background-color: #fffbf9;*/
 
   font-family: "Garamond", serif;
-  
+
   margin-left: 30%;
   margin-right: 30%;
   margin-top: 10%;
@@ -11,7 +10,7 @@ body {
 }
 
 p {
-  font-size: 15pt;
+  font-size: 16pt;
   line-height: 1.5;
 
   overflow-wrap: break-word;
