@@ -22,8 +22,7 @@ function preload() {
 
 function setup() {
   // Canvas is now 60% width to accommodate search pane
-  let canvas = createCanvas(windowWidth * 0.6, windowHeight);
-  canvas.parent('sketch-pane');
+  createCanvas(windowWidth * 0.6, windowHeight);
 
   bgLayer = createGraphics(windowWidth * 0.6, windowHeight);
 
