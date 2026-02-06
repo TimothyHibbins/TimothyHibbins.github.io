@@ -531,10 +531,10 @@ class Ship {
 
     for (let PT = 0; PT < this.posHistory.length; PT++) {
 
-      // if (PT < T) {
-      //   stroke("#36f725ff");
-      //   point(this.posHistory[PT].x, this.posHistory[PT].y);
-      // }
+      if (PT < T) {
+        stroke("#36f725ff");
+        point(this.posHistory[PT].x, this.posHistory[PT].y);
+      }
 
 
       if (PT > T) {

@@ -4,16 +4,30 @@
 <head>
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="mystyle.css">
+    <link rel="icon" type="image/x-icon" href="Favicons/Fly Me To The Moon FAVICON.png">
     <title>Fly Me To The Moon</title>
 </head>
 <style>
+    html,
+    body {
+        height: 100%;
+        width: 100%;
+        overflow: hidden !important;
+    }
+
     body {
         margin: 0;
         padding: 0;
         display: flex;
         flex-direction: column;
         height: 100vh;
-        position: relative;
+        position: fixed;
+        inset: 0;
+    }
+
+    :root {
+        --controls-height: 80px;
+        --controls-offset: 40px;
     }
 
     #myCanvas {
@@ -24,15 +38,18 @@
 
     /* Slide System Styles */
     .slide-container {
-        position: relative;
+        position: fixed;
+        inset: 0;
         width: 100%;
-        flex: 1;
+        height: 100vh;
         overflow: hidden;
     }
 
     .slide {
         position: absolute;
-        width: 100%;
+        top: 0;
+        left: 0;
+        right: 0;
         height: 100%;
         padding: 0;
         box-sizing: border-box;
@@ -44,6 +61,10 @@
         pointer-events: none;
     }
 
+    body.panes-swapped .slide {
+        flex-direction: row-reverse;
+    }
+
     .slide.active {
         visibility: visible;
         opacity: 1;
@@ -52,7 +73,7 @@
 
     .slide-left {
         width: 50%;
-        height: 100%;
+        height: 100vh;
         padding: 0;
         box-sizing: border-box;
         overflow: hidden;
@@ -61,12 +82,14 @@
 
     .slide-right {
         width: 50%;
-        height: 100%;
+        height: calc(100vh - var(--controls-height, 80px));
         padding: 40px;
+        padding-bottom: var(--controls-offset, 120px);
         box-sizing: border-box;
         overflow-y: auto;
         display: flex;
         flex-direction: column;
+        position: relative;
     }
 
     .slide-right .slide-controls {
@@ -74,9 +97,10 @@
     }
 
     .slide-controls {
-        position: absolute;
+        position: fixed;
         bottom: 0;
         right: 0;
+        left: auto;
         width: 50%;
         flex: 0 0 auto;
         display: flex;
@@ -84,16 +108,22 @@
         align-items: center;
         gap: 15px;
         padding: 15px 0;
-        border-top: 1px solid #ddd;
-        background: white;
+        border-top: 1px solid rgba(0, 0, 0, 0.13);
+        background-color: white;
         flex-wrap: wrap;
+        z-index: 2;
+    }
+
+    body.panes-swapped .slide-controls {
+        left: 0;
+        right: auto;
     }
 
     .slide-btn {
         padding: 10px 20px;
         font-size: 16px;
         border: none;
-        background-color: #4CAF50;
+        background-color: #000000ab;
         color: white;
         border-radius: 5px;
         cursor: pointer;
@@ -101,24 +131,31 @@
     }
 
     .slide-btn:hover {
-        background-color: #45a049;
+        background-color: #000000e6;
     }
 
     .slide-btn:disabled {
-        background-color: #cccccc;
+        background-color: rgba(0, 0, 0, 0.2);
         cursor: not-allowed;
     }
 
     .slide-indicator {
         text-align: center;
         margin: 10px 0;
-        color: #666;
+        color: rgba(0, 0, 0, 0.6);
         font-size: 14px;
     }
 
     #fullscreenBtn {
         position: absolute;
         right: 15px;
+        bottom: 50%;
+        transform: translateY(50%);
+    }
+
+    #swapPanesBtn {
+        position: absolute;
+        left: 15px;
         bottom: 50%;
         transform: translateY(50%);
     }
@@ -149,6 +186,11 @@
         display: flex;
         align-items: center;
         justify-content: center;
+    }
+
+    body.panes-swapped #settingsGear {
+        right: calc(50% + 20px);
+        left: auto;
     }
 
     #settingsGear svg {
@@ -196,8 +238,8 @@
         position: fixed;
         top: 70px;
         right: 20px;
-        background: white;
-        border: 1px solid #ddd;
+        background-color: white;
+        border: 1px solid rgba(0, 0, 0, 0.13);
         border-radius: 3px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         display: flex;
@@ -205,11 +247,16 @@
         z-index: 999;
         overflow: visible;
         transform-origin: top center;
-        transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s ease;
+        transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s ease, background-color 0.3s ease;
         opacity: 0;
         transform: scaleY(0);
         pointer-events: none;
         visibility: hidden;
+    }
+
+    body.panes-swapped #settingsMenu {
+        right: calc(50% + 20px);
+        left: auto;
     }
 
     #settingsMenu.show {
@@ -222,7 +269,7 @@
     .theme-btn {
         padding: 8px 12px;
         border: none;
-        background: white;
+        background: transparent;
         cursor: pointer;
         font-size: 13px;
         transition: all 0.2s;
@@ -237,11 +284,11 @@
     }
 
     .theme-btn:hover {
-        background-color: #f5f5f5;
+        background-color: rgba(0, 0, 0, 0.05);
     }
 
     .theme-btn.active {
-        background-color: #e8e8e8;
+        background-color: rgba(0, 0, 0, 0.1);
     }
 
     .icon-svg {
@@ -265,51 +312,146 @@
         opacity: 1;
     }
 
+    .menu-separator {
+        height: 1px;
+        background-color: rgba(0, 0, 0, 0.13);
+        margin: 4px 0;
+    }
+
+    .color-btn {
+        padding: 8px 12px;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 13px;
+        transition: all 0.2s;
+        white-space: nowrap;
+        text-align: center;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+
+    .color-btn:hover {
+        background-color: rgba(0, 0, 0, 0.05);
+    }
+
+    .color-btn.active {
+        background-color: rgba(0, 0, 0, 0.1);
+    }
+
+    .color-swatch {
+        width: 24px;
+        height: 24px;
+        border-radius: 3px;
+        border: 1px solid rgba(0, 0, 0, 0.2);
+    }
+
+    .color-btn-label {
+        position: absolute;
+        right: 100%;
+        margin-right: 8px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+        font-weight: 500;
+        font-size: 13px;
+        white-space: nowrap;
+    }
+
+    .color-btn:hover .color-btn-label {
+        opacity: 1;
+    }
+
     body.dark-mode {
-        background-color: #1e1e1e;
+        background-color: #161616 !important;
+        color: white;
+    }
+
+    body.dark-mode #settingsMenu {
+        background-color: rgba(255, 255, 255, 0.08) !important;
+        border-color: rgba(255, 255, 255, 0.13);
+    }
+
+    body.dark-mode .theme-btn {
+        background: transparent;
+    }
+
+    body.dark-mode .theme-btn:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+    }
+
+    body.dark-mode .theme-btn.active {
+        background-color: rgba(255, 255, 255, 0.15);
+    }
+
+    body.dark-mode .menu-separator {
+        background-color: rgba(255, 255, 255, 0.13);
+    }
+
+    body.dark-mode .color-btn {
+        background: transparent;
+    }
+
+    body.dark-mode .color-btn:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+    }
+
+    body.dark-mode .color-btn.active {
+        background-color: rgba(255, 255, 255, 0.15);
+    }
+
+    body.dark-mode .color-swatch {
+        border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    body.dark-mode .color-btn-label {
         color: white;
     }
 
     body.dark-mode .slide-right {
-        background-color: #2d2d2d;
+        background-color: #161616;
         color: white;
     }
 
     body.dark-mode .slide-left {
-        background-color: #1a1a1a;
+        background-color: #161616;
     }
 
     body.dark-mode .slide-controls {
-        background-color: #2d2d2d;
+        background-color: #161616 !important;
         color: white;
-        border-top-color: #444;
+        border-top-color: rgba(255, 255, 255, 0.13);
     }
 
     body.dark-mode .slide-btn {
-        background-color: #404040;
+        background-color: rgba(255, 255, 255, 0.15);
         color: white;
     }
 
     body.dark-mode .slide-btn:hover {
-        background-color: #505050;
+        background-color: rgba(255, 255, 255, 0.2);
     }
 
     body.dark-mode #settingsMenu {
-        background-color: #2d2d2d;
-        border-color: #444;
+        background-color: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.13);
     }
 
     body.dark-mode .theme-btn {
-        background-color: #2d2d2d;
+        background-color: transparent;
         color: white;
     }
 
     body.dark-mode .theme-btn:hover {
-        background-color: #3d3d3d;
+        background-color: rgba(255, 255, 255, 0.1);
     }
 
     body.dark-mode .theme-btn.active {
-        background-color: #404040;
+        background-color: rgba(255, 255, 255, 0.15);
     }
 
     body.dark-mode .theme-btn-label {
@@ -340,6 +482,17 @@
         msg.hidden = false;
         msg.dataset.shown = "true";
         document.getElementById("log").appendChild(msg);
+
+        // Ensure the newly revealed paragraph is visible
+        requestAnimationFrame(() => {
+            const container = msg.closest('.slide-right');
+            if (container) {
+                container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+            }
+        });
+
+        // Recalculate padding in case control panel height changed (e.g., wrapping buttons)
+        requestAnimationFrame(adjustContentPadding);
     }
 </script>
 
@@ -390,13 +543,33 @@
                 <path d="M17 12.79A5 5 0 1 1 11.21 7 3.5 3.5 0 0 0 17 12.79z"></path>
             </svg>
         </button>
+        <div class="menu-separator"></div>
+        <button class="color-btn active" id="colorWhite" onclick="setBackgroundColor('#FFFFFF')"
+            title="White Background">
+            <span class="color-btn-label">Light mode background color: White</span>
+            <div class="color-swatch" style="background-color: #FFFFFF;"></div>
+        </button>
+        <button class="color-btn" id="colorOffwhite" onclick="setBackgroundColor('#F8F8F8')"
+            title="Off-white Background">
+            <span class="color-btn-label">Light mode background color: Off-white</span>
+            <div class="color-swatch" style="background-color: #F8F8F8;"></div>
+        </button>
+        <button class="color-btn" id="colorSepia" onclick="setBackgroundColor('#FDF6E3')" title="Solarised Background">
+            <span class="color-btn-label">Light mode background color: Solarised</span>
+            <div class="color-swatch" style="background-color: #FDF6E3;"></div>
+        </button>
+        <button class="color-btn" id="colorCream" onclick="setBackgroundColor('#FFF1E5')"
+            title="Financial Times Background">
+            <span class="color-btn-label">Light mode background color: Financial Times</span>
+            <div class="color-swatch" style="background-color: #FFF1E5;"></div>
+        </button>
     </div>
 
     <div class="slide-container">
         <!-- Slide 1: Introduction -->
         <div class="slide active">
             <div class="slide-left">
-                <iframe id="myCanvas" src="p5 Sketches/Fly Me To The Moon/index.html"></iframe>
+                <iframe id="myCanvas" src="p5 Sketches/Fly Me To The Moon/slide1-sketch.html"></iframe>
             </div>
             <div class="slide-right">
                 <h1>Fly Me To The Moon</h1>
@@ -479,6 +652,7 @@
         <!-- Slide 2: Falling in Style -->
         <div class="slide">
             <div class="slide-left">
+                <iframe id="myCanvas" src="p5 Sketches/Fly Me To The Moon/slide2-sketch.html"></iframe>
             </div>
             <div class="slide-right">
                 <h2>Falling in Style</h2>
@@ -683,6 +857,7 @@
     </div>
 
     <div class="slide-controls">
+        <button class="slide-btn" id="swapPanesBtn" onclick="swapPanes()">⇆ Swap Panes</button>
         <button class="slide-btn" id="prevBtn" onclick="changeSlide(-1)">← Previous</button>
         <div class="slide-indicator">
             <span id="slideNumber">1</span> / <span id="totalSlides">12</span>
@@ -695,8 +870,10 @@
         let currentSlide = 0;
         const slides = document.querySelectorAll('.slide');
         const totalSlides = slides.length;
+        let panesSwapped = false;
 
         document.getElementById('totalSlides').textContent = totalSlides;
+        adjustContentPadding();
 
         function showSlide(n) {
             slides.forEach(slide => slide.classList.remove('active'));
@@ -714,6 +891,30 @@
             if (currentSlide >= totalSlides) currentSlide = totalSlides - 1;
             showSlide(currentSlide);
         }
+
+        function swapPanes() {
+            panesSwapped = !panesSwapped;
+            document.body.classList.toggle('panes-swapped', panesSwapped);
+            const btn = document.getElementById('swapPanesBtn');
+            if (btn) {
+                btn.textContent = panesSwapped ? '⇆ Swap Back' : '⇆ Swap Panes';
+            }
+            adjustContentPadding();
+        }
+
+        function adjustContentPadding() {
+            const controls = document.querySelector('.slide-controls');
+            const extra = 40; // breathing room under last paragraph
+            const controlsHeight = controls ? controls.offsetHeight : 80;
+            const offset = extra; // match top padding
+            document.documentElement.style.setProperty('--controls-height', `${controlsHeight}px`);
+            document.documentElement.style.setProperty('--controls-offset', `${offset}px`);
+            document.querySelectorAll('.slide-right').forEach(pane => {
+                pane.style.paddingBottom = `${offset}px`;
+            });
+        }
+
+        window.addEventListener('resize', adjustContentPadding);
 
         // Keyboard navigation
         document.addEventListener('keydown', (e) => {
@@ -763,12 +964,74 @@
             }
         }
 
+        function openSettingsMenu() {
+            const menu = document.getElementById('settingsMenu');
+            const gear = document.getElementById('settingsGear');
+            if (menu && gear && !menu.classList.contains('show')) {
+                menu.classList.add('show');
+                gear.classList.add('menu-open');
+                gear.classList.add('spin');
+                setTimeout(() => gear.classList.remove('spin'), 600);
+            }
+        }
+
+        function closeSettingsMenu() {
+            const menu = document.getElementById('settingsMenu');
+            const gear = document.getElementById('settingsGear');
+            if (menu && gear && menu.classList.contains('show')) {
+                menu.classList.remove('show');
+                gear.classList.remove('menu-open');
+                gear.classList.add('spin-reverse');
+                setTimeout(() => gear.classList.remove('spin-reverse'), 600);
+            }
+        }
+
+        // Hover behavior
+        let hoverTimeout;
+        let isHoveringMenuArea = false;
+
         // Add click handler to settings gear button
         const gearButton = document.getElementById('settingsGear');
         if (gearButton) {
             gearButton.addEventListener('click', (e) => {
                 e.stopPropagation();
                 toggleSettingsMenu();
+            });
+
+            // Hover to open after delay
+            gearButton.addEventListener('mouseenter', () => {
+                isHoveringMenuArea = true;
+                hoverTimeout = setTimeout(() => {
+                    openSettingsMenu();
+                }, 500);
+            });
+
+            gearButton.addEventListener('mouseleave', () => {
+                clearTimeout(hoverTimeout);
+                isHoveringMenuArea = false;
+                // Delay closing slightly to allow moving to menu
+                setTimeout(() => {
+                    if (!isHoveringMenuArea) {
+                        closeSettingsMenu();
+                    }
+                }, 100);
+            });
+        }
+
+        // Keep menu open when hovering over it
+        const settingsMenu = document.getElementById('settingsMenu');
+        if (settingsMenu) {
+            settingsMenu.addEventListener('mouseenter', () => {
+                isHoveringMenuArea = true;
+            });
+
+            settingsMenu.addEventListener('mouseleave', () => {
+                isHoveringMenuArea = false;
+                setTimeout(() => {
+                    if (!isHoveringMenuArea) {
+                        closeSettingsMenu();
+                    }
+                }, 100);
             });
         }
 
@@ -789,19 +1052,30 @@
 
         function setTheme(theme) {
             const body = document.body;
+            const menu = document.getElementById('settingsMenu');
+            const controls = document.querySelector('.slide-controls');
+            const savedBgColor = localStorage.getItem('bgColor') || '#FFFFFF';
 
             if (theme === 'dark') {
                 body.classList.add('dark-mode');
                 localStorage.setItem('theme', 'dark');
+                menu.style.removeProperty('background-color');
+                if (controls) controls.style.removeProperty('background-color');
             } else if (theme === 'light') {
                 body.classList.remove('dark-mode');
                 localStorage.setItem('theme', 'light');
+                menu.style.setProperty('background-color', savedBgColor, 'important');
+                if (controls) controls.style.setProperty('background-color', savedBgColor, 'important');
             } else if (theme === 'auto') {
                 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                 if (prefersDark) {
                     body.classList.add('dark-mode');
+                    menu.style.removeProperty('background-color');
+                    if (controls) controls.style.removeProperty('background-color');
                 } else {
                     body.classList.remove('dark-mode');
+                    menu.style.setProperty('background-color', savedBgColor, 'important');
+                    if (controls) controls.style.setProperty('background-color', savedBgColor, 'important');
                 }
                 localStorage.setItem('theme', 'auto');
             }
@@ -809,12 +1083,59 @@
             updateThemeButtons();
         }
 
+        function setBackgroundColor(color) {
+            const body = document.body;
+            const menu = document.getElementById('settingsMenu');
+            const controls = document.querySelector('.slide-controls');
+
+            body.style.backgroundColor = color;
+            if (!body.classList.contains('dark-mode')) {
+                menu.style.setProperty('background-color', color, 'important');
+                if (controls) controls.style.setProperty('background-color', color, 'important');
+            } else {
+                // Force remove in dark mode
+                menu.style.removeProperty('background-color');
+                if (controls) controls.style.removeProperty('background-color');
+            }
+
+            localStorage.setItem('bgColor', color);
+            updateColorButtons();
+        }
+
+        function updateColorButtons() {
+            const savedColor = localStorage.getItem('bgColor') || '#FFFFFF';
+            document.getElementById('colorWhite').classList.remove('active');
+            document.getElementById('colorSepia').classList.remove('active');
+            document.getElementById('colorCream').classList.remove('active');
+
+            if (savedColor === '#FFFFFF') {
+                document.getElementById('colorWhite').classList.add('active');
+            } else if (savedColor === '#FDF6E3') {
+                document.getElementById('colorSepia').classList.add('active');
+            } else if (savedColor === '#FFF1E5') {
+                document.getElementById('colorCream').classList.add('active');
+            }
+
+            // Update menu and controls background color if not in dark mode
+            const menu = document.getElementById('settingsMenu');
+            const controls = document.querySelector('.slide-controls');
+            if (menu && !document.body.classList.contains('dark-mode')) {
+                menu.style.setProperty('background-color', savedColor, 'important');
+                if (controls) controls.style.setProperty('background-color', savedColor, 'important');
+            }
+        }
+
         // Close settings menu when clicking outside
         document.addEventListener('click', (e) => {
             const gear = document.getElementById('settingsGear');
             const menu = document.getElementById('settingsMenu');
-            if (!gear.contains(e.target) && !menu.contains(e.target)) {
-                menu.classList.remove('show');
+            if (gear && menu && !gear.contains(e.target) && !menu.contains(e.target)) {
+                if (menu.classList.contains('show')) {
+                    menu.classList.remove('show');
+                    gear.classList.remove('menu-open');
+                    gear.classList.add('spin-reverse');
+                    setTimeout(() => gear.classList.remove('spin-reverse'), 600);
+                }
             }
         });
 
@@ -831,6 +1152,21 @@
 
         // Update button states on load
         updateThemeButtons();
+
+        // Load and apply saved background color
+        const savedBgColor = localStorage.getItem('bgColor') || '#FFFFFF';
+        const controls = document.querySelector('.slide-controls');
+        const menu = document.getElementById('settingsMenu');
+
+        document.body.style.backgroundColor = savedBgColor;
+
+        // Only set menu and controls background if not in dark mode
+        if (!document.body.classList.contains('dark-mode')) {
+            if (menu) menu.style.setProperty('background-color', savedBgColor, 'important');
+            if (controls) controls.style.setProperty('background-color', savedBgColor, 'important');
+        }
+
+        updateColorButtons();
 
         // Initialize
         showSlide(0);
