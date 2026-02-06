@@ -1,15 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <script src="https://cdn.jsdelivr.net/npm/p5@1.11.11/lib/p5.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/p5@1.11.11/lib/addons/p5.sound.min.js"></script>
-    <link rel="stylesheet" type="text/css" href="style.css">
-    <meta charset="utf-8" />
 
-  </head>
-  <body>
-    <main>
-    </main>
-    <script src="sketch.js"></script>
-  </body>
+<head>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.11.11/lib/p5.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.11.11/lib/addons/p5.sound.min.js"></script>
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <meta charset="utf-8" />
+
+</head>
+
+<body>
+  <div id="container">
+    <div id="sketch-pane">
+      <main></main>
+    </div>
+    <div id="search-pane">
+      <div id="search-container">
+        <h2>Match Search</h2>
+        <input type="text" id="search-input" placeholder="Search for a match..." autocomplete="off">
+        <div id="loading-indicator" class="loading-hidden">Loading match database...</div>
+        <div id="dropdown" class="dropdown-hidden"></div>
+        <div id="current-match">
+          <h3>Current Match:</h3>
+          <p id="match-display"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="sketch.js"></script>
+</body>
+
 </html>

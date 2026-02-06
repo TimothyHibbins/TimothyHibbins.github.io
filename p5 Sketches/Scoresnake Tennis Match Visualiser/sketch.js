@@ -1,39 +1,264 @@
-let matchData;  // Will store the parsed match data
+let allMatchData;  // Will store all matches from CSV
+let matchData;     // Will store the filtered match data
+let allMatchIds = []; // Will store all unique match IDs
+
+// Specify which match to visualize
+let matchSpecifier = '20250116-M-Australian_Open-R64-Learner_Tien-Daniil_Medvedev';
 
 let JetBrainsMonoBold;
+let dataLoaded = false;
+let fullDataLoaded = false;
 
 function preload() {
-  // Load the CSV file
+  // Only load the font in preload - load CSV async later
+  JetBrainsMonoBold = loadFont('JetBrainsMono-Bold.ttf', 
+    () => {}, // success callback
+    () => { JetBrainsMonoBold = null; } // error callback - use default font
+  );
+  
+  // Load just the default match data synchronously for immediate display
   matchData = loadTable('tien versus medvedev.csv', 'csv', 'header');
-  JetBrainsMonoBold = loadFont('JetBrainsMono-Bold.ttf');
 }
 
 function setup() {
-  createCanvas(windowWidth, windowHeight);
+  // Canvas is now 60% width to accommodate search pane
+  createCanvas(windowWidth * 0.6, windowHeight);
 
-  bgLayer = createGraphics(windowWidth, windowHeight);
+  bgLayer = createGraphics(windowWidth * 0.6, windowHeight);
 
 
   layers = [
     // 0 - background
-    createGraphics(windowWidth, windowHeight),
+    createGraphics(windowWidth * 0.6, windowHeight),
     // 1
-    createGraphics(windowWidth, windowHeight),
+    createGraphics(windowWidth * 0.6, windowHeight),
     // 2 - snake
-    createGraphics(windowWidth, windowHeight),
+    createGraphics(windowWidth * 0.6, windowHeight),
 
   ];
 
+  // Parse and display the default match immediately
+  parseMatchData();
+  scoresnake = new ScoresnakeChart();
+  scoresnake.update(tennisMatch);
+  dataLoaded = true;
+  
+  // Set up basic search interface with loading message
+  setupSearchInterfaceLoading();
+  
+  // Now load the full CSV asynchronously
+  loadTable('charting-m-points-2020s.csv', 'csv', 'header', function(table) {
+    allMatchData = table;
+    // Extract match IDs in chunks to avoid blocking the UI
+    extractMatchIdsAsync();
+  });
+}
 
+function extractMatchIdsAsync() {
+  let matchIdObj = {};
+  let currentIndex = 0;
+  const CHUNK_SIZE = 1000; // Process 1000 rows at a time
+  
+  function processChunk() {
+    let endIndex = Math.min(currentIndex + CHUNK_SIZE, allMatchData.getRowCount());
+    
+    for (let i = currentIndex; i < endIndex; i++) {
+      let matchId = allMatchData.getRow(i).getString('match_id');
+      matchIdObj[matchId] = true;
+    }
+    
+    currentIndex = endIndex;
+    
+    if (currentIndex < allMatchData.getRowCount()) {
+      // More rows to process - schedule next chunk
+      setTimeout(processChunk, 0);
+    } else {
+      // Done processing all rows
+      allMatchIds = Object.keys(matchIdObj);
+      setupSearchInterface();
+      fullDataLoaded = true;
+    }
+  }
+  
+  processChunk();
+}
+
+function filterMatchData(table, matchId) {
+  // Create a new table with the same columns
+  let filteredTable = new p5.Table();
+
+  // Copy column structure
+  for (let col of table.columns) {
+    filteredTable.addColumn(col);
+  }
+
+  // Iterate through rows and collect only those matching the matchId
+  let foundMatch = false;
+  for (let i = 0; i < table.getRowCount(); i++) {
+    let row = table.getRow(i);
+    let currentMatchId = row.getString('match_id');
+
+    if (currentMatchId === matchId) {
+      foundMatch = true;
+      let newRow = filteredTable.addRow();
+      for (let col of table.columns) {
+        newRow.set(col, row.get(col));
+      }
+    } else if (foundMatch) {
+      // We've passed the end of our match, stop looking
+      break;
+    }
+  }
+
+  return filteredTable;
+}
+
+function extractMatchIds() {
+  // Extract all unique match IDs from the CSV
+  let matchIdObj = {};
+  for (let i = 0; i < allMatchData.getRowCount(); i++) {
+    let matchId = allMatchData.getRow(i).getString('match_id');
+    matchIdObj[matchId] = true;
+  }
+  allMatchIds = Object.keys(matchIdObj);
+}
+
+function loadMatch(matchId) {
+  // Update the match specifier
+  matchSpecifier = matchId;
+
+  // Filter the data for the specified match
+  matchData = filterMatchData(allMatchData, matchSpecifier);
 
   // Parse the match data into an easily accessible object
   parseMatchData();
+
+  // Update the scoresnake visualization
+  scoresnake = new ScoresnakeChart();
+  scoresnake.update(tennisMatch);
+
+  // Update the display
+  updateMatchDisplay(matchId);
+
+  // Redraw (works even when noLoop() is active)
+  if (dataLoaded) {
+    redraw();
+  }
+}
+
+function updateMatchDisplay(matchId) {
+  let displayElement = document.getElementById('match-display');
+  if (displayElement) {
+    displayElement.textContent = matchId;
+  }
+}
+
+function setupSearchInterfaceLoading() {
+  let searchInput = document.getElementById('search-input');
+  let loadingIndicator = document.getElementById('loading-indicator');
+  
+  // Show loading indicator
+  updateMatchDisplay(matchSpecifier);
+  loadingIndicator.classList.remove('loading-hidden');
+  
+  // Allow typing immediately - will show empty results until data loads
+  searchInput.addEventListener('input', handleSearchInput);
+}
+
+function handleSearchInput() {
+  let searchInput = document.getElementById('search-input');
+  let dropdown = document.getElementById('dropdown');
+  let searchTerm = searchInput.value.toLowerCase();
+
+  if (searchTerm.length === 0) {
+    dropdown.classList.add('dropdown-hidden');
+    return;
+  }
+
+  // If data not loaded yet, show "loading" message in dropdown
+  if (!fullDataLoaded) {
+    dropdown.innerHTML = '<div class="dropdown-item" style="cursor: default; color: #666;">Loading match database...</div>';
+    dropdown.classList.remove('dropdown-hidden');
+    return;
+  }
+
+  // Fuzzy filter: match if search term appears anywhere in match ID
+  let matches = allMatchIds.filter(matchId =>
+    matchId.toLowerCase().includes(searchTerm)
+  );
+
+  // Sort matches by relevance (starts with search term first)
+  matches.sort((a, b) => {
+    let aLower = a.toLowerCase();
+    let bLower = b.toLowerCase();
+    let aStarts = aLower.startsWith(searchTerm);
+    let bStarts = bLower.startsWith(searchTerm);
+
+    if (aStarts && !bStarts) return -1;
+    if (!aStarts && bStarts) return 1;
+    return a.localeCompare(b);
+  });
+
+  // Display matches in dropdown
+  if (matches.length > 0) {
+    dropdown.innerHTML = '';
+    dropdown.classList.remove('dropdown-hidden');
+
+    // Limit to top 20 matches
+    matches.slice(0, 20).forEach((matchId, index) => {
+      let item = document.createElement('div');
+      item.className = 'dropdown-item';
+      item.textContent = matchId;
+
+      // Add hover handler to load match on mouseover
+      item.addEventListener('mouseenter', function () {
+        loadMatch(matchId);
+      });
+
+      // Add click handler
+      item.addEventListener('click', function () {
+        loadMatch(matchId);
+        searchInput.value = '';
+        dropdown.classList.add('dropdown-hidden');
+      });
+
+      dropdown.appendChild(item);
+    });
+
+    // Automatically load the top candidate
+    loadMatch(matches[0]);
+  } else {
+    dropdown.classList.add('dropdown-hidden');
+  }
+}
+
+function setupSearchInterface() {
+  let loadingIndicator = document.getElementById('loading-indicator');
+  let dropdown = document.getElementById('dropdown');
+  let searchInput = document.getElementById('search-input');
+
+  // Hide loading indicator now that data is loaded
+  loadingIndicator.classList.add('loading-hidden');
+  
+  // If user already typed something, update results
+  if (searchInput.value.length > 0) {
+    handleSearchInput();
+  }
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', function (e) {
+    if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.classList.add('dropdown-hidden');
+    }
+  });
 }
 
 POINTS_TO_WIN_GAME = 4;
 GAMES_TO_WIN_SET = 6;
 SETS_TO_WIN_MATCH = 3;
 
+
+let scoresnake;
 
 let layers = [];
 
@@ -71,20 +296,20 @@ class Game {
     this.tiles = tiles;
   }
 
-  draw(x, y, g, b = 30) {
+  draw(x, y, b = 30) {
 
     // console.log(`Drawing game at (${x}, ${y}) with tailSize ${tailSize} and point tiles ${xTiles} x ${yTiles}`);
 
-    g.stroke(20);
-    g.fill(b);
-    g.strokeWeight(0.25);
+    stroke(20);
+    fill(b);
+    strokeWeight(0.25);
 
     let s = pointSquareSize;
 
     for (let p1_pts = 0; p1_pts < this.tiles; p1_pts++) {
       for (let p2_pts = 0; p2_pts < this.tiles; p2_pts++) {
 
-        g.rect(x + p1_pts * s, y + p2_pts * s, s, s);
+        rect(x + p1_pts * s, y + p2_pts * s, s, s);
 
       }
     }
@@ -115,9 +340,9 @@ class Game {
     let tX = x + this.tiles * s;
     let tY = y + this.tiles * s;
     for (let layer = 0; layer < this.tailSize; layer++) {
-      g.rect(tX + layer * s, tY + layer * s, s, s);
-      g.rect(tX + layer * s, tY + (layer - 1) * s, s, s);
-      g.rect(tX + (layer - 1) * s, tY + layer * s, s, s);
+      rect(tX + layer * s, tY + layer * s, s, s);
+      rect(tX + layer * s, tY + (layer - 1) * s, s, s);
+      rect(tX + (layer - 1) * s, tY + layer * s, s, s);
 
       if (this.tiles > POINTS_TO_WIN_GAME) {
 
@@ -361,7 +586,7 @@ class Set {
           b = 20;
         }
 
-        game.draw(x + offset[axisToPlayer("x")], y + offset[axisToPlayer("y")], layers[1], b);
+        game.draw(x + offset[axisToPlayer("x")], y + offset[axisToPlayer("y")], b);
 
         offset[2] += this.gameOffsets[2][p2_gamesWon];
 
@@ -477,9 +702,160 @@ class ScoresnakeChart {
     }
 
   }
-}
 
-scoresnake = new ScoresnakeChart;
+  update(matchData) {
+
+    layers[2].clear();
+    layers[0].clear();
+
+    let s = pointSquareSize;
+
+    let setPos = createVector(0, 0);
+
+    for (let set of matchData.sets) {
+
+      let gamePos = createVector(0, 0);
+
+      this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].active[1][0] = true;
+      this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].active[2][0] = true;
+
+      for (let [g, game] of set.games.entries()) {
+
+
+        this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].
+          games[game.gamesInSetWonByPlayerSoFar[1]][game.gamesInSetWonByPlayerSoFar[2]].active = true;
+
+        let pointPos = createVector(0, 0);
+
+        for (let point of game.points) {
+
+          if (point.winner == 1) {
+            if (point.server == 1) {
+              layers[2].fill("#A423B7");
+            } else {
+              layers[2].fill("#F442FF");
+            }
+          } else if (point.winner == 2) {
+            if (point.server == 2) {
+              layers[2].fill("#00A300");
+            } else {
+              layers[2].fill("#00FF00");
+            }
+          }
+
+          layers[2].strokeWeight(0.25);
+          layers[2].stroke(20);
+
+          layers[2].rect(setPos.x + gamePos.x + pointPos.x, setPos.y + gamePos.y + pointPos.y, s, s);
+
+          pointPos[pAxes[point.winner]] += s;
+
+        }
+
+        // winner
+        let w = game.winner;
+        // loser
+        let l;
+        if (w == 1) {
+          l = 2;
+        } else {
+          l = 1;
+        }
+
+
+
+        let gX = gamePos.x; let gY = gamePos.y;
+
+        let gameOffsets = this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].gameOffsets;
+
+        if (game.gamesInSetWonByPlayerSoFar[l] >= GAMES_TO_WIN_SET - 1 || game.gamesInSetWonByPlayerSoFar[w] < GAMES_TO_WIN_SET - 1) {
+          this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].active[w][game.gamesInSetWonByPlayerSoFar[w] + 1] = true;
+        }
+
+
+        let sGame = this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].
+          games[game.gamesInSetWonByPlayerSoFar[1]][game.gamesInSetWonByPlayerSoFar[2]]
+
+        sGame.tailSize = pointPos[pAxes[w]] / s - sGame.tiles;
+
+        gameOffsets[w][game.gamesInSetWonByPlayerSoFar[w]] = max(
+          gameOffsets[w][game.gamesInSetWonByPlayerSoFar[w]],
+          pointPos[pAxes[w]] + gameGap
+        );
+
+        gameOffsets[l][game.gamesInSetWonByPlayerSoFar[l]] = max(
+          gameOffsets[l][game.gamesInSetWonByPlayerSoFar[l]],
+          pointPos[pAxes[w]] + gameGap // have to account for tail protruding in both axes directions, so use winner's pointPos for both winner and loser offsets
+        );
+
+        if (!game.points[game.points.length - 1].isSetWinningPoint) {
+
+          gamePos[pAxes[w]] += gameOffsets[w][game.gamesInSetWonByPlayerSoFar[w]];
+
+          noStroke();
+
+          let t;
+          if (pAxes[w] == "x") {
+            t = (gamePos.x - pointPos[pAxes[w]]) - gX;
+          } else {
+            t = (gamePos.y - pointPos[pAxes[w]]) - gY;
+          }
+
+          drawConnector(
+            setPos.x + gX,
+            setPos.y + gY,
+            pointPos[pAxes[w]],
+            pointPos[pAxes[l]],
+            t,
+            (pAxes[w] == "x")
+          );
+
+        } else {
+
+          drawConnector(
+            setPos.x,
+            setPos.y,
+            gamePos[pAxes[w]] + pointPos[pAxes[w]],
+            gamePos[pAxes[l]] + pointPos[pAxes[l]],
+            setGap,
+            (pAxes[w] == "x")
+          );
+
+          gamePos[pAxes[w]] += pointPos[pAxes[w]];
+
+        }
+
+      }
+
+      // winner
+      let w = set.winner;
+      // loser
+      let l;
+      if (w == 1) {
+        l = 2;
+      } else {
+        l = 1;
+      }
+
+      let setOffsets = this.setOffsets;
+
+      setOffsets[w][set.setsInMatchWonByPlayerSoFar[w]] = max(
+        setOffsets[w][set.setsInMatchWonByPlayerSoFar[w]],
+        gamePos[pAxes[w]] + setGap
+      );
+
+      setOffsets[l][set.setsInMatchWonByPlayerSoFar[l]] = max(
+        setOffsets[l][set.setsInMatchWonByPlayerSoFar[l]],
+        gamePos[pAxes[l]] + setGap
+      );
+
+      setPos[pAxes[set.winner]] += setOffsets[w][set.setsInMatchWonByPlayerSoFar[w]];
+
+    }
+
+
+  }
+}
 
 // Parse CSV data into a nested hierarchical object
 function parseMatchData() {
@@ -716,7 +1092,7 @@ function parseMatchData() {
 function drawConnector(x, y, pW, pL, thickness = pointSquareSize, winnerAxisIsX = true) {
 
 
-  fill(100);
+  layers[0].fill(100);
 
   // l = loser axis
   // w = winner axis
@@ -734,30 +1110,53 @@ function drawConnector(x, y, pW, pL, thickness = pointSquareSize, winnerAxisIsX 
     { l: pL + s, w: pW }
   ];
 
-  push();
-  translate(x, y);
+  layers[0].push();
+  layers[0].translate(x, y);
 
-  beginShape();
+  layers[0].beginShape();
 
   for (let pt of points) {
     if (winnerAxisIsX) {
-      vertex(pt.w,
-        pt.l);
+      layers[0].vertex(pt.w, pt.l);
     } else {
-      vertex(pt.l,
-        pt.w);
+      layers[0].vertex(pt.l, pt.w);
     }
   }
 
-  endShape();
+  layers[0].endShape();
 
-  pop();
+  layers[0].pop();
 
 }
 
 function draw() {
   background(0);
-  layers[2].clear();
+  
+  if (!dataLoaded) {
+    // Show loading screen if somehow data isn't ready
+    fill(255);
+    textSize(48);
+    textAlign(CENTER, CENTER);
+    if (JetBrainsMonoBold) textFont(JetBrainsMonoBold);
+    text('Loading...', width / 2, height / 2);
+    return;
+  }
+  
+  layers[1].clear();
+  // layers[0].clear();
+  // layers[3].clear();
+
+
+  fill(255);
+  textSize(32);
+  if (JetBrainsMonoBold) textFont(JetBrainsMonoBold);
+  textAlign(LEFT, TOP);
+
+  text(`${tennisMatch.player1}`, 50, 50);
+
+  textAlign(RIGHT, TOP);
+
+  text(`${tennisMatch.player2}`, width - 50, 50);
 
   // stroke(255);
   // strokeWeight(1);
@@ -770,167 +1169,22 @@ function draw() {
   translate(matchX, matchY);
   rotate(TAU / 8);
 
-  // drawMatch(0, 0);
-
-  let s = pointSquareSize;
-
-  // layers[2].noStroke();
-
-  let setPos = createVector(0, 0);
-
-  for (let set of tennisMatch.sets) {
-
-    let gamePos = createVector(0, 0);
-
-    scoresnake.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].active[1][0] = true;
-    scoresnake.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].active[2][0] = true;
-
-    for (let [g, game] of set.games.entries()) {
-
-
-      scoresnake.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].
-        games[game.gamesInSetWonByPlayerSoFar[1]][game.gamesInSetWonByPlayerSoFar[2]].active = true;
-
-      let pointPos = createVector(0, 0);
-
-      for (let point of game.points) {
-
-        if (point.winner == 1) {
-          if (point.server == 1) {
-            layers[2].fill("#A423B7");
-          } else {
-            layers[2].fill("#F442FF");
-          }
-        } else if (point.winner == 2) {
-          if (point.server == 2) {
-            layers[2].fill("#00A300");
-          } else {
-            layers[2].fill("#00FF00");
-          }
-        }
-
-        layers[2].strokeWeight(0.25);
-        layers[2].stroke(20);
-
-        layers[2].rect(setPos.x + gamePos.x + pointPos.x, setPos.y + gamePos.y + pointPos.y, s, s);
-
-        pointPos[pAxes[point.winner]] += s;
-
-      }
-
-      // winner
-      let w = game.winner;
-      // loser
-      let l;
-      if (w == 1) {
-        l = 2;
-      } else {
-        l = 1;
-      }
-
-
-
-      let gX = gamePos.x; let gY = gamePos.y;
-
-      let gameOffsets = scoresnake.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].gameOffsets;
-
-      if (game.gamesInSetWonByPlayerSoFar[l] >= GAMES_TO_WIN_SET - 1 || game.gamesInSetWonByPlayerSoFar[w] < GAMES_TO_WIN_SET - 1) {
-        scoresnake.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].active[w][game.gamesInSetWonByPlayerSoFar[w] + 1] = true;
-      }
-
-
-      let sGame = scoresnake.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].
-        games[game.gamesInSetWonByPlayerSoFar[1]][game.gamesInSetWonByPlayerSoFar[2]]
-
-      sGame.tailSize = pointPos[pAxes[w]] / s - sGame.tiles;
-
-      gameOffsets[w][game.gamesInSetWonByPlayerSoFar[w]] = max(
-        gameOffsets[w][game.gamesInSetWonByPlayerSoFar[w]],
-        pointPos[pAxes[w]] + gameGap
-      );
-
-      gameOffsets[l][game.gamesInSetWonByPlayerSoFar[l]] = max(
-        gameOffsets[l][game.gamesInSetWonByPlayerSoFar[l]],
-        pointPos[pAxes[w]] + gameGap // have to account for tail protruding in both axes directions, so use winner's pointPos for both winner and loser offsets
-      );
-
-      if (!game.points[game.points.length - 1].isSetWinningPoint) {
-
-        gamePos[pAxes[w]] += gameOffsets[w][game.gamesInSetWonByPlayerSoFar[w]];
-
-        noStroke();
-
-        let t;
-        if (pAxes[w] == "x") {
-          t = (gamePos.x - pointPos[pAxes[w]]) - gX;
-        } else {
-          t = (gamePos.y - pointPos[pAxes[w]]) - gY;
-        }
-
-        drawConnector(
-          setPos.x + gX,
-          setPos.y + gY,
-          pointPos[pAxes[w]],
-          pointPos[pAxes[l]],
-          t,
-          (pAxes[w] == "x")
-        );
-
-      } else {
-
-        drawConnector(
-          setPos.x,
-          setPos.y,
-          gamePos[pAxes[w]] + pointPos[pAxes[w]],
-          gamePos[pAxes[l]] + pointPos[pAxes[l]],
-          setGap,
-          (pAxes[w] == "x")
-        );
-
-        gamePos[pAxes[w]] += pointPos[pAxes[w]];
-
-      }
-
-    }
-
-    // winner
-    let w = set.winner;
-    // loser
-    let l;
-    if (w == 1) {
-      l = 2;
-    } else {
-      l = 1;
-    }
-
-    let setOffsets = scoresnake.setOffsets;
-
-    setOffsets[w][set.setsInMatchWonByPlayerSoFar[w]] = max(
-      setOffsets[w][set.setsInMatchWonByPlayerSoFar[w]],
-      gamePos[pAxes[w]] + setGap
-    );
-
-    setOffsets[l][set.setsInMatchWonByPlayerSoFar[l]] = max(
-      setOffsets[l][set.setsInMatchWonByPlayerSoFar[l]],
-      gamePos[pAxes[l]] + setGap
-    );
-
-    setPos[pAxes[set.winner]] += setOffsets[w][set.setsInMatchWonByPlayerSoFar[w]];
-
-  }
+  image(layers[0], 0, 0);
 
   scoresnake.draw(0, 0);
 
-  for (let layer of layers) {
+  image(layers[2], 0, 0);
 
-    image(layer, 0, 0);
+  // for (let layer of layers) {
 
-  }
+  //   image(layer, 0, 0);
+
+  // }
 
   pop();
 
 
 
-  noLoop();
+  // noLoop();
 
 }
