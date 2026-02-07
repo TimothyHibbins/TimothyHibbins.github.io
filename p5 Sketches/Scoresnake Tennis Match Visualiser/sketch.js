@@ -1,6 +1,10 @@
-let allMatchData;  // Will store all matches from CSV
-let matchData;     // Will store the filtered match data
+let matchData;     // Will store the currently displayed match data
 let allMatchIds = []; // Will store all unique match IDs
+
+// Lazy loading: store CSV and metadata
+let csvText = '';  // Full CSV text kept in memory
+let csvHeaders = []; // CSV header row
+let matchMetadata = {}; // Map: {match_id: {startLine: X, endLine: Y}}
 
 // Specify which match to visualize
 let matchSpecifier = '20250116-M-Australian_Open-R64-Learner_Tien-Daniil_Medvedev';
@@ -9,140 +13,286 @@ let JetBrainsMonoBold;
 let dataLoaded = false;
 let fullDataLoaded = false;
 
+// Global variables used in visualization (initialized in parseMatchData)
+let tennisMatch;
+let layers = [];
+let scoresnake;
+
 function preload() {
   // Only load the font in preload - load CSV async later
-  JetBrainsMonoBold = loadFont('JetBrainsMono-Bold.ttf', 
-    () => {}, // success callback
+  JetBrainsMonoBold = loadFont('JetBrainsMono-Bold.ttf',
+    () => { }, // success callback
     () => { JetBrainsMonoBold = null; } // error callback - use default font
   );
-  
+
   // Load just the default match data synchronously for immediate display
   matchData = loadTable('tien versus medvedev.csv', 'csv', 'header');
 }
 
 function setup() {
   // Canvas is now 60% width to accommodate search pane
-  createCanvas(windowWidth * 0.6, windowHeight);
+  let canvas = createCanvas(windowWidth * 0.6, windowHeight);
+  canvas.parent('sketch-pane');
 
-  bgLayer = createGraphics(windowWidth * 0.6, windowHeight);
-
-
+  // Initialize graphics layers
   layers = [
-    // 0 - background
-    createGraphics(windowWidth * 0.6, windowHeight),
-    // 1
-    createGraphics(windowWidth * 0.6, windowHeight),
-    // 2 - snake
-    createGraphics(windowWidth * 0.6, windowHeight),
-
+    createGraphics(windowWidth * 0.6, windowHeight), // 0 - background
+    createGraphics(windowWidth * 0.6, windowHeight), // 1 - unused
+    createGraphics(windowWidth * 0.6, windowHeight)  // 2 - snake
   ];
 
   // Parse and display the default match immediately
   parseMatchData();
+
+  // Determine if this is best of 3 or best of 5
+  let maxSetsWon = Math.max(tennisMatch.setsInMatchWonByPlayer[1], tennisMatch.setsInMatchWonByPlayer[2]);
+  SETS_TO_WIN_MATCH = maxSetsWon; // 2 for best of 3, 3 for best of 5
+
   scoresnake = new ScoresnakeChart();
   scoresnake.update(tennisMatch);
   dataLoaded = true;
-  
+
   // Set up basic search interface with loading message
   setupSearchInterfaceLoading();
-  
-  // Now load the full CSV asynchronously
-  loadTable('charting-m-points-2020s.csv', 'csv', 'header', function(table) {
-    allMatchData = table;
-    // Extract match IDs in chunks to avoid blocking the UI
-    extractMatchIdsAsync();
-  });
+
+  // Update progress to show CSV download is starting
+  let progressText = document.getElementById('progress-text');
+  let progressBar = document.getElementById('progress-bar');
+  if (progressText) {
+    progressText.textContent = 'Downloading match database...';
+  }
+  if (progressBar) {
+    progressBar.style.width = '0%';
+  }
+
+  // Download CSV with progress tracking
+  fetch('charting-m-points-2020s.csv')
+    .then(response => {
+      const contentLength = response.headers.get('content-length');
+      const total = parseInt(contentLength, 10);
+      let loaded = 0;
+
+      const reader = response.body.getReader();
+      const chunks = [];
+
+      return new ReadableStream({
+        start(controller) {
+          function push() {
+            reader.read().then(({ done, value }) => {
+              if (done) {
+                controller.close();
+                return;
+              }
+
+              loaded += value.byteLength;
+              chunks.push(value);
+
+              // Update download progress
+              if (total) {
+                const percent = Math.round((loaded / total) * 100);
+                if (progressBar) {
+                  progressBar.style.width = percent + '%';
+                }
+                if (progressText) {
+                  progressText.textContent = `Downloading match database... ${percent}%`;
+                }
+              }
+
+              controller.enqueue(value);
+              push();
+            });
+          }
+          push();
+        }
+      });
+    })
+    .then(stream => new Response(stream))
+    .then(response => response.text())
+    .then(csvText => {
+      // Immediately update UI for parsing phase
+      if (progressText) {
+        progressText.textContent = 'Parsing CSV data...';
+      }
+      if (progressBar) {
+        progressBar.style.transition = 'none';
+        progressBar.style.width = '0%';
+        setTimeout(() => {
+          progressBar.style.transition = 'width 0.3s ease';
+        }, 50);
+      }
+
+      // Parse CSV in chunks to avoid blocking
+      parseCSVAsync(csvText);
+    })
+    .catch(error => {
+      console.error('Error loading CSV:', error);
+      if (progressText) {
+        progressText.textContent = 'Error loading match database';
+      }
+    });
 }
 
-function extractMatchIdsAsync() {
+function parseCSVAsync(csvData) {
+  // Store CSV globally for lazy loading
+  csvText = csvData;
+  let lines = csvText.split('\n');
+  csvHeaders = lines[0].split(',');
+
+  let currentIndex = 1; // Skip header row
+  const CHUNK_SIZE = 10000; // Process 10000 lines at a time (faster since we're just scanning)
+
+  let progressText = document.getElementById('progress-text');
+  let progressBar = document.getElementById('progress-bar');
+
+  // Track match IDs and their line ranges
   let matchIdObj = {};
-  let currentIndex = 0;
-  const CHUNK_SIZE = 1000; // Process 1000 rows at a time
-  
-  function processChunk() {
-    let endIndex = Math.min(currentIndex + CHUNK_SIZE, allMatchData.getRowCount());
-    
+  let matchIdsArray = [];
+  let previousMatchId = null;
+  let matchStartLine = null;
+  let matchIdIndex = csvHeaders.indexOf('match_id');
+
+  function parseChunk() {
+    let endIndex = Math.min(currentIndex + CHUNK_SIZE, lines.length);
+
+    // Scan this chunk for match boundaries
     for (let i = currentIndex; i < endIndex; i++) {
-      let matchId = allMatchData.getRow(i).getString('match_id');
-      matchIdObj[matchId] = true;
+      if (lines[i].trim()) {
+        // Extract match ID from this row
+        let cells = lines[i].split(',');
+        if (matchIdIndex >= 0 && cells[matchIdIndex]) {
+          let matchId = cells[matchIdIndex].trim().replace(/^"|"$/g, '');
+
+          // If we encounter a new match, finalize the previous one
+          if (previousMatchId && matchId !== previousMatchId) {
+            matchMetadata[previousMatchId] = {
+              startLine: matchStartLine,
+              endLine: i - 1
+            };
+          }
+
+          // Start tracking this match if it's new
+          if (!matchIdObj[matchId]) {
+            matchIdObj[matchId] = true;
+            matchIdsArray.push(matchId);
+            matchStartLine = i;
+          }
+
+          previousMatchId = matchId;
+        }
+      }
     }
-    
+
     currentIndex = endIndex;
-    
-    if (currentIndex < allMatchData.getRowCount()) {
-      // More rows to process - schedule next chunk
-      setTimeout(processChunk, 0);
+
+    // Update parsing progress
+    let percent = Math.round((currentIndex / lines.length) * 100);
+    if (progressBar) {
+      progressBar.style.width = percent + '%';
+    }
+    if (progressText) {
+      progressText.textContent = `Scanning matches: ${matchIdsArray.length} found (${percent}%)`;
+    }
+
+    if (currentIndex < lines.length) {
+      // More lines to parse
+      setTimeout(parseChunk, 0);
     } else {
-      // Done processing all rows
-      allMatchIds = Object.keys(matchIdObj);
+      // Finalize the last match
+      if (previousMatchId && matchStartLine !== null) {
+        matchMetadata[previousMatchId] = {
+          startLine: matchStartLine,
+          endLine: lines.length - 1
+        };
+      }
+
+      // Scanning complete
+      allMatchIds = matchIdsArray;
       setupSearchInterface();
       fullDataLoaded = true;
-    }
-  }
-  
-  processChunk();
-}
 
-function filterMatchData(table, matchId) {
-  // Create a new table with the same columns
-  let filteredTable = new p5.Table();
-
-  // Copy column structure
-  for (let col of table.columns) {
-    filteredTable.addColumn(col);
-  }
-
-  // Iterate through rows and collect only those matching the matchId
-  let foundMatch = false;
-  for (let i = 0; i < table.getRowCount(); i++) {
-    let row = table.getRow(i);
-    let currentMatchId = row.getString('match_id');
-
-    if (currentMatchId === matchId) {
-      foundMatch = true;
-      let newRow = filteredTable.addRow();
-      for (let col of table.columns) {
-        newRow.set(col, row.get(col));
+      if (progressText) {
+        progressText.textContent = `${matchIdsArray.length} matches ready`;
       }
-    } else if (foundMatch) {
-      // We've passed the end of our match, stop looking
-      break;
     }
   }
 
-  return filteredTable;
+  parseChunk();
 }
 
-function extractMatchIds() {
-  // Extract all unique match IDs from the CSV
-  let matchIdObj = {};
-  for (let i = 0; i < allMatchData.getRowCount(); i++) {
-    let matchId = allMatchData.getRow(i).getString('match_id');
-    matchIdObj[matchId] = true;
+// Load a specific match by ID from the stored CSV
+function loadMatchById(matchId, callback) {
+  if (!matchMetadata[matchId]) {
+    console.error('Match not found:', matchId);
+    return;
   }
-  allMatchIds = Object.keys(matchIdObj);
+
+  let metadata = matchMetadata[matchId];
+  let lines = csvText.split('\n');
+
+  // Extract just the lines for this match
+  let matchLines = [];
+  for (let i = metadata.startLine; i <= metadata.endLine; i++) {
+    if (lines[i] && lines[i].trim()) {
+      matchLines.push(lines[i]);
+    }
+  }
+
+  // Build mini table
+  let miniTableData = csvHeaders.join(',') + '\n' + matchLines.join('\n');
+
+  loadTable(
+    'data:text/csv;charset=utf-8,' + encodeURIComponent(miniTableData),
+    'csv',
+    'header',
+    function (table) {
+      matchData = table;
+      if (callback) callback();
+    },
+    function (error) {
+      console.error('Error loading match:', matchId, error);
+    }
+  );
 }
 
 function loadMatch(matchId) {
-  // Update the match specifier
-  matchSpecifier = matchId;
+  try {
+    // Update the match specifier
+    matchSpecifier = matchId;
 
-  // Filter the data for the specified match
-  matchData = filterMatchData(allMatchData, matchSpecifier);
+    // Load match data lazily from CSV
+    loadMatchById(matchId, function () {
+      // Check if we have valid match data
+      if (matchData.getRowCount() === 0) {
+        return; // Skip if no data found
+      }
 
-  // Parse the match data into an easily accessible object
-  parseMatchData();
+      // Parse the match data into an easily accessible object
+      parseMatchData();
 
-  // Update the scoresnake visualization
-  scoresnake = new ScoresnakeChart();
-  scoresnake.update(tennisMatch);
+      // Check if parsing was successful
+      if (!tennisMatch || !tennisMatch.sets || tennisMatch.sets.length === 0) {
+        return; // Skip if parsing failed
+      }
 
-  // Update the display
-  updateMatchDisplay(matchId);
+      // Determine if this is best of 3 or best of 5
+      let maxSetsWon = Math.max(tennisMatch.setsInMatchWonByPlayer[1], tennisMatch.setsInMatchWonByPlayer[2]);
+      SETS_TO_WIN_MATCH = maxSetsWon; // 2 for best of 3, 3 for best of 5
 
-  // Redraw (works even when noLoop() is active)
-  if (dataLoaded) {
-    redraw();
+      // Update the scoresnake visualization
+      scoresnake = new ScoresnakeChart();
+      scoresnake.update(tennisMatch);
+
+      // Update the display
+      updateMatchDisplay(matchId);
+
+      // Redraw (works even when noLoop() is active)
+      if (dataLoaded) {
+        redraw();
+      }
+    });
+  } catch (e) {
+    // Silently catch errors for incomplete/invalid matches during loading
+    console.warn('Error loading match ' + matchId + ':', e);
   }
 }
 
@@ -156,11 +306,50 @@ function updateMatchDisplay(matchId) {
 function setupSearchInterfaceLoading() {
   let searchInput = document.getElementById('search-input');
   let loadingIndicator = document.getElementById('loading-indicator');
-  
+
   // Show loading indicator
   updateMatchDisplay(matchSpecifier);
   loadingIndicator.classList.remove('loading-hidden');
-  
+
+  // Set up random match button (disabled until data loads)
+  let randomMatchBtn = document.getElementById('random-match-btn');
+  if (randomMatchBtn) {
+    randomMatchBtn.disabled = true;
+    randomMatchBtn.addEventListener('click', function () {
+      if (allMatchIds.length > 0) {
+        let randomIndex = Math.floor(Math.random() * allMatchIds.length);
+        let randomMatchId = allMatchIds[randomIndex];
+        loadMatch(randomMatchId);
+      }
+    });
+  }
+
+  // Set up fullscreen button
+  let fullscreenBtn = document.getElementById('fullscreen-btn');
+  if (fullscreenBtn) {
+    // Function to update button text based on fullscreen state
+    function updateFullscreenButton() {
+      let btnText = fullscreenBtn.querySelector('.text');
+      if (document.fullscreenElement) {
+        btnText.textContent = 'Exit Fullscreen';
+      } else {
+        btnText.textContent = 'Fullscreen';
+      }
+    }
+
+    // Toggle fullscreen on click
+    fullscreenBtn.addEventListener('click', function () {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        document.exitFullscreen();
+      }
+    });
+
+    // Update button text when fullscreen state changes
+    document.addEventListener('fullscreenchange', updateFullscreenButton);
+  }
+
   // Allow typing immediately - will show empty results until data loads
   searchInput.addEventListener('input', handleSearchInput);
 }
@@ -236,10 +425,16 @@ function setupSearchInterface() {
   let loadingIndicator = document.getElementById('loading-indicator');
   let dropdown = document.getElementById('dropdown');
   let searchInput = document.getElementById('search-input');
+  let randomMatchBtn = document.getElementById('random-match-btn');
 
   // Hide loading indicator now that data is loaded
   loadingIndicator.classList.add('loading-hidden');
-  
+
+  // Enable random match button
+  if (randomMatchBtn) {
+    randomMatchBtn.disabled = false;
+  }
+
   // If user already typed something, update results
   if (searchInput.value.length > 0) {
     handleSearchInput();
@@ -256,11 +451,6 @@ function setupSearchInterface() {
 POINTS_TO_WIN_GAME = 4;
 GAMES_TO_WIN_SET = 6;
 SETS_TO_WIN_MATCH = 3;
-
-
-let scoresnake;
-
-let layers = [];
 
 let pointSquareSize = 5;
 
@@ -623,6 +813,9 @@ class ScoresnakeChart {
       }
     }
 
+    this.maxX;
+    this.maxY;
+
   }
 
   draw(x, y) {
@@ -854,13 +1047,17 @@ class ScoresnakeChart {
     }
 
 
+    this.maxX = setPos.x;
+    this.maxY = setPos.y;
+
+
   }
 }
 
 // Parse CSV data into a nested hierarchical object
 function parseMatchData() {
   // Create the match object with nested structure
-  window.tennisMatch = {
+  tennisMatch = {
     matchId: '',
     player1: '',
     player2: '',
@@ -1131,7 +1328,7 @@ function drawConnector(x, y, pW, pL, thickness = pointSquareSize, winnerAxisIsX 
 
 function draw() {
   background(0);
-  
+
   if (!dataLoaded) {
     // Show loading screen if somehow data isn't ready
     fill(255);
@@ -1141,11 +1338,16 @@ function draw() {
     text('Loading...', width / 2, height / 2);
     return;
   }
-  
-  layers[1].clear();
-  // layers[0].clear();
-  // layers[3].clear();
 
+  if (!tennisMatch || !scoresnake) {
+    fill(255);
+    textSize(24);
+    textAlign(CENTER, CENTER);
+    text('Error: Match data not loaded', width / 2, height / 2);
+    return;
+  }
+
+  layers[1].clear();
 
   fill(255);
   textSize(32);
@@ -1158,16 +1360,22 @@ function draw() {
 
   text(`${tennisMatch.player2}`, width - 50, 50);
 
-  // stroke(255);
-  // strokeWeight(1);
-  // line(width / 2, 0, width / 2, height);
-
   let matchX = width / 2, matchY = 50;
-
 
   push();
   translate(matchX, matchY);
   rotate(TAU / 8);
+
+  let side = height / 2 - matchY;
+
+  let hyp = dist(0, 0, side, side);
+
+  let scaleFactor = hyp / max(scoresnake.maxX, scoresnake.maxY);
+
+  scale(scaleFactor);
+
+
+
 
   image(layers[0], 0, 0);
 
@@ -1182,9 +1390,21 @@ function draw() {
   // }
 
   pop();
+}
 
+function windowResized() {
+  // Resize main canvas to 60% of new window width
+  resizeCanvas(windowWidth * 0.6, windowHeight);
 
+  // Resize all graphics layers
+  for (let i = 0; i < layers.length; i++) {
+    layers[i].remove();
+    layers[i] = createGraphics(windowWidth * 0.6, windowHeight);
+  }
 
-  // noLoop();
-
+  // Redraw visualization with new dimensions
+  if (dataLoaded && scoresnake) {
+    scoresnake.update(tennisMatch);
+    redraw();
+  }
 }
