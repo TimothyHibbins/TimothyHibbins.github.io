@@ -410,6 +410,11 @@ function setupSearchInterfaceLoading() {
   updateMatchDisplay(matchSpecifier);
   loadingIndicator.classList.remove('loading-hidden');
 
+  if (dropdown) {
+    dropdown.classList.remove('dropdown-hidden');
+    dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Type in the search bar fields to filter matches</div>';
+  }
+
   if (searchScroll && dropdown && matchDisplay) {
     let syncScroll = () => {
       let left = searchScroll.scrollLeft;
@@ -419,6 +424,14 @@ function setupSearchInterfaceLoading() {
 
     searchScroll.addEventListener('scroll', syncScroll);
     syncScroll();
+  }
+
+  if (dropdown) {
+    dropdown.addEventListener('mouseleave', function () {
+      if (currentMatchId) {
+        previewMatch(currentMatchId);
+      }
+    });
   }
 
 
@@ -637,7 +650,7 @@ function handleSearchInput() {
 
   if (!hasAnyInput) {
     dropdown.classList.remove('dropdown-hidden');
-    dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">No matches</div>';
+    dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Type in the search bar fields to filter matches</div>';
     if (matchCountBar && matchCountText) {
       matchCountText.textContent = 'Matching: 0';
       matchCountBar.classList.remove('match-count-hidden');
@@ -712,12 +725,6 @@ function handleSearchInput() {
       // Add hover handler to load match on mouseover
       item.addEventListener('mouseenter', function () {
         previewMatch(matchId);
-      });
-
-      item.addEventListener('mouseleave', function () {
-        if (currentMatchId && currentMatchId !== matchId) {
-          previewMatch(currentMatchId);
-        }
       });
 
       // Add click handler
