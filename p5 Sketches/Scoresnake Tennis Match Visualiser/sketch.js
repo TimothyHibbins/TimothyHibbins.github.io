@@ -8,6 +8,7 @@ let matchMetadata = {}; // Map: {match_id: {startLine: X, endLine: Y}}
 
 // Specify which match to visualize
 let matchSpecifier = '20250116-M-Australian_Open-R64-Learner_Tien-Daniil_Medvedev';
+let currentMatchId = matchSpecifier;
 
 let JetBrainsMonoBold;
 let dataLoaded = false;
@@ -254,10 +255,12 @@ function loadMatchById(matchId, callback) {
   );
 }
 
-function loadMatch(matchId) {
+function loadMatch(matchId, options = { setCurrent: true }) {
   try {
-    // Update the match specifier
-    matchSpecifier = matchId;
+    if (options.setCurrent) {
+      matchSpecifier = matchId;
+      currentMatchId = matchId;
+    }
 
     // Load match data lazily from CSV
     loadMatchById(matchId, function () {
@@ -282,8 +285,9 @@ function loadMatch(matchId) {
       scoresnake = new ScoresnakeChart();
       scoresnake.update(tennisMatch);
 
-      // Update the display
-      updateMatchDisplay(matchId);
+      if (options.setCurrent) {
+        updateMatchDisplay(matchId);
+      }
 
       // Redraw (works even when noLoop() is active)
       if (dataLoaded) {
@@ -294,6 +298,10 @@ function loadMatch(matchId) {
     // Silently catch errors for incomplete/invalid matches during loading
     console.warn('Error loading match ' + matchId + ':', e);
   }
+}
+
+function previewMatch(matchId) {
+  loadMatch(matchId, { setCurrent: false });
 }
 
 function updateMatchDisplay(matchId) {
@@ -397,7 +405,6 @@ function setupSearchInterfaceLoading() {
   let searchScroll = document.getElementById('search-scroll');
   let dropdown = document.getElementById('dropdown');
   let matchDisplay = document.getElementById('match-display');
-  let clearSearchBtn = document.getElementById('clear-search-btn');
 
   // Show loading indicator
   updateMatchDisplay(matchSpecifier);
@@ -581,19 +588,6 @@ function setupSearchInterfaceLoading() {
       input.addEventListener('input', handleSearchInput);
     });
 
-  if (clearSearchBtn) {
-    clearSearchBtn.addEventListener('click', function () {
-      if (searchDateYear) searchDateYear.value = '';
-      if (searchDateMonth) searchDateMonth.value = '';
-      if (searchDateDay) searchDateDay.value = '';
-      if (searchGender) searchGender.value = '';
-      if (searchTournament) searchTournament.value = '';
-      if (searchRound) searchRound.value = '';
-      if (searchPlayers) searchPlayers.value = '';
-      handleSearchInput();
-      if (searchDateYear) searchDateYear.focus();
-    });
-  }
 }
 
 function handleSearchInput() {
@@ -647,6 +641,9 @@ function handleSearchInput() {
     if (matchCountBar && matchCountText) {
       matchCountText.textContent = 'Matching: 0';
       matchCountBar.classList.remove('match-count-hidden');
+    }
+    if (currentMatchId) {
+      previewMatch(currentMatchId);
     }
     return;
   }
@@ -714,12 +711,25 @@ function handleSearchInput() {
 
       // Add hover handler to load match on mouseover
       item.addEventListener('mouseenter', function () {
-        loadMatch(matchId);
+        previewMatch(matchId);
+      });
+
+      item.addEventListener('mouseleave', function () {
+        if (currentMatchId && currentMatchId !== matchId) {
+          previewMatch(currentMatchId);
+        }
       });
 
       // Add click handler
       item.addEventListener('click', function () {
         loadMatch(matchId);
+        if (searchDateYear) searchDateYear.value = '';
+        if (searchDateMonth) searchDateMonth.value = '';
+        if (searchDateDay) searchDateDay.value = '';
+        if (searchGender) searchGender.value = '';
+        if (searchTournament) searchTournament.value = '';
+        if (searchRound) searchRound.value = '';
+        if (searchPlayers) searchPlayers.value = '';
         handleSearchInput();
       });
 

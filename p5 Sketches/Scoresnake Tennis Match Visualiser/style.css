@@ -79,8 +79,7 @@ body {
 #search-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
   padding-left: 30px;
   padding-right: 30px;
   margin-top: 0;
@@ -90,28 +89,6 @@ body {
 
 #search-header h2 {
   margin: 0;
-}
-
-#clear-search-btn {
-  background: transparent;
-  border: 1px solid #333;
-  color: #999;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.2;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 10px;
-  opacity: 0.8;
-}
-
-#clear-search-btn:hover {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: #555;
-  color: #cfcfcf;
-  opacity: 1;
 }
 
 h2 {
@@ -596,6 +573,7 @@ h3 {
   min-height: 32px;
   background: #1f1f1f;
   width: 100%;
+  pointer-events: none;
 }
 
 /* Darker tail after last candidate */
