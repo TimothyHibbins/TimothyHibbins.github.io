@@ -514,6 +514,34 @@ h3 {
   overflow-y: visible;
 }
 
+#match-display .match-cell,
+#match-display .match-date {
+  position: relative;
+  cursor: pointer;
+}
+
+#match-display .match-cell:hover,
+#match-display .match-date:hover {
+  background-color: rgba(76, 175, 80, 0.12);
+}
+
+#match-display .match-cell:hover::after,
+#match-display .match-date:hover::after {
+  content: 'Click to add this to search filters';
+  position: absolute;
+  left: 8px;
+  top: -28px;
+  background: #1f1f1f;
+  border: 1px solid #4CAF50;
+  color: #cfe9cf;
+  padding: 4px 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 5;
+}
+
 #dropdown .match-row,
 #match-display .match-row {
   padding-left: 0;

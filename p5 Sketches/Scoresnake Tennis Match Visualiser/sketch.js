@@ -9,6 +9,9 @@ let matchMetadata = {}; // Map: {match_id: {startLine: X, endLine: Y}}
 // Specify which match to visualize
 let matchSpecifier = '20250116-M-Australian_Open-R64-Learner_Tien-Daniil_Medvedev';
 let currentMatchId = matchSpecifier;
+let currentMatches = [];
+let matchesRendered = 0;
+const MATCHES_BATCH_SIZE = 50;
 
 let JetBrainsMonoBold;
 let dataLoaded = false;
@@ -312,6 +315,45 @@ function updateMatchDisplay(matchId) {
   }
 }
 
+function renderNextMatchBatch(dropdown) {
+  if (!dropdown || matchesRendered >= currentMatches.length) return;
+
+  let searchDateYear = document.getElementById('search-date-year');
+  let searchDateMonth = document.getElementById('search-date-month');
+  let searchDateDay = document.getElementById('search-date-day');
+  let searchGender = document.getElementById('search-gender');
+  let searchTournament = document.getElementById('search-tournament');
+  let searchRound = document.getElementById('search-round');
+  let searchPlayers = document.getElementById('search-players');
+
+  let nextChunk = currentMatches.slice(matchesRendered, matchesRendered + MATCHES_BATCH_SIZE);
+  nextChunk.forEach(matchId => {
+    let item = document.createElement('div');
+    item.className = 'dropdown-item dropdown-item-match';
+    item.appendChild(createMatchRow(matchId));
+
+    item.addEventListener('mouseenter', function () {
+      previewMatch(matchId);
+    });
+
+    item.addEventListener('click', function () {
+      loadMatch(matchId);
+      if (searchDateYear) searchDateYear.value = '';
+      if (searchDateMonth) searchDateMonth.value = '';
+      if (searchDateDay) searchDateDay.value = '';
+      if (searchGender) searchGender.value = '';
+      if (searchTournament) searchTournament.value = '';
+      if (searchRound) searchRound.value = '';
+      if (searchPlayers) searchPlayers.value = '';
+      handleSearchInput();
+    });
+
+    dropdown.appendChild(item);
+  });
+
+  matchesRendered += nextChunk.length;
+}
+
 function parseMatchId(matchId) {
   let parts = matchId.split('-');
   if (parts.length < 6) {
@@ -350,6 +392,11 @@ function createMatchRow(matchId) {
 
   let dateCell = document.createElement('div');
   dateCell.className = 'date-container match-date';
+  dateCell.dataset.field = 'date';
+  dateCell.dataset.year = data.year;
+  dateCell.dataset.month = data.month;
+  dateCell.dataset.day = data.day;
+  dateCell.title = 'Click to add this to search filters';
 
   let year = document.createElement('span');
   year.className = 'match-date-part year';
@@ -371,16 +418,25 @@ function createMatchRow(matchId) {
   let gender = document.createElement('div');
   gender.className = 'match-cell centered';
   gender.textContent = data.gender;
+  gender.dataset.field = 'gender';
+  gender.dataset.value = data.gender;
+  gender.title = 'Click to add this to search filters';
   row.appendChild(gender);
 
   let tournament = document.createElement('div');
   tournament.className = 'match-cell';
   tournament.textContent = data.tournament.replace(/_/g, ' ');
+  tournament.dataset.field = 'tournament';
+  tournament.dataset.value = data.tournament;
+  tournament.title = 'Click to add this to search filters';
   row.appendChild(tournament);
 
   let round = document.createElement('div');
   round.className = 'match-cell';
   round.textContent = data.round;
+  round.dataset.field = 'round';
+  round.dataset.value = data.round;
+  round.title = 'Click to add this to search filters';
   row.appendChild(round);
 
   let players = document.createElement('div');
@@ -388,6 +444,10 @@ function createMatchRow(matchId) {
   let p1 = data.player1.replace(/_/g, ' ');
   let p2 = data.player2.replace(/_/g, ' ');
   players.textContent = `${p1} vs ${p2}`;
+  players.dataset.field = 'players';
+  players.dataset.player1 = data.player1;
+  players.dataset.player2 = data.player2;
+  players.title = 'Click to add this to search filters';
   row.appendChild(players);
 
   return row;
@@ -430,6 +490,49 @@ function setupSearchInterfaceLoading() {
     dropdown.addEventListener('mouseleave', function () {
       if (currentMatchId) {
         previewMatch(currentMatchId);
+      }
+    });
+
+    dropdown.addEventListener('scroll', function () {
+      let nearBottom = dropdown.scrollTop + dropdown.clientHeight >= dropdown.scrollHeight - 40;
+      if (nearBottom) {
+        renderNextMatchBatch(dropdown);
+      }
+    });
+  }
+
+  if (matchDisplay) {
+    matchDisplay.addEventListener('click', function (e) {
+      let dateCell = e.target.closest('.match-date');
+      let cell = e.target.closest('.match-cell');
+
+      if (dateCell && dateCell.dataset.field === 'date') {
+        if (searchDateYear) searchDateYear.value = dateCell.dataset.year || '';
+        if (searchDateMonth) searchDateMonth.value = dateCell.dataset.month || '';
+        if (searchDateDay) searchDateDay.value = dateCell.dataset.day || '';
+        handleSearchInput();
+        return;
+      }
+
+      if (cell && cell.dataset.field) {
+        let field = cell.dataset.field;
+        if (field === 'gender' && searchGender) {
+          searchGender.value = cell.dataset.value || '';
+        } else if (field === 'tournament' && searchTournament) {
+          searchTournament.value = (cell.dataset.value || '').replace(/_/g, ' ');
+        } else if (field === 'round' && searchRound) {
+          searchRound.value = cell.dataset.value || '';
+        } else if (field === 'players' && searchPlayers) {
+          let p1 = (cell.dataset.player1 || '').replace(/_/g, ' ');
+          let p2 = (cell.dataset.player2 || '').replace(/_/g, ' ');
+          let toAdd = [p1, p2].filter(Boolean).join(', ');
+          if (searchPlayers.value.trim()) {
+            searchPlayers.value = searchPlayers.value.replace(/\s*$/, '') + ', ' + toAdd;
+          } else {
+            searchPlayers.value = toAdd;
+          }
+        }
+        handleSearchInput();
       }
     });
   }
@@ -635,8 +738,8 @@ function handleSearchInput() {
 
   let dateSearch = (yearValue + monthValue + dayValue).toLowerCase();
   let genderSearch = searchGender.value.toLowerCase();
-  let tournamentSearch = searchTournament.value.toLowerCase();
-  let roundSearch = searchRound.value.toLowerCase();
+  let tournamentSearch = searchTournament.value.toLowerCase().replace(/\s+/g, '_');
+  let roundSearch = searchRound.value.toLowerCase().replace(/\s+/g, '_');
   let playersSearch = searchPlayers.value.toLowerCase();
 
   let players = playersSearch
@@ -651,6 +754,8 @@ function handleSearchInput() {
   if (!hasAnyInput) {
     dropdown.classList.remove('dropdown-hidden');
     dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Type in the search bar fields to filter matches</div>';
+    currentMatches = [];
+    matchesRendered = 0;
     if (matchCountBar && matchCountText) {
       matchCountText.textContent = 'Matching: 0';
       matchCountBar.classList.remove('match-count-hidden');
@@ -665,6 +770,8 @@ function handleSearchInput() {
   if (!fullDataLoaded) {
     dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Loading match database...</div>';
     dropdown.classList.remove('dropdown-hidden');
+    currentMatches = [];
+    matchesRendered = 0;
     if (matchCountBar && matchCountText) {
       matchCountText.textContent = 'Matching: ...';
       matchCountBar.classList.remove('match-count-hidden');
@@ -715,37 +822,15 @@ function handleSearchInput() {
       matchCountText.textContent = `Matching: ${matches.length}`;
       matchCountBar.classList.remove('match-count-hidden');
     }
-
-    // Limit to top 20 matches
-    matches.slice(0, 20).forEach((matchId, index) => {
-      let item = document.createElement('div');
-      item.className = 'dropdown-item dropdown-item-match';
-      item.appendChild(createMatchRow(matchId));
-
-      // Add hover handler to load match on mouseover
-      item.addEventListener('mouseenter', function () {
-        previewMatch(matchId);
-      });
-
-      // Add click handler
-      item.addEventListener('click', function () {
-        loadMatch(matchId);
-        if (searchDateYear) searchDateYear.value = '';
-        if (searchDateMonth) searchDateMonth.value = '';
-        if (searchDateDay) searchDateDay.value = '';
-        if (searchGender) searchGender.value = '';
-        if (searchTournament) searchTournament.value = '';
-        if (searchRound) searchRound.value = '';
-        if (searchPlayers) searchPlayers.value = '';
-        handleSearchInput();
-      });
-
-      dropdown.appendChild(item);
-    });
+    currentMatches = matches;
+    matchesRendered = 0;
+    renderNextMatchBatch(dropdown);
 
   } else {
     dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">No matches</div>';
     dropdown.classList.remove('dropdown-hidden');
+    currentMatches = [];
+    matchesRendered = 0;
     if (matchCountBar && matchCountText) {
       matchCountText.textContent = 'Matching: 0';
       matchCountBar.classList.remove('match-count-hidden');
