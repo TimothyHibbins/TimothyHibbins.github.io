@@ -20,36 +20,42 @@
           <h3>Current Match:</h3>
           <p id="match-display"></p>
         </div>
-        <h2>Match Search</h2>
-        <div id="search-scroll">
-          <div id="search-labels">
-            <div class="search-label">Date</div>
-            <div class="search-label">Gender</div>
-            <div class="search-label">Tournament</div>
-            <div class="search-label">Round</div>
-            <div class="search-label">Player 1</div>
-            <div class="search-label">Player 2</div>
+        <div id="search-stack">
+          <div id="search-header">
+            <h2>Match Search</h2>
+            <button id="clear-search-btn" type="button">Clear all search filters</button>
           </div>
-          <div id="search-fields">
-            <div id="date-container">
-              <input type="text" id="search-date-year" maxlength="4" autocomplete="off" placeholder="YYYY">
-              <input type="text" id="search-date-month" maxlength="2" autocomplete="off" placeholder="MM">
-              <input type="text" id="search-date-day" maxlength="2" autocomplete="off" placeholder="DD">
+          <div id="search-scroll">
+            <div id="search-labels">
+              <div class="search-label">Date</div>
+              <div class="search-label">Gender</div>
+              <div class="search-label">Tournament</div>
+              <div class="search-label">Round</div>
+              <div class="search-label">Players</div>
             </div>
-            <input type="text" id="search-gender" autocomplete="off">
-            <input type="text" id="search-tournament" autocomplete="off">
-            <input type="text" id="search-round" autocomplete="off">
-            <input type="text" id="search-player1" autocomplete="off">
-            <input type="text" id="search-player2" autocomplete="off">
+            <div id="search-fields">
+              <div id="date-container">
+                <input type="text" id="search-date-year" maxlength="4" autocomplete="off" placeholder="YYYY">
+                <input type="text" id="search-date-month" maxlength="2" autocomplete="off" placeholder="MM">
+                <input type="text" id="search-date-day" maxlength="2" autocomplete="off" placeholder="DD">
+              </div>
+              <input type="text" id="search-gender" autocomplete="off">
+              <input type="text" id="search-tournament" autocomplete="off">
+              <input type="text" id="search-round" autocomplete="off">
+              <input type="text" id="search-players" autocomplete="off">
+            </div>
           </div>
-        </div>
-        <div id="loading-indicator" class="loading-hidden">
-          <div id="progress-text">Loading match database...</div>
-          <div id="progress-bar-container">
-            <div id="progress-bar"></div>
+          <div id="match-count-bar" class="match-count-hidden">
+            <span id="match-count-text"></span>
           </div>
+          <div id="loading-indicator" class="loading-hidden">
+            <div id="progress-text">Loading match database...</div>
+            <div id="progress-bar-container">
+              <div id="progress-bar"></div>
+            </div>
+          </div>
+          <div id="dropdown" class="dropdown-hidden"></div>
         </div>
-        <div id="dropdown" class="dropdown-hidden"></div>
         <div id="random-match-section">
           <button id="random-match-btn">
             <svg class="icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
