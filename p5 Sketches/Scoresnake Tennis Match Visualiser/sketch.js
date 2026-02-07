@@ -575,21 +575,23 @@ function setupSearchInterfaceLoading() {
   }
 
   // Allow typing immediately - will show empty results until data loads
-  [searchDateYear, searchDateMonth, searchDateDay, searchGender, searchTournament, searchRound, searchPlayers].forEach(input => {
-    input.addEventListener('input', handleSearchInput);
-  });
+  [searchDateYear, searchDateMonth, searchDateDay, searchGender, searchTournament, searchRound, searchPlayers]
+    .filter(Boolean)
+    .forEach(input => {
+      input.addEventListener('input', handleSearchInput);
+    });
 
   if (clearSearchBtn) {
     clearSearchBtn.addEventListener('click', function () {
-      searchDateYear.value = '';
-      searchDateMonth.value = '';
-      searchDateDay.value = '';
-      searchGender.value = '';
-      searchTournament.value = '';
-      searchRound.value = '';
-      searchPlayers.value = '';
+      if (searchDateYear) searchDateYear.value = '';
+      if (searchDateMonth) searchDateMonth.value = '';
+      if (searchDateDay) searchDateDay.value = '';
+      if (searchGender) searchGender.value = '';
+      if (searchTournament) searchTournament.value = '';
+      if (searchRound) searchRound.value = '';
+      if (searchPlayers) searchPlayers.value = '';
       handleSearchInput();
-      searchDateYear.focus();
+      if (searchDateYear) searchDateYear.focus();
     });
   }
 }
