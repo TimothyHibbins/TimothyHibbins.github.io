@@ -307,6 +307,25 @@ function previewMatch(matchId) {
   loadMatch(matchId, { setCurrent: false });
 }
 
+function updatePlayer1Width(input) {
+  if (!input) return;
+  let length = input.value.length;
+  if (length < 1) length = 1;
+  input.style.width = `${length}ch`;
+}
+
+function syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields) {
+  if (!searchPlayer1 || !searchPlayer2) return;
+  if (searchPlayer1.value.trim() === '') {
+    searchPlayer2.value = '';
+    searchPlayer2.classList.add('player-field-hidden');
+    if (playerFields) playerFields.classList.remove('player2-visible');
+  } else {
+    searchPlayer2.classList.remove('player-field-hidden');
+    if (playerFields) playerFields.classList.add('player2-visible');
+  }
+}
+
 function updateMatchDisplay(matchId) {
   let displayElement = document.getElementById('match-display');
   if (displayElement) {
@@ -324,7 +343,9 @@ function renderNextMatchBatch(dropdown) {
   let searchGender = document.getElementById('search-gender');
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
-  let searchPlayers = document.getElementById('search-players');
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
+  let playerFields = document.getElementById('player-fields');
 
   let nextChunk = currentMatches.slice(matchesRendered, matchesRendered + MATCHES_BATCH_SIZE);
   nextChunk.forEach(matchId => {
@@ -344,7 +365,12 @@ function renderNextMatchBatch(dropdown) {
       if (searchGender) searchGender.value = '';
       if (searchTournament) searchTournament.value = '';
       if (searchRound) searchRound.value = '';
-      if (searchPlayers) searchPlayers.value = '';
+      if (searchPlayer1) searchPlayer1.value = '';
+      if (searchPlayer2) {
+        searchPlayer2.value = '';
+        searchPlayer2.classList.add('player-field-hidden');
+      }
+      if (playerFields) playerFields.classList.remove('player2-visible');
       handleSearchInput();
     });
 
@@ -440,14 +466,29 @@ function createMatchRow(matchId) {
   row.appendChild(round);
 
   let players = document.createElement('div');
-  players.className = 'match-cell';
-  let p1 = data.player1.replace(/_/g, ' ');
-  let p2 = data.player2.replace(/_/g, ' ');
-  players.textContent = `${p1} vs ${p2}`;
-  players.dataset.field = 'players';
-  players.dataset.player1 = data.player1;
-  players.dataset.player2 = data.player2;
-  players.title = 'Click to add this to search filters';
+  players.className = 'match-cell match-players';
+
+  let player1 = document.createElement('span');
+  player1.className = 'match-player';
+  player1.textContent = data.player1.replace(/_/g, ' ');
+  player1.dataset.field = 'player1';
+  player1.dataset.value = data.player1;
+  player1.title = 'Click to add this to search filters';
+
+  let sep = document.createElement('span');
+  sep.className = 'match-player-sep';
+  sep.textContent = ', ';
+
+  let player2 = document.createElement('span');
+  player2.className = 'match-player';
+  player2.textContent = data.player2.replace(/_/g, ' ');
+  player2.dataset.field = 'player2';
+  player2.dataset.value = data.player2;
+  player2.title = 'Click to add this to search filters';
+
+  players.appendChild(player1);
+  players.appendChild(sep);
+  players.appendChild(player2);
   row.appendChild(players);
 
   return row;
@@ -460,7 +501,9 @@ function setupSearchInterfaceLoading() {
   let searchGender = document.getElementById('search-gender');
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
-  let searchPlayers = document.getElementById('search-players');
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
+  let playerFields = document.getElementById('player-fields');
   let loadingIndicator = document.getElementById('loading-indicator');
   let searchScroll = document.getElementById('search-scroll');
   let dropdown = document.getElementById('dropdown');
@@ -473,6 +516,15 @@ function setupSearchInterfaceLoading() {
   if (dropdown) {
     dropdown.classList.remove('dropdown-hidden');
     dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Type in the search bar fields to filter matches</div>';
+  }
+
+  if (searchPlayer1) {
+    updatePlayer1Width(searchPlayer1);
+    searchPlayer1.addEventListener('input', function () {
+      updatePlayer1Width(searchPlayer1);
+      syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
+    });
+    syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
   }
 
   if (searchScroll && dropdown && matchDisplay) {
@@ -504,7 +556,7 @@ function setupSearchInterfaceLoading() {
   if (matchDisplay) {
     matchDisplay.addEventListener('click', function (e) {
       let dateCell = e.target.closest('.match-date');
-      let cell = e.target.closest('.match-cell');
+      let cell = e.target.closest('.match-cell, .match-player');
 
       if (dateCell && dateCell.dataset.field === 'date') {
         if (searchDateYear) searchDateYear.value = dateCell.dataset.year || '';
@@ -522,15 +574,17 @@ function setupSearchInterfaceLoading() {
           searchTournament.value = (cell.dataset.value || '').replace(/_/g, ' ');
         } else if (field === 'round' && searchRound) {
           searchRound.value = cell.dataset.value || '';
-        } else if (field === 'players' && searchPlayers) {
-          let p1 = (cell.dataset.player1 || '').replace(/_/g, ' ');
-          let p2 = (cell.dataset.player2 || '').replace(/_/g, ' ');
-          let toAdd = [p1, p2].filter(Boolean).join(', ');
-          if (searchPlayers.value.trim()) {
-            searchPlayers.value = searchPlayers.value.replace(/\s*$/, '') + ', ' + toAdd;
+        } else if (field === 'player1' && searchPlayer1) {
+          searchPlayer1.value = (cell.dataset.value || '').replace(/_/g, ' ');
+        } else if (field === 'player2' && searchPlayer2) {
+          let value = (cell.dataset.value || '').replace(/_/g, ' ');
+          if (searchPlayer1 && searchPlayer1.value.trim() === '') {
+            searchPlayer1.value = value;
+            updatePlayer1Width(searchPlayer1);
           } else {
-            searchPlayers.value = toAdd;
+            searchPlayer2.value = value;
           }
+          syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
         }
         handleSearchInput();
       }
@@ -596,8 +650,9 @@ function setupSearchInterfaceLoading() {
       searchGender,
       searchTournament,
       searchRound,
-      searchPlayers
-    ];
+      searchPlayer1,
+      searchPlayer2 && !searchPlayer2.classList.contains('player-field-hidden') ? searchPlayer2 : null
+    ].filter(Boolean);
 
     // Check if current target is one of our search fields
     const currentIndex = searchFields.findIndex(field => field === e.target);
@@ -646,17 +701,18 @@ function setupSearchInterfaceLoading() {
   setupDateFieldAutoAdvance(searchDateMonth, searchDateDay, searchDateYear, 2);
   setupDateFieldAutoAdvance(searchDateDay, searchGender, searchDateMonth, 2);
 
-  if (searchPlayers) {
-    searchPlayers.addEventListener('keydown', function (e) {
-      if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
-        let value = searchPlayers.value;
-        if (value.trim() && !value.trim().endsWith(',')) {
-          e.preventDefault();
-          searchPlayers.value = value.replace(/\s*$/, '') + ', ';
-        }
+  if (searchPlayer1) {
+    searchPlayer1.addEventListener('keydown', function (e) {
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && searchPlayer2) {
+        if (searchPlayer1.value.trim() === '') return;
+        e.preventDefault();
+        searchPlayer2.classList.remove('player-field-hidden');
+        if (playerFields) playerFields.classList.add('player2-visible');
+        searchPlayer2.focus();
       }
     });
   }
+
 
   // Set up random match button (disabled until data loads)
   let randomMatchBtn = document.getElementById('random-match-btn');
@@ -698,7 +754,7 @@ function setupSearchInterfaceLoading() {
   }
 
   // Allow typing immediately - will show empty results until data loads
-  [searchDateYear, searchDateMonth, searchDateDay, searchGender, searchTournament, searchRound, searchPlayers]
+  [searchDateYear, searchDateMonth, searchDateDay, searchGender, searchTournament, searchRound, searchPlayer1, searchPlayer2]
     .filter(Boolean)
     .forEach(input => {
       input.addEventListener('input', handleSearchInput);
@@ -713,22 +769,24 @@ function handleSearchInput() {
   let searchGender = document.getElementById('search-gender');
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
-  let searchPlayers = document.getElementById('search-players');
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
+  let playerFields = document.getElementById('player-fields');
   let dropdown = document.getElementById('dropdown');
   let matchCountBar = document.getElementById('match-count-bar');
   let matchCountText = document.getElementById('match-count-text');
 
-  // Concatenate date subfields with intelligent interpretation
   let yearValue = searchDateYear.value;
+  updatePlayer1Width(searchPlayer1);
+
+  syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
   let monthValue = searchDateMonth.value;
   let dayValue = searchDateDay.value;
 
-  // Interpret incomplete year (2 digits -> assume 20XX)
   if (yearValue.length === 2) {
     yearValue = '20' + yearValue;
   }
 
-  // Pad single-digit month/day with leading zero
   if (monthValue.length === 1) {
     monthValue = '0' + monthValue;
   }
@@ -740,22 +798,21 @@ function handleSearchInput() {
   let genderSearch = searchGender.value.toLowerCase();
   let tournamentSearch = searchTournament.value.toLowerCase().replace(/\s+/g, '_');
   let roundSearch = searchRound.value.toLowerCase().replace(/\s+/g, '_');
-  let playersSearch = searchPlayers.value.toLowerCase();
+  let player1Search = (searchPlayer1 ? searchPlayer1.value : '').toLowerCase().replace(/\s+/g, '_');
+  let player2Search = (searchPlayer2 ? searchPlayer2.value : '').toLowerCase().replace(/\s+/g, '_');
 
-  let players = playersSearch
-    .split(',')
-    .map(part => part.trim())
-    .filter(Boolean)
-    .map(part => part.replace(/\s+/g, '_'));
-
-  // Check if any field has input
-  let hasAnyInput = dateSearch || genderSearch || tournamentSearch || roundSearch || playersSearch;
+  let hasAnyInput = dateSearch || genderSearch || tournamentSearch || roundSearch || player1Search || player2Search;
 
   if (!hasAnyInput) {
     dropdown.classList.remove('dropdown-hidden');
     dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Type in the search bar fields to filter matches</div>';
     currentMatches = [];
     matchesRendered = 0;
+    if (searchPlayer2) {
+      searchPlayer2.classList.add('player-field-hidden');
+      searchPlayer2.value = '';
+    }
+    if (playerFields) playerFields.classList.remove('player2-visible');
     if (matchCountBar && matchCountText) {
       matchCountText.textContent = 'Matching: 0';
       matchCountBar.classList.remove('match-count-hidden');
@@ -766,7 +823,6 @@ function handleSearchInput() {
     return;
   }
 
-  // If data not loaded yet, show "loading" message in dropdown
   if (!fullDataLoaded) {
     dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Loading match database...</div>';
     dropdown.classList.remove('dropdown-hidden');
@@ -779,7 +835,6 @@ function handleSearchInput() {
     return;
   }
 
-  // Filter matches by each parameter
   let matches = allMatchIds.filter(matchId => {
     let parts = matchId.toLowerCase().split('-');
     if (parts.length < 6) return false;
@@ -797,24 +852,20 @@ function handleSearchInput() {
     let roundOk = !roundSearch || round.includes(roundSearch);
 
     let playersOk = true;
-    if (players.length === 1) {
-      let p = players[0];
-      playersOk = player1.includes(p) || player2.includes(p);
-    } else if (players.length === 2) {
-      let p1 = players[0];
-      let p2 = players[1];
-      playersOk = (player1.includes(p1) && player2.includes(p2)) || (player1.includes(p2) && player2.includes(p1));
-    } else if (players.length > 2) {
-      playersOk = false;
+    if (player1Search && !player2Search) {
+      playersOk = player1.includes(player1Search) || player2.includes(player1Search);
+    } else if (player2Search && !player1Search) {
+      playersOk = player1.includes(player2Search) || player2.includes(player2Search);
+    } else if (player1Search && player2Search) {
+      playersOk = (player1.includes(player1Search) && player2.includes(player2Search)) ||
+        (player1.includes(player2Search) && player2.includes(player1Search));
     }
 
     return dateOk && genderOk && tournamentOk && roundOk && playersOk;
   });
 
-  // Sort matches alphabetically
   matches.sort((a, b) => a.localeCompare(b));
 
-  // Display matches in dropdown
   if (matches.length > 0) {
     dropdown.innerHTML = '';
     dropdown.classList.remove('dropdown-hidden');
@@ -825,7 +876,6 @@ function handleSearchInput() {
     currentMatches = matches;
     matchesRendered = 0;
     renderNextMatchBatch(dropdown);
-
   } else {
     dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">No matches</div>';
     dropdown.classList.remove('dropdown-hidden');
@@ -847,7 +897,8 @@ function setupSearchInterface() {
   let searchGender = document.getElementById('search-gender');
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
-  let searchPlayers = document.getElementById('search-players');
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
   let randomMatchBtn = document.getElementById('random-match-btn');
 
   // Hide loading indicator now that data is loaded
@@ -861,7 +912,7 @@ function setupSearchInterface() {
   // If user already typed something, update results
   let hasInput = searchDateYear.value || searchDateMonth.value || searchDateDay.value ||
     searchGender.value || searchTournament.value ||
-    searchRound.value || searchPlayers.value;
+    searchRound.value || searchPlayer1.value || searchPlayer2.value;
   if (hasInput) {
     handleSearchInput();
   }
