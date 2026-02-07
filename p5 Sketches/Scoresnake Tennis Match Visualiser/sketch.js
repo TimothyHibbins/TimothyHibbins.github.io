@@ -504,6 +504,8 @@ class Game {
       }
     }
 
+    fill(255);
+
     if (this.tiles > POINTS_TO_WIN_GAME) {
       for (let i = 0; i < this.tiles; i++) {
 
@@ -529,7 +531,9 @@ class Game {
 
     let tX = x + this.tiles * s;
     let tY = y + this.tiles * s;
+
     for (let layer = 0; layer < this.tailSize; layer++) {
+      fill(b);
       rect(tX + layer * s, tY + layer * s, s, s);
       rect(tX + layer * s, tY + (layer - 1) * s, s, s);
       rect(tX + (layer - 1) * s, tY + layer * s, s, s);
@@ -538,6 +542,7 @@ class Game {
 
         textAlign(RIGHT, CENTER);
         textSize(5);
+        fill(255);
 
         push();
         translate(tX + layer * s + pointSquareSize / 2, tY + (layer - 1) * s - 3);
