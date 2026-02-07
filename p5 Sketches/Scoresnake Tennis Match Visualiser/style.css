@@ -1,3 +1,10 @@
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('JetBrainsMono-Bold.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+}
+
 html,
 body {
   margin: 0;
@@ -27,9 +34,30 @@ body {
   box-shadow: -2px 0 8px rgba(0, 0, 0, 0.5);
 }
 
+:root {
+  --date-field-content-width: calc(4ch + 2ch + 2ch + 2ch);
+  --date-pad-left: 12px;
+  --date-pad-right: 16px;
+  --date-field-width: calc(var(--date-field-content-width) + var(--date-pad-left) + var(--date-pad-right));
+  --col-gender: 33px;
+  --col-tournament-min: 130px;
+  --col-round-width: calc(7ch + 24px);
+  --col-player-min: 150px;
+  --search-grid-columns: var(--date-field-width) var(--col-gender) var(--col-tournament-min) var(--col-round-width) minmax(var(--col-player-min), 1fr) minmax(var(--col-player-min), 1fr);
+}
+
 #search-container {
-  padding: 30px;
-  max-width: 600px;
+  padding: 0;
+  max-width: none;
+}
+
+#search-container>*:not(#search-labels):not(#search-fields):not(#search-scroll):not(#dropdown):not(#current-match) {
+  padding-left: 30px;
+  padding-right: 30px;
+}
+
+#search-container>h2 {
+  padding-top: 30px;
 }
 
 h2 {
@@ -129,6 +157,174 @@ h3 {
   margin-bottom: 10px;
 }
 
+#search-scroll {
+  overflow-x: auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#search-labels {
+  display: grid;
+  grid-template-columns: var(--search-grid-columns);
+  margin-bottom: 4px;
+  padding-left: 0;
+  overflow: visible;
+  width: 100%;
+  min-width: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+}
+
+.search-label {
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  text-align: center;
+  width: 100%;
+  overflow: visible;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+}
+
+#search-labels .search-label:nth-child(2) {
+  justify-self: center;
+  width: max-content;
+}
+
+#search-labels .search-label:nth-child(2)::before {
+  display: none;
+}
+
+/* Highlight label for focused field */
+#search-scroll:has(#search-date-year:focus),
+#search-scroll:has(#search-date-month:focus),
+#search-scroll:has(#search-date-day:focus) {}
+
+#search-scroll:has(#search-date-year:focus) #search-labels .search-label:nth-child(1),
+#search-scroll:has(#search-date-month:focus) #search-labels .search-label:nth-child(1),
+#search-scroll:has(#search-date-day:focus) #search-labels .search-label:nth-child(1) {
+  color: #4CAF50;
+}
+
+#search-scroll:has(#search-gender:focus) #search-labels .search-label:nth-child(2) {
+  color: #4CAF50;
+}
+
+#search-scroll:has(#search-tournament:focus) #search-labels .search-label:nth-child(3) {
+  color: #4CAF50;
+}
+
+#search-scroll:has(#search-round:focus) #search-labels .search-label:nth-child(4) {
+  color: #4CAF50;
+}
+
+#search-scroll:has(#search-player1:focus) #search-labels .search-label:nth-child(5) {
+  color: #4CAF50;
+}
+
+#search-scroll:has(#search-player2:focus) #search-labels .search-label:nth-child(6) {
+  color: #4CAF50;
+}
+
+
+#search-fields {
+  display: grid;
+  grid-template-columns: var(--search-grid-columns);
+  border-top: 1px solid #444;
+  border-bottom: 1px solid #444;
+  border-right: none;
+  overflow: hidden;
+  background-color: #2d2d2d;
+  margin-bottom: 8px;
+  transition: border-color 0.2s;
+  padding-left: 0;
+  width: 100%;
+  min-width: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+}
+
+#search-fields:focus-within {
+  border-color: #4CAF50;
+}
+
+#search-fields input {
+  padding: 12px 12px;
+  font-size: 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: bold;
+  border: none;
+  border-right: 1px solid #444;
+  box-sizing: border-box;
+  background-color: transparent;
+  color: #e0e0e0;
+  outline: none;
+  flex-shrink: 0;
+  text-align: left;
+}
+
+.date-container {
+  display: flex;
+  width: 100%;
+  border-right: 1px solid #444;
+  flex-shrink: 0;
+  gap: 1ch;
+  padding: 0 var(--date-pad-right) 0 var(--date-pad-left);
+  box-sizing: border-box;
+}
+
+#date-container {
+  display: flex;
+  width: 100%;
+  border-right: 1px solid #444;
+  flex-shrink: 0;
+  gap: 1ch;
+  padding: 0 var(--date-pad-right) 0 var(--date-pad-left);
+  box-sizing: border-box;
+}
+
+#date-container input,
+.date-container .match-date-part {
+  border: none !important;
+  border-right: none !important;
+  padding: 12px 0 !important;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+#search-date-year {
+  width: 4ch;
+}
+
+#search-date-month {
+  width: 2ch;
+}
+
+#search-date-day {
+  width: 2ch;
+}
+
+#search-gender {
+  width: var(--col-gender);
+  text-align: center !important;
+  padding: 12px 0 !important;
+}
+
+#search-player2 {
+  border-right: none;
+}
+
+#search-fields> :last-child {
+  border-right: none;
+}
+
+#search-fields input::placeholder {
+  color: #666;
+  font-size: 13px;
+}
+
 #search-input {
   width: 100%;
   padding: 12px 16px;
@@ -184,10 +380,15 @@ h3 {
   margin-top: 8px;
   background: #2d2d2d;
   border: 2px solid #444;
-  border-radius: 8px;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
   max-height: 400px;
+  overflow-x: auto;
   overflow-y: auto;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .dropdown-hidden {
@@ -195,11 +396,20 @@ h3 {
 }
 
 .dropdown-item {
-  padding: 12px 16px;
   cursor: pointer;
   border-bottom: 1px solid #3a3a3a;
   transition: background-color 0.15s;
   color: #e0e0e0;
+  font-size: 14px;
+}
+
+.dropdown-item-text {
+  padding: 12px 16px;
+  cursor: default;
+}
+
+.dropdown-item-match {
+  padding: 0;
 }
 
 .dropdown-item:last-child {
@@ -216,17 +426,81 @@ h3 {
 
 #match-display {
   background: #2d2d2d;
-  padding: 16px;
-  border-radius: 8px;
+  padding: 0;
+  border-radius: 0;
   border: 2px solid #444;
+  border-left: none;
+  border-right: none;
   color: #e0e0e0;
-  font-family: monospace;
   font-size: 14px;
-  word-break: break-all;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+}
+
+#dropdown .match-row,
+#match-display .match-row {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+#dropdown .date-container,
+#match-display .date-container {
+  padding-left: var(--date-pad-left);
+  padding-right: var(--date-pad-right);
 }
 
 #current-match {
   margin-top: 20px;
+}
+
+#current-match h3 {
+  padding-left: 30px;
+  padding-right: 30px;
+}
+
+.match-row {
+  display: grid;
+  grid-template-columns: var(--search-grid-columns);
+  width: 100%;
+  min-width: 100%;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: bold;
+  color: #e0e0e0;
+  font-size: 14px;
+}
+
+.match-cell {
+  padding: 12px 12px;
+  border-right: 1px solid #3a3a3a;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.match-cell:last-child {
+  border-right: none;
+}
+
+.match-cell.centered {
+  text-align: center;
+}
+
+.match-date {
+  border-right: 1px solid #3a3a3a;
+}
+
+.match-date-part {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.match-date-part.year {
+  width: 4ch;
+}
+
+.match-date-part.month,
+.match-date-part.day {
+  width: 2ch;
 }
 
 canvas {

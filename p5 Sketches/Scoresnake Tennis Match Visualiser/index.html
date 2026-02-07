@@ -16,8 +16,33 @@
     </div>
     <div id="search-pane">
       <div id="search-container">
+        <div id="current-match">
+          <h3>Current Match:</h3>
+          <p id="match-display"></p>
+        </div>
         <h2>Match Search</h2>
-        <input type="text" id="search-input" placeholder="Search for a match..." autocomplete="off">
+        <div id="search-scroll">
+          <div id="search-labels">
+            <div class="search-label">Date</div>
+            <div class="search-label">Gender</div>
+            <div class="search-label">Tournament</div>
+            <div class="search-label">Round</div>
+            <div class="search-label">Player 1</div>
+            <div class="search-label">Player 2</div>
+          </div>
+          <div id="search-fields">
+            <div id="date-container">
+              <input type="text" id="search-date-year" maxlength="4" autocomplete="off" placeholder="YYYY">
+              <input type="text" id="search-date-month" maxlength="2" autocomplete="off" placeholder="MM">
+              <input type="text" id="search-date-day" maxlength="2" autocomplete="off" placeholder="DD">
+            </div>
+            <input type="text" id="search-gender" autocomplete="off">
+            <input type="text" id="search-tournament" autocomplete="off">
+            <input type="text" id="search-round" autocomplete="off">
+            <input type="text" id="search-player1" autocomplete="off">
+            <input type="text" id="search-player2" autocomplete="off">
+          </div>
+        </div>
         <div id="loading-indicator" class="loading-hidden">
           <div id="progress-text">Loading match database...</div>
           <div id="progress-bar-container">
@@ -25,10 +50,6 @@
           </div>
         </div>
         <div id="dropdown" class="dropdown-hidden"></div>
-        <div id="current-match">
-          <h3>Current Match:</h3>
-          <p id="match-display"></p>
-        </div>
         <div id="random-match-section">
           <button id="random-match-btn">
             <svg class="icon" width="20" height="20" viewBox="0 0 20 20" fill="none">

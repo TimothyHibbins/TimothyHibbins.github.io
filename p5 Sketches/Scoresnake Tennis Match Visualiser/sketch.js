@@ -299,17 +299,232 @@ function loadMatch(matchId) {
 function updateMatchDisplay(matchId) {
   let displayElement = document.getElementById('match-display');
   if (displayElement) {
-    displayElement.textContent = matchId;
+    displayElement.innerHTML = '';
+    displayElement.appendChild(createMatchRow(matchId));
   }
 }
 
+function parseMatchId(matchId) {
+  let parts = matchId.split('-');
+  if (parts.length < 6) {
+    return null;
+  }
+
+  let date = parts[0] || '';
+  let year = date.slice(0, 4);
+  let month = date.slice(4, 6);
+  let day = date.slice(6, 8);
+
+  return {
+    year,
+    month,
+    day,
+    gender: parts[1] || '',
+    tournament: parts[2] || '',
+    round: parts[3] || '',
+    player1: parts[4] || '',
+    player2: parts[5] || ''
+  };
+}
+
+function createMatchRow(matchId) {
+  let data = parseMatchId(matchId);
+  let row = document.createElement('div');
+  row.className = 'match-row';
+
+  if (!data) {
+    let fallback = document.createElement('div');
+    fallback.className = 'match-cell';
+    fallback.textContent = matchId;
+    row.appendChild(fallback);
+    return row;
+  }
+
+  let dateCell = document.createElement('div');
+  dateCell.className = 'date-container match-date';
+
+  let year = document.createElement('span');
+  year.className = 'match-date-part year';
+  year.textContent = data.year;
+
+  let month = document.createElement('span');
+  month.className = 'match-date-part month';
+  month.textContent = data.month;
+
+  let day = document.createElement('span');
+  day.className = 'match-date-part day';
+  day.textContent = data.day;
+
+  dateCell.appendChild(year);
+  dateCell.appendChild(month);
+  dateCell.appendChild(day);
+  row.appendChild(dateCell);
+
+  let gender = document.createElement('div');
+  gender.className = 'match-cell centered';
+  gender.textContent = data.gender;
+  row.appendChild(gender);
+
+  let tournament = document.createElement('div');
+  tournament.className = 'match-cell';
+  tournament.textContent = data.tournament.replace(/_/g, ' ');
+  row.appendChild(tournament);
+
+  let round = document.createElement('div');
+  round.className = 'match-cell';
+  round.textContent = data.round;
+  row.appendChild(round);
+
+  let player1 = document.createElement('div');
+  player1.className = 'match-cell';
+  player1.textContent = data.player1.replace(/_/g, ' ');
+  row.appendChild(player1);
+
+  let player2 = document.createElement('div');
+  player2.className = 'match-cell';
+  player2.textContent = data.player2.replace(/_/g, ' ');
+  row.appendChild(player2);
+
+  return row;
+}
+
 function setupSearchInterfaceLoading() {
-  let searchInput = document.getElementById('search-input');
+  let searchDateYear = document.getElementById('search-date-year');
+  let searchDateMonth = document.getElementById('search-date-month');
+  let searchDateDay = document.getElementById('search-date-day');
+  let searchGender = document.getElementById('search-gender');
+  let searchTournament = document.getElementById('search-tournament');
+  let searchRound = document.getElementById('search-round');
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
   let loadingIndicator = document.getElementById('loading-indicator');
+  let searchScroll = document.getElementById('search-scroll');
+  let dropdown = document.getElementById('dropdown');
+  let matchDisplay = document.getElementById('match-display');
 
   // Show loading indicator
   updateMatchDisplay(matchSpecifier);
   loadingIndicator.classList.remove('loading-hidden');
+
+  if (searchScroll && dropdown && matchDisplay) {
+    let syncScroll = () => {
+      let left = searchScroll.scrollLeft;
+      dropdown.scrollLeft = left;
+      matchDisplay.scrollLeft = left;
+    };
+
+    searchScroll.addEventListener('scroll', syncScroll);
+    syncScroll();
+  }
+
+  // Set up date field auto-advance
+  function setupDateFieldAutoAdvance(field, nextField, prevField, maxLength) {
+    // Helper function to auto-complete field value
+    function completeFieldValue() {
+      if (field.id === 'search-date-year' && field.value.length === 2) {
+        field.value = '20' + field.value;
+      } else if ((field.id === 'search-date-month' || field.id === 'search-date-day') && field.value.length === 1) {
+        field.value = '0' + field.value;
+      }
+    }
+
+    field.addEventListener('input', function (e) {
+      // Remove spaces
+      this.value = this.value.replace(/\s/g, '');
+
+      // Auto-advance when filled
+      if (this.value.length === maxLength && nextField) {
+        nextField.focus();
+      }
+    });
+
+    field.addEventListener('keydown', function (e) {
+      // Prevent space
+      if (e.key === ' ') {
+        e.preventDefault();
+        completeFieldValue();
+        if (nextField) nextField.focus();
+      }
+      // Tab also advances
+      if (e.key === 'Tab' && !e.shiftKey && nextField) {
+        e.preventDefault();
+        completeFieldValue();
+        nextField.focus();
+      }
+      // Enter completes and advances
+      if (e.key === 'Enter' && nextField) {
+        e.preventDefault();
+        completeFieldValue();
+        nextField.focus();
+      }
+    });
+
+    // Also complete when field loses focus
+    field.addEventListener('blur', function () {
+      completeFieldValue();
+    });
+  }
+
+  // Use window event listener to handle arrow keys for all search fields
+  window.addEventListener('keydown', function (e) {
+    // Define all search fields in order
+    const searchFields = [
+      searchDateYear,
+      searchDateMonth,
+      searchDateDay,
+      searchGender,
+      searchTournament,
+      searchRound,
+      searchPlayer1,
+      searchPlayer2
+    ];
+
+    // Check if current target is one of our search fields
+    const currentIndex = searchFields.findIndex(field => field === e.target);
+    if (currentIndex === -1) return; // Not a search field, ignore
+
+    const currentField = searchFields[currentIndex];
+    const nextField = searchFields[currentIndex + 1] || null;
+    const prevField = searchFields[currentIndex - 1] || null;
+
+    // Helper to auto-complete date field values
+    function completeDateField(field) {
+      if (field.id === 'search-date-year' && field.value.length === 2) {
+        field.value = '20' + field.value;
+      } else if ((field.id === 'search-date-month' || field.id === 'search-date-day') && field.value.length === 1) {
+        field.value = '0' + field.value;
+      }
+    }
+
+    // Arrow keys for empty fields
+    if ((e.key === 'ArrowRight' || e.key === 'Right') && currentField.value.length === 0 && nextField) {
+      e.preventDefault();
+      e.stopPropagation();
+      nextField.focus();
+      return;
+    }
+    if ((e.key === 'ArrowLeft' || e.key === 'Left') && currentField.value.length === 0 && prevField) {
+      e.preventDefault();
+      e.stopPropagation();
+      prevField.focus();
+      return;
+    }
+
+    // Arrow right on non-empty date fields - complete and advance
+    if ((e.key === 'ArrowRight' || e.key === 'Right') &&
+      (currentField.id === 'search-date-year' || currentField.id === 'search-date-month' || currentField.id === 'search-date-day') &&
+      currentField.value.length > 0 && nextField) {
+      e.preventDefault();
+      e.stopPropagation();
+      completeDateField(currentField);
+      nextField.focus();
+      return;
+    }
+  });
+
+  setupDateFieldAutoAdvance(searchDateYear, searchDateMonth, null, 4);
+  setupDateFieldAutoAdvance(searchDateMonth, searchDateDay, searchDateYear, 2);
+  setupDateFieldAutoAdvance(searchDateDay, searchGender, searchDateMonth, 2);
 
   // Set up random match button (disabled until data loads)
   let randomMatchBtn = document.getElementById('random-match-btn');
@@ -351,42 +566,84 @@ function setupSearchInterfaceLoading() {
   }
 
   // Allow typing immediately - will show empty results until data loads
-  searchInput.addEventListener('input', handleSearchInput);
+  [searchDateYear, searchDateMonth, searchDateDay, searchGender, searchTournament, searchRound, searchPlayer1, searchPlayer2].forEach(input => {
+    input.addEventListener('input', handleSearchInput);
+  });
 }
 
 function handleSearchInput() {
-  let searchInput = document.getElementById('search-input');
+  let searchDateYear = document.getElementById('search-date-year');
+  let searchDateMonth = document.getElementById('search-date-month');
+  let searchDateDay = document.getElementById('search-date-day');
+  let searchGender = document.getElementById('search-gender');
+  let searchTournament = document.getElementById('search-tournament');
+  let searchRound = document.getElementById('search-round');
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
   let dropdown = document.getElementById('dropdown');
-  let searchTerm = searchInput.value.toLowerCase();
 
-  if (searchTerm.length === 0) {
+  // Concatenate date subfields with intelligent interpretation
+  let yearValue = searchDateYear.value;
+  let monthValue = searchDateMonth.value;
+  let dayValue = searchDateDay.value;
+
+  // Interpret incomplete year (2 digits -> assume 20XX)
+  if (yearValue.length === 2) {
+    yearValue = '20' + yearValue;
+  }
+
+  // Pad single-digit month/day with leading zero
+  if (monthValue.length === 1) {
+    monthValue = '0' + monthValue;
+  }
+  if (dayValue.length === 1) {
+    dayValue = '0' + dayValue;
+  }
+
+  let dateSearch = (yearValue + monthValue + dayValue).toLowerCase();
+  let genderSearch = searchGender.value.toLowerCase();
+  let tournamentSearch = searchTournament.value.toLowerCase();
+  let roundSearch = searchRound.value.toLowerCase();
+  let player1Search = searchPlayer1.value.toLowerCase();
+  let player2Search = searchPlayer2.value.toLowerCase();
+
+  // Check if any field has input
+  let hasAnyInput = dateSearch || genderSearch || tournamentSearch || roundSearch || player1Search || player2Search;
+
+  if (!hasAnyInput) {
     dropdown.classList.add('dropdown-hidden');
     return;
   }
 
   // If data not loaded yet, show "loading" message in dropdown
   if (!fullDataLoaded) {
-    dropdown.innerHTML = '<div class="dropdown-item" style="cursor: default; color: #666;">Loading match database...</div>';
+    dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Loading match database...</div>';
     dropdown.classList.remove('dropdown-hidden');
     return;
   }
 
-  // Fuzzy filter: match if search term appears anywhere in match ID
-  let matches = allMatchIds.filter(matchId =>
-    matchId.toLowerCase().includes(searchTerm)
-  );
+  // Filter matches by each parameter
+  let matches = allMatchIds.filter(matchId => {
+    let parts = matchId.toLowerCase().split('-');
+    if (parts.length < 6) return false;
 
-  // Sort matches by relevance (starts with search term first)
-  matches.sort((a, b) => {
-    let aLower = a.toLowerCase();
-    let bLower = b.toLowerCase();
-    let aStarts = aLower.startsWith(searchTerm);
-    let bStarts = bLower.startsWith(searchTerm);
+    let date = parts[0];
+    let gender = parts[1];
+    let tournament = parts[2];
+    let round = parts[3];
+    let player1 = parts[4];
+    let player2 = parts[5];
 
-    if (aStarts && !bStarts) return -1;
-    if (!aStarts && bStarts) return 1;
-    return a.localeCompare(b);
+    return (!dateSearch || date.includes(dateSearch)) &&
+      (!genderSearch || gender.includes(genderSearch)) &&
+      (!tournamentSearch || tournament.includes(tournamentSearch)) &&
+      (!roundSearch || round.includes(roundSearch)) &&
+      (!player1Search || player1.includes(player1Search)) &&
+      (!player2Search || player2.includes(player2Search));
   });
+
+  // Sort matches alphabetically
+  matches.sort((a, b) => a.localeCompare(b));
 
   // Display matches in dropdown
   if (matches.length > 0) {
@@ -396,8 +653,8 @@ function handleSearchInput() {
     // Limit to top 20 matches
     matches.slice(0, 20).forEach((matchId, index) => {
       let item = document.createElement('div');
-      item.className = 'dropdown-item';
-      item.textContent = matchId;
+      item.className = 'dropdown-item dropdown-item-match';
+      item.appendChild(createMatchRow(matchId));
 
       // Add hover handler to load match on mouseover
       item.addEventListener('mouseenter', function () {
@@ -407,7 +664,14 @@ function handleSearchInput() {
       // Add click handler
       item.addEventListener('click', function () {
         loadMatch(matchId);
-        searchInput.value = '';
+        searchDateYear.value = '';
+        searchDateMonth.value = '';
+        searchDateDay.value = '';
+        searchGender.value = '';
+        searchTournament.value = '';
+        searchRound.value = '';
+        searchPlayer1.value = '';
+        searchPlayer2.value = '';
         dropdown.classList.add('dropdown-hidden');
       });
 
@@ -424,7 +688,14 @@ function handleSearchInput() {
 function setupSearchInterface() {
   let loadingIndicator = document.getElementById('loading-indicator');
   let dropdown = document.getElementById('dropdown');
-  let searchInput = document.getElementById('search-input');
+  let searchDateYear = document.getElementById('search-date-year');
+  let searchDateMonth = document.getElementById('search-date-month');
+  let searchDateDay = document.getElementById('search-date-day');
+  let searchGender = document.getElementById('search-gender');
+  let searchTournament = document.getElementById('search-tournament');
+  let searchRound = document.getElementById('search-round');
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
   let randomMatchBtn = document.getElementById('random-match-btn');
 
   // Hide loading indicator now that data is loaded
@@ -436,13 +707,19 @@ function setupSearchInterface() {
   }
 
   // If user already typed something, update results
-  if (searchInput.value.length > 0) {
+  let hasInput = searchDateYear.value || searchDateMonth.value || searchDateDay.value ||
+    searchGender.value || searchTournament.value ||
+    searchRound.value || searchPlayer1.value || searchPlayer2.value;
+  if (hasInput) {
     handleSearchInput();
   }
 
   // Close dropdown when clicking outside
   document.addEventListener('click', function (e) {
-    if (!searchInput.contains(e.target) && !dropdown.contains(e.target)) {
+    let isSearchField = [searchDateYear, searchDateMonth, searchDateDay, searchGender, searchTournament, searchRound, searchPlayer1, searchPlayer2]
+      .some(input => input.contains(e.target));
+
+    if (!isSearchField && !dropdown.contains(e.target)) {
       dropdown.classList.add('dropdown-hidden');
     }
   });
@@ -1331,6 +1608,50 @@ function drawConnector(x, y, pW, pL, thickness = pointSquareSize, winnerAxisIsX 
 
 }
 
+function drawNames() {
+
+  fill(255);
+  textSize(32);
+  if (JetBrainsMonoBold) textFont(JetBrainsMonoBold);
+  textAlign(LEFT, TOP);
+
+  // Helper function to split name into 2 lines optimally
+  function getOptimalTwoLinesSplit(nameParts) {
+    if (nameParts.length <= 2) {
+      return nameParts;
+    }
+
+    // Try all possible ways to split into 2 lines
+    let bestSplit = null;
+    let minMaxWidth = Infinity;
+
+    for (let i = 1; i < nameParts.length; i++) {
+      let line1 = nameParts.slice(0, i).join(' ');
+      let line2 = nameParts.slice(i).join(' ');
+      let maxWidth = Math.max(textWidth(line1), textWidth(line2));
+
+      if (maxWidth < minMaxWidth) {
+        minMaxWidth = maxWidth;
+        bestSplit = [line1, line2];
+      }
+    }
+
+    return bestSplit;
+  }
+
+  // Player 1
+  let player1Parts = tennisMatch.player1.split(' ');
+  let player1Lines = getOptimalTwoLinesSplit(player1Parts);
+  text(player1Lines.join('\n'), 50, 50);
+
+  // Player 2 - keep LEFT alignment but calculate position from right edge
+  let player2Parts = tennisMatch.player2.split(' ');
+  let player2Lines = getOptimalTwoLinesSplit(player2Parts);
+  let maxWidth = Math.max(textWidth(player2Lines[0]), textWidth(player2Lines[1]));
+
+  text(player2Lines.join('\n'), width - 50 - maxWidth, 50);
+}
+
 function draw() {
   background(0);
 
@@ -1352,18 +1673,7 @@ function draw() {
     return;
   }
 
-  layers[1].clear();
-
-  fill(255);
-  textSize(32);
-  if (JetBrainsMonoBold) textFont(JetBrainsMonoBold);
-  textAlign(LEFT, TOP);
-
-  text(`${tennisMatch.player1}`, 50, 50);
-
-  textAlign(RIGHT, TOP);
-
-  text(`${tennisMatch.player2}`, width - 50, 50);
+  drawNames();
 
   let matchX = width / 2, matchY = 50;
 
