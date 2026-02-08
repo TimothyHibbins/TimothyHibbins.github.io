@@ -45,6 +45,8 @@ function setup() {
     createGraphics(windowWidth * 0.6, windowHeight)  // 2 - snake
   ];
 
+  matchX = width / 2, matchY = 50;
+
   // Parse and display the default match immediately
   parseMatchData();
 
@@ -307,11 +309,41 @@ function previewMatch(matchId) {
   loadMatch(matchId, { setCurrent: false });
 }
 
-function updatePlayer1Width(input) {
+function updatePlayer1Width(input, playerFields) {
   if (!input) return;
-  let length = input.value.length;
-  if (length < 1) length = 1;
-  input.style.width = `${length}ch`;
+  let isSplit = playerFields && (playerFields.classList.contains('player2-visible') || playerFields.classList.contains('player1-has-content'));
+  if (!isSplit) {
+    input.style.width = '';
+    return;
+  }
+  let style = window.getComputedStyle(input);
+  if (!input._measureSpan) {
+    let span = document.createElement('span');
+    span.style.position = 'absolute';
+    span.style.visibility = 'hidden';
+    span.style.whiteSpace = 'pre';
+    span.style.pointerEvents = 'none';
+    document.body.appendChild(span);
+    input._measureSpan = span;
+  }
+  let span = input._measureSpan;
+  // Copy all computed font and text styles
+  span.style.fontFamily = style.fontFamily;
+  span.style.fontWeight = style.fontWeight;
+  span.style.fontSize = style.fontSize;
+  span.style.letterSpacing = style.letterSpacing;
+  span.style.fontStyle = style.fontStyle;
+  span.style.textTransform = style.textTransform;
+  span.style.textDecoration = style.textDecoration;
+  span.style.padding = style.padding;
+  span.style.border = style.border;
+  span.style.boxSizing = style.boxSizing;
+  // Only measure the text itself, not the comma or space
+  span.textContent = input.value || ' ';
+  let width = span.getBoundingClientRect().width;
+  // Remove any minimum width, and set width exactly to measured value (no rounding)
+  input.style.minWidth = '0';
+  input.style.width = width + 'px';
 }
 
 function syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields) {
@@ -319,11 +351,14 @@ function syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields) {
   if (searchPlayer1.value.trim() === '') {
     searchPlayer2.value = '';
     searchPlayer2.classList.add('player-field-hidden');
-    if (playerFields) playerFields.classList.remove('player2-visible');
+    if (playerFields) {
+      playerFields.classList.remove('player2-visible');
+      playerFields.classList.remove('player1-has-content');
+    }
   } else {
-    searchPlayer2.classList.remove('player-field-hidden');
-    if (playerFields) playerFields.classList.add('player2-visible');
+    if (playerFields) playerFields.classList.add('player1-has-content');
   }
+  updatePlayer1Width(searchPlayer1, playerFields);
 }
 
 function updateMatchDisplay(matchId) {
@@ -476,8 +511,8 @@ function createMatchRow(matchId) {
   player1.title = 'Click to add this to search filters';
 
   let sep = document.createElement('span');
-  sep.className = 'match-player-sep';
-  sep.textContent = ', ';
+  sep.className = 'player-sep';
+  sep.textContent = ' vs ';
 
   let player2 = document.createElement('span');
   player2.className = 'match-player';
@@ -515,16 +550,21 @@ function setupSearchInterfaceLoading() {
 
   if (dropdown) {
     dropdown.classList.remove('dropdown-hidden');
-    dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Type in the search bar fields to filter matches</div>';
+    dropdown.innerHTML = '';
+    const emptyMsg = document.createElement('div');
+    emptyMsg.className = 'dropdown-empty-message';
+    emptyMsg.textContent = 'Type in the search bar fields to filter matches';
+    dropdown.appendChild(emptyMsg);
   }
 
   if (searchPlayer1) {
-    updatePlayer1Width(searchPlayer1);
+    updatePlayer1Width(searchPlayer1, playerFields);
     searchPlayer1.addEventListener('input', function () {
-      updatePlayer1Width(searchPlayer1);
       syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
+      updatePlayer1Width(searchPlayer1, playerFields);
     });
     syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
+    updatePlayer1Width(searchPlayer1, playerFields);
   }
 
   if (searchScroll && dropdown && matchDisplay) {
@@ -580,9 +620,12 @@ function setupSearchInterfaceLoading() {
           let value = (cell.dataset.value || '').replace(/_/g, ' ');
           if (searchPlayer1 && searchPlayer1.value.trim() === '') {
             searchPlayer1.value = value;
-            updatePlayer1Width(searchPlayer1);
+            updatePlayer1Width(searchPlayer1, playerFields);
           } else {
             searchPlayer2.value = value;
+            searchPlayer2.classList.remove('player-field-hidden');
+            if (playerFields) playerFields.classList.add('player2-visible');
+            updatePlayer1Width(searchPlayer1, playerFields);
           }
           syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
         }
@@ -708,6 +751,7 @@ function setupSearchInterfaceLoading() {
         e.preventDefault();
         searchPlayer2.classList.remove('player-field-hidden');
         if (playerFields) playerFields.classList.add('player2-visible');
+        updatePlayer1Width(searchPlayer1, playerFields);
         searchPlayer2.focus();
       }
     });
@@ -777,9 +821,8 @@ function handleSearchInput() {
   let matchCountText = document.getElementById('match-count-text');
 
   let yearValue = searchDateYear.value;
-  updatePlayer1Width(searchPlayer1);
-
   syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
+  updatePlayer1Width(searchPlayer1, playerFields);
   let monthValue = searchDateMonth.value;
   let dayValue = searchDateDay.value;
 
@@ -918,7 +961,12 @@ function setupSearchInterface() {
   }
 
   // Keep dropdown always visible (no close-on-click behavior)
+
 }
+
+let matchX;
+let matchY;
+let scaleFactor;
 
 POINTS_TO_WIN_GAME = 4;
 GAMES_TO_WIN_SET = 6;
@@ -950,10 +998,117 @@ function axisToPlayer(axis) {
   );
 }
 
+POINT_WON_BY_P1_AGAINST_SERVE = "p1 against serve";
+POINT_WON_BY_P2_AGAINST_SERVE = "p2 against serve";
+
+POINT_WON_BY_P1_ON_SERVE = "p1 on serve";
+POINT_WON_BY_P2_ON_SERVE = "p2 on serve";
+
+INACTIVE = "inactive";
+ACTIVE_SET = "active set";
+ACTIVE_GAME = "active game";
+
+pointSquareColorScheme = {
+  [INACTIVE]: "#202020",
+  [ACTIVE_SET]: "#505050",
+  [ACTIVE_GAME]: "#8f8f8f",
+  [POINT_WON_BY_P1_ON_SERVE]: "#A423B7",
+  [POINT_WON_BY_P1_AGAINST_SERVE]: "#F442FF",
+  [POINT_WON_BY_P2_ON_SERVE]: "#00A300",
+  [POINT_WON_BY_P2_AGAINST_SERVE]: "#00FF00"
+};
+
+
+
+class Connector {
+  constructor(x, y, pW, pL, thickness = pointSquareSize, winnerAxisIsX = true) {
+
+    this.x = x;
+    this.y = y;
+    this.pW = pW;
+    this.pL = pL;
+    this.thickness = thickness;
+    this.winnerAxisIsX = winnerAxisIsX;
+
+  }
+
+  drawConnector(pos) {
+
+    let { x, y, pW, pL, thickness, winnerAxisIsX } = this;
+
+    x += pos.x;
+    y += pos.y;
+
+    fill(100);
+
+    // l = loser axis
+    // w = winner axis
+
+    let s = pointSquareSize;
+
+    let points = [
+      { l: pL, w: pW },
+      { l: pL, w: pW + thickness / 3 },
+      { l: 0, w: pW + thickness / 3 },
+      { l: 0, w: pW + thickness },
+      { l: s, w: pW + thickness },
+      { l: s, w: pW + thickness * 2 / 3 },
+      { l: pL + s, w: pW + thickness * 2 / 3 },
+      { l: pL + s, w: pW }
+    ];
+
+    push();
+    translate(x, y);
+
+    beginShape();
+
+    for (let pt of points) {
+      if (winnerAxisIsX) {
+        vertex(pt.w, pt.l);
+      } else {
+        vertex(pt.l, pt.w);
+      }
+    }
+
+    endShape();
+
+    pop();
+
+  }
+
+}
+
+class PointSquare {
+  constructor() {
+    this.state = INACTIVE;
+  }
+
+  draw(x, y) {
+
+    stroke(0);
+    fill(pointSquareColorScheme[this.state]);
+    strokeWeight(0.25);
+
+    rect(x, y, pointSquareSize, pointSquareSize);
+
+  }
+
+
+}
+
 class Game {
   constructor(tiles = POINTS_TO_WIN_GAME) {
     this.active = false;
     this.tailSize = 0;
+
+    this.pointSquares = [];
+
+    for (let p1 = 0; p1 < tiles; p1++) {
+      this.pointSquares.push([]);
+      for (let p2 = 0; p2 < tiles; p2++) {
+        this.pointSquares[p1].push(new PointSquare());
+      }
+    }
 
     this.tiles = tiles;
   }
@@ -968,10 +1123,19 @@ class Game {
 
     let s = pointSquareSize;
 
-    for (let p1_pts = 0; p1_pts < this.tiles; p1_pts++) {
-      for (let p2_pts = 0; p2_pts < this.tiles; p2_pts++) {
+    for (let p1_pts = 0; p1_pts < this.pointSquares.length; p1_pts++) {
+      for (let p2_pts = 0; p2_pts < this.pointSquares[p1_pts].length; p2_pts++) {
 
-        rect(x + p1_pts * s, y + p2_pts * s, s, s);
+
+
+        if (this.pointSquares[p1_pts][p2_pts] != null) {
+
+          if (pAxes[1] == "x") {
+            this.pointSquares[p1_pts][p2_pts].draw(x + p1_pts * s, y + p2_pts * s);
+          } else {
+            this.pointSquares[p1_pts][p2_pts].draw(x + p2_pts * s, y + p1_pts * s);
+          }
+        }
 
       }
     }
@@ -1005,10 +1169,10 @@ class Game {
     let tY = y + this.tiles * s;
 
     for (let layer = 0; layer < this.tailSize; layer++) {
-      fill(b);
-      rect(tX + layer * s, tY + layer * s, s, s);
-      rect(tX + layer * s, tY + (layer - 1) * s, s, s);
-      rect(tX + (layer - 1) * s, tY + layer * s, s, s);
+      // fill(b);
+      // rect(tX + layer * s, tY + layer * s, s, s);
+      // rect(tX + layer * s, tY + (layer - 1) * s, s, s);
+      // rect(tX + (layer - 1) * s, tY + layer * s, s, s);
 
       if (this.tiles > POINTS_TO_WIN_GAME) {
 
@@ -1269,6 +1433,8 @@ class ScoresnakeChart {
   constructor() {
     // this.matchData = matchData;
 
+    this.connectors = [];
+
     this.setOffsets = {
       1: new Array(SETS_TO_WIN_MATCH).fill(setSizePlusGap),  // Offsets for player 1's sets
       2: new Array(SETS_TO_WIN_MATCH).fill(setSizePlusGap)   // Offsets for player 2's sets
@@ -1290,12 +1456,58 @@ class ScoresnakeChart {
       }
     }
 
+    this.minX = 0;
+    this.minY = 0;
+
+    this.targetMinX;
+    this.targetMinY;
+
     this.maxX;
     this.maxY;
 
+    this.targetMaxX;
+    this.targetMaxY;
+
+    this.hoverSet = null;
+    this.hoverGame = null;
+    this.hoverPoint = null;
+
+    this.zoomedSet = null;
+
+    this.mousePosVec = createVector(0, 0);
+
   }
 
-  draw(x, y) {
+  draw(pos) {
+
+    this.recalculateTargetScale();
+
+    this.maxX = lerp(this.maxX, this.targetMaxX, 0.1);
+    this.maxY = lerp(this.maxY, this.targetMaxY, 0.1);
+
+    this.minX = lerp(this.minX, this.targetMinX, 0.1);
+    this.minY = lerp(this.minY, this.targetMinY, 0.1);
+
+    push();
+    translate(matchX, matchY);
+    rotate(TAU / 8);
+
+    pos.x -= this.minX;
+    pos.y -= this.minY;
+
+    let side = height / 2 - matchY;
+
+    let hyp = dist(0, 0, side, side);
+
+    scaleFactor = hyp / max(this.maxX, this.maxY);
+
+    scale(scaleFactor);
+
+
+
+    for (let connector of this.connectors) {
+      connector.drawConnector(pos);
+    }
 
     let offset = {
       1: 0,
@@ -1316,13 +1528,13 @@ class ScoresnakeChart {
 
       if (pAxes[1] == "x") {
         push();
-        translate(x + offset[axisToPlayer("x")] + setSize / 2, y + offset[axisToPlayer("y")] - gapToChart);
+        translate(pos.x + offset[axisToPlayer("x")] + setSize / 2, pos.y + offset[axisToPlayer("y")] - gapToChart);
         rotate(-TAU / 8);
         text(p1_setsWon, 0, 0);
         pop();
       } else {
         push();
-        translate(x + offset[axisToPlayer("x")] - gapToChart, y + offset[axisToPlayer("y")] + setSize / 2);
+        translate(pos.x + offset[axisToPlayer("x")] - gapToChart, pos.y + offset[axisToPlayer("y")] + setSize / 2);
         rotate(-TAU / 8);
         text(p1_setsWon, 0, 0);
         pop();
@@ -1340,13 +1552,13 @@ class ScoresnakeChart {
 
           if (pAxes[2] == "x") {
             push();
-            translate(x + offset[axisToPlayer("x")] + setSize / 2, y + offset[axisToPlayer("y")] - gapToChart);
+            translate(pos.x + offset[axisToPlayer("x")] + setSize / 2, pos.y + offset[axisToPlayer("y")] - gapToChart);
             rotate(-TAU / 8);
             text(p2_setsWon, 0, 0);
             pop();
           } else {
             push();
-            translate(x + offset[axisToPlayer("x")] - gapToChart, y + offset[axisToPlayer("y")] + setSize / 2);
+            translate(pos.x + offset[axisToPlayer("x")] - gapToChart, pos.y + offset[axisToPlayer("y")] + setSize / 2);
             rotate(-TAU / 8);
             text(p2_setsWon, 0, 0);
             pop();
@@ -1361,7 +1573,7 @@ class ScoresnakeChart {
 
 
 
-        set.draw(x + offset[axisToPlayer("x")], y + offset[axisToPlayer("y")]);
+        set.draw(pos.x + offset[axisToPlayer("x")], pos.y + offset[axisToPlayer("y")]);
 
         offset[2] += this.setOffsets[2][p2_setsWon];
 
@@ -1370,6 +1582,34 @@ class ScoresnakeChart {
       offset[1] += this.setOffsets[1][p1_setsWon];
 
     }
+
+    this.updateHoverVars();
+
+
+
+    if (this.hoverSet != null) {
+      push();
+      translate(this.mousePosVec.x, this.mousePosVec.y);
+      scale(1 / scaleFactor);
+      rotate(-TAU / 8);
+
+      fill(0);
+      stroke(255);
+      strokeWeight(2);
+      rect(0, 0, 200, 100);
+
+      textAlign(LEFT, TOP);
+
+      noStroke();
+      fill(255);
+      textSize(20);
+      text(`${this.hoverSet[1]}, ${this.hoverSet[2]}`, 10, 20);
+
+      pop();
+    }
+
+
+    pop();
 
   }
 
@@ -1399,24 +1639,58 @@ class ScoresnakeChart {
 
         for (let point of game.points) {
 
-          if (point.winner == 1) {
-            if (point.server == 1) {
-              layers[2].fill("#A423B7");
-            } else {
-              layers[2].fill("#F442FF");
-            }
-          } else if (point.winner == 2) {
-            if (point.server == 2) {
-              layers[2].fill("#00A300");
-            } else {
-              layers[2].fill("#00FF00");
-            }
-          }
-
           layers[2].strokeWeight(0.25);
           layers[2].stroke(20);
 
-          layers[2].rect(setPos.x + gamePos.x + pointPos.x, setPos.y + gamePos.y + pointPos.y, s, s);
+          // layers[2].rect(setPos.x + gamePos.x + pointPos.x, setPos.y + gamePos.y + pointPos.y, s, s);
+
+
+          let displayGame = this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].
+            games[game.gamesInSetWonByPlayerSoFar[1]][game.gamesInSetWonByPlayerSoFar[2]];
+
+
+          // growing the tail and adding new point squares if the number of points in the game exceeds the initial tiles (e.g. due to deuce)
+          if (displayGame.pointSquares.length - 1 < max(point.pointsInGameWonByPlayerSoFar[1], point.pointsInGameWonByPlayerSoFar[2])) {
+
+            for (let p1 = 0; p1 < displayGame.pointSquares.length; p1++) {
+              if (p1 < displayGame.pointSquares.length - 1) {
+                displayGame.pointSquares[p1].push(null);
+              } else {
+                displayGame.pointSquares[p1].push(new PointSquare());
+
+              }
+            }
+
+            displayGame.pointSquares.push([]);
+            for (let p2 = 0; p2 < displayGame.pointSquares[0].length - 1; p2++) {
+              if (p2 < displayGame.pointSquares[0].length - 2) {
+                displayGame.pointSquares[displayGame.pointSquares.length - 1].push(null);
+              } else {
+                displayGame.pointSquares[displayGame.pointSquares.length - 1].push(new PointSquare());
+
+              }
+            }
+            displayGame.pointSquares[displayGame.pointSquares.length - 1].push(new PointSquare());
+
+
+          }
+          let state;
+
+          if (point.winner == 1) {
+            if (point.server == 1) {
+              state = POINT_WON_BY_P1_ON_SERVE;
+            } else {
+              state = POINT_WON_BY_P1_AGAINST_SERVE;
+            }
+          } else if (point.winner == 2) {
+            if (point.server == 2) {
+              state = POINT_WON_BY_P2_ON_SERVE;
+            } else {
+              state = POINT_WON_BY_P2_AGAINST_SERVE;
+            }
+          }
+
+          displayGame.pointSquares[point.pointsInGameWonByPlayerSoFar[1]][point.pointsInGameWonByPlayerSoFar[2]].state = state;
 
           pointPos[pAxes[point.winner]] += s;
 
@@ -1471,25 +1745,25 @@ class ScoresnakeChart {
             t = (gamePos.y - pointPos[pAxes[w]]) - gY;
           }
 
-          drawConnector(
+          this.connectors.push(new Connector(
             setPos.x + gX,
             setPos.y + gY,
             pointPos[pAxes[w]],
             pointPos[pAxes[l]],
             t,
             (pAxes[w] == "x")
-          );
+          ));
 
         } else {
 
-          drawConnector(
+          this.connectors.push(new Connector(
             setPos.x,
             setPos.y,
             gamePos[pAxes[w]] + pointPos[pAxes[w]],
             gamePos[pAxes[l]] + pointPos[pAxes[l]],
             setGap,
             (pAxes[w] == "x")
-          );
+          ));
 
           gamePos[pAxes[w]] += pointPos[pAxes[w]];
 
@@ -1529,6 +1803,76 @@ class ScoresnakeChart {
 
 
   }
+
+  recalculateTargetScale() {
+
+    if (this.zoomedSet != null) {
+      this.targetMaxX = this.setOffsets[axisToPlayer("x")][this.zoomedSet[axisToPlayer("x")]];
+      this.targetMaxY = this.setOffsets[axisToPlayer("y")][this.zoomedSet[axisToPlayer("y")]];
+    } else {
+      this.targetMaxX = this.setOffsets[axisToPlayer("x")].reduce((acc, curr) => acc + curr, 0);
+      this.targetMaxY = this.setOffsets[axisToPlayer("y")].reduce((acc, curr) => acc + curr, 0);
+    }
+
+
+    this.targetMinX = 0;
+    this.targetMinY = 0;
+
+    if (this.zoomedSet != null) {
+
+      for (let sX = 0; sX < this.zoomedSet[axisToPlayer("x")]; sX++) {
+
+        this.targetMinX += this.setOffsets[axisToPlayer("x")][sX];
+
+      }
+
+      for (let sY = 0; sY < this.zoomedSet[axisToPlayer("y")]; sY++) {
+
+        this.targetMinY += this.setOffsets[axisToPlayer("y")][sY];
+
+      }
+
+    }
+
+  }
+
+  updateHoverVars() {
+
+    this.mousePosVec = createVector(mouseX, mouseY);
+
+    this.mousePosVec.x -= matchX;
+    this.mousePosVec.y -= matchY;
+
+    this.mousePosVec.rotate(-TAU / 8);
+
+    this.mousePosVec.mult(1 / scaleFactor);
+
+
+
+
+    let testPos = { 1: 0, 2: 0 };
+
+    this.hoverSet = null;
+
+    p1SetLoop: for (let s1 = 0; s1 < this.sets.length; s1++) {
+
+      testPos[1] += this.setOffsets[1][s1];
+      testPos[2] = 0;
+
+      p2SetLoop: for (let s2 = 0; s2 < this.sets[s1].length; s2++) {
+
+        testPos[2] += this.setOffsets[2][s2];
+
+        if (this.mousePosVec.x + this.minX < testPos[axisToPlayer("x")] && this.mousePosVec.y + this.minY < testPos[axisToPlayer("y")]) {
+          this.hoverSet = { 1: s1, 2: s2 };
+          break p1SetLoop;
+        }
+
+      }
+    }
+
+  }
+
 }
 
 // Parse CSV data into a nested hierarchical object
@@ -1763,47 +2107,14 @@ function parseMatchData() {
   // } `);
 }
 
-function drawConnector(x, y, pW, pL, thickness = pointSquareSize, winnerAxisIsX = true) {
-
-
-  layers[0].fill(100);
-
-  // l = loser axis
-  // w = winner axis
-
-  let s = pointSquareSize;
-
-  let points = [
-    { l: pL, w: pW },
-    { l: pL, w: pW + thickness / 3 },
-    { l: 0, w: pW + thickness / 3 },
-    { l: 0, w: pW + thickness },
-    { l: s, w: pW + thickness },
-    { l: s, w: pW + thickness * 2 / 3 },
-    { l: pL + s, w: pW + thickness * 2 / 3 },
-    { l: pL + s, w: pW }
-  ];
-
-  layers[0].push();
-  layers[0].translate(x, y);
-
-  layers[0].beginShape();
-
-  for (let pt of points) {
-    if (winnerAxisIsX) {
-      layers[0].vertex(pt.w, pt.l);
-    } else {
-      layers[0].vertex(pt.l, pt.w);
-    }
-  }
-
-  layers[0].endShape();
-
-  layers[0].pop();
-
-}
-
 function drawNames() {
+
+  fill(0, 0, 0, 200);
+
+  let o = 40;
+
+  triangle(width / 2 - o, 0, 0, width / 2 - o, 0, 0);
+  triangle(width - width / 2 + o, 0, width, width - width / 2 - o, width, 0);
 
   fill(255);
   textSize(32);
@@ -1847,6 +2158,18 @@ function drawNames() {
   text(player2Lines.join('\n'), width - 50 - maxWidth, 50);
 }
 
+function mouseWheel(event) {
+
+
+  if (event.deltaY < 0) { // scrolling up
+    if (scoresnake.hoverSet != null) {
+      scoresnake.zoomedSet = scoresnake.hoverSet;
+    }
+  } else if (event.deltaY > 0) { // scrolling down
+    scoresnake.zoomedSet = null;
+  }
+}
+
 function draw() {
   background(0);
 
@@ -1868,38 +2191,14 @@ function draw() {
     return;
   }
 
+
+
+  matchX = width / 2, matchY = 50;
+
+  scoresnake.draw({ x: 0, y: 0 });
+
   drawNames();
 
-  let matchX = width / 2, matchY = 50;
-
-  push();
-  translate(matchX, matchY);
-  rotate(TAU / 8);
-
-  let side = height / 2 - matchY;
-
-  let hyp = dist(0, 0, side, side);
-
-  let scaleFactor = hyp / max(scoresnake.maxX, scoresnake.maxY);
-
-  scale(scaleFactor);
-
-
-
-
-  image(layers[0], 0, 0);
-
-  scoresnake.draw(0, 0);
-
-  image(layers[2], 0, 0);
-
-  // for (let layer of layers) {
-
-  //   image(layer, 0, 0);
-
-  // }
-
-  pop();
 }
 
 function windowResized() {
