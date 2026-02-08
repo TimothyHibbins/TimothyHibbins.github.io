@@ -1,10 +1,22 @@
 let matchData;     // Will store the currently displayed match data
-let allMatchIds = []; // Will store all unique match IDs
+let allMatchIds = []; // Will store all unique match IDs from points files
 
-// Lazy loading: store CSV and metadata
-let csvText = '';  // Full CSV text kept in memory
-let csvHeaders = []; // CSV header row
-let matchMetadata = {}; // Map: {match_id: {startLine: X, endLine: Y}}
+// Cache for points files to avoid re-downloading
+let pointsFileCache = {
+  'men-2020s': { csvText: null, loaded: false },
+  'men-2010s': { csvText: null, loaded: false },
+  'men-to-2009': { csvText: null, loaded: false },
+  'women-2020s': { csvText: null, loaded: false },
+  'women-2010s': { csvText: null, loaded: false },
+  'women-to-2009': { csvText: null, loaded: false }
+};
+
+let loadingStats = {
+  totalFiles: 6, // Only 6 points files needed
+  loadedFiles: 0,
+  currentFile: '',
+  totalMatches: 0
+};
 
 // Specify which match to visualize
 let matchSpecifier = '20250116-M-Australian_Open-R64-Learner_Tien-Daniil_Medvedev';
@@ -13,6 +25,11 @@ let currentMatches = [];
 let matchesRendered = 0;
 const MATCHES_BATCH_SIZE = 50;
 
+let activeSearchField = null;
+let currentFacetOptions = [];
+let parsedMatchCache = {};
+let validatedFields = {}; // Track which fields have validated (exact) values
+
 let JetBrainsMonoBold;
 let dataLoaded = false;
 let fullDataLoaded = false;
@@ -20,7 +37,7 @@ let fullDataLoaded = false;
 // Global variables used in visualization (initialized in parseMatchData)
 let tennisMatch;
 let layers = [];
-let scoresnake;
+let currentScoresnake;
 
 function preload() {
   // Only load the font in preload - load CSV async later
@@ -34,6 +51,10 @@ function preload() {
 }
 
 function setup() {
+  // Initialize preview tracking variables
+  window.currentSelectedMatch = null;
+  window.currentlyDisplayedMatch = null;
+  
   // Canvas is now 60% width to accommodate search pane
   let canvas = createCanvas(windowWidth * 0.6, windowHeight);
   canvas.parent('sketch-pane');
@@ -54,200 +75,213 @@ function setup() {
   let maxSetsWon = Math.max(tennisMatch.setsInMatchWonByPlayer[1], tennisMatch.setsInMatchWonByPlayer[2]);
   SETS_TO_WIN_MATCH = maxSetsWon; // 2 for best of 3, 3 for best of 5
 
-  scoresnake = new ScoresnakeChart();
-  scoresnake.update(tennisMatch);
+  // ScoresnakeChart will be created in draw() when needed
   dataLoaded = true;
 
   // Set up basic search interface with loading message
   setupSearchInterfaceLoading();
 
-  // Update progress to show CSV download is starting
-  let progressText = document.getElementById('progress-text');
-  let progressBar = document.getElementById('progress-bar');
-  if (progressText) {
-    progressText.textContent = 'Downloading match database...';
-  }
-  if (progressBar) {
-    progressBar.style.width = '0%';
-  }
+  // Update progress to show download is starting
+  updateProgress(0, 'Starting download of match databases...');
 
-  // Download CSV with progress tracking
-  fetch('charting-m-points-2020s.csv')
-    .then(response => {
-      const contentLength = response.headers.get('content-length');
-      const total = parseInt(contentLength, 10);
-      let loaded = 0;
-
-      const reader = response.body.getReader();
-      const chunks = [];
-
-      return new ReadableStream({
-        start(controller) {
-          function push() {
-            reader.read().then(({ done, value }) => {
-              if (done) {
-                controller.close();
-                return;
-              }
-
-              loaded += value.byteLength;
-              chunks.push(value);
-
-              // Update download progress
-              if (total) {
-                const percent = Math.round((loaded / total) * 100);
-                if (progressBar) {
-                  progressBar.style.width = percent + '%';
-                }
-                if (progressText) {
-                  progressText.textContent = `Downloading match database... ${percent}%`;
-                }
-              }
-
-              controller.enqueue(value);
-              push();
-            });
-          }
-          push();
-        }
-      });
-    })
-    .then(stream => new Response(stream))
-    .then(response => response.text())
-    .then(csvText => {
-      // Immediately update UI for parsing phase
-      if (progressText) {
-        progressText.textContent = 'Parsing CSV data...';
-      }
-      if (progressBar) {
-        progressBar.style.transition = 'none';
-        progressBar.style.width = '0%';
-        setTimeout(() => {
-          progressBar.style.transition = 'width 0.3s ease';
-        }, 50);
-      }
-
-      // Parse CSV in chunks to avoid blocking
-      parseCSVAsync(csvText);
-    })
-    .catch(error => {
-      console.error('Error loading CSV:', error);
-      if (progressText) {
-        progressText.textContent = 'Error loading match database';
-      }
-    });
+  // Load all CSV files
+  loadAllMatchData();
 }
 
-function parseCSVAsync(csvData) {
-  // Store CSV globally for lazy loading
-  csvText = csvData;
-  let lines = csvText.split('\n');
-  csvHeaders = lines[0].split(',');
-
-  let currentIndex = 1; // Skip header row
-  const CHUNK_SIZE = 10000; // Process 10000 lines at a time (faster since we're just scanning)
-
+// Unified progress update function
+function updateProgress(percent, message) {
   let progressText = document.getElementById('progress-text');
   let progressBar = document.getElementById('progress-bar');
+  
+  if (progressText) progressText.textContent = message;
+  if (progressBar) progressBar.style.width = percent + '%';
+}
 
-  // Track match IDs and their line ranges
-  let matchIdObj = {};
-  let matchIdsArray = [];
-  let previousMatchId = null;
-  let matchStartLine = null;
-  let matchIdIndex = csvHeaders.indexOf('match_id');
+// Load all match databases
+async function loadAllMatchData() {
+  try {
+    updateProgress(10, 'Loading tennis match database...');
+    
+    // Define points file URLs - load all of them to get match IDs
+    window.pointsFileUrls = {
+      'men-2020s': 'https://raw.githubusercontent.com/JeffSackmann/tennis_MatchChartingProject/master/charting-m-points-2020s.csv',
+      'men-2010s': 'https://raw.githubusercontent.com/JeffSackmann/tennis_MatchChartingProject/master/charting-m-points-2010s.csv',
+      'men-to-2009': 'https://raw.githubusercontent.com/JeffSackmann/tennis_MatchChartingProject/master/charting-m-points-to-2009.csv',
+      'women-2020s': 'https://raw.githubusercontent.com/JeffSackmann/tennis_MatchChartingProject/master/charting-w-points-2020s.csv',
+      'women-2010s': 'https://raw.githubusercontent.com/JeffSackmann/tennis_MatchChartingProject/master/charting-w-points-2010s.csv',
+      'women-to-2009': 'https://raw.githubusercontent.com/JeffSackmann/tennis_MatchChartingProject/master/charting-w-points-to-2009.csv'
+    };
 
-  function parseChunk() {
-    let endIndex = Math.min(currentIndex + CHUNK_SIZE, lines.length);
+    const pointsFiles = [
+      { key: 'men-2020s', url: window.pointsFileUrls['men-2020s'], description: 'Men 2020s matches' },
+      { key: 'men-2010s', url: window.pointsFileUrls['men-2010s'], description: 'Men 2010s matches' },
+      { key: 'men-to-2009', url: window.pointsFileUrls['men-to-2009'], description: 'Men pre-2010 matches' },
+      { key: 'women-2020s', url: window.pointsFileUrls['women-2020s'], description: 'Women 2020s matches' },
+      { key: 'women-2010s', url: window.pointsFileUrls['women-2010s'], description: 'Women 2010s matches' },
+      { key: 'women-to-2009', url: window.pointsFileUrls['women-to-2009'], description: 'Women pre-2010 matches' }
+    ];
 
-    // Scan this chunk for match boundaries
-    for (let i = currentIndex; i < endIndex; i++) {
-      if (lines[i].trim()) {
-        // Extract match ID from this row
-        let cells = lines[i].split(',');
-        if (matchIdIndex >= 0 && cells[matchIdIndex]) {
-          let matchId = cells[matchIdIndex].trim().replace(/^"|"$/g, '');
+    // Load all points files and extract match IDs
+    for (let i = 0; i < pointsFiles.length; i++) {
+      const file = pointsFiles[i];
+      
+      updateProgress(
+        10 + (i / pointsFiles.length) * 80,
+        `Loading ${file.description}...`
+      );
 
-          // If we encounter a new match, finalize the previous one
-          if (previousMatchId && matchId !== previousMatchId) {
-            matchMetadata[previousMatchId] = {
-              startLine: matchStartLine,
-              endLine: i - 1
-            };
-          }
-
-          // Start tracking this match if it's new
-          if (!matchIdObj[matchId]) {
-            matchIdObj[matchId] = true;
-            matchIdsArray.push(matchId);
-            matchStartLine = i;
-          }
-
-          previousMatchId = matchId;
-        }
-      }
+      const csvText = await downloadCSVFile(file.url);
+      
+      // Cache the points file for later use
+      pointsFileCache[file.key] = {
+        csvText: csvText,
+        loaded: true
+      };
+      
+      // Extract match IDs from this points file
+      const matchIds = extractMatchIdsFromPointsFile(csvText);
+      allMatchIds.push(...matchIds);
+      
+      loadingStats.loadedFiles++;
     }
 
-    currentIndex = endIndex;
+    // Remove duplicates and sort
+    allMatchIds = [...new Set(allMatchIds)].sort();
+    loadingStats.totalMatches = allMatchIds.length;
+    
+    // Set up search interface
+    setupSearchInterface();
+    fullDataLoaded = true;
 
-    // Update parsing progress
-    let percent = Math.round((currentIndex / lines.length) * 100);
-    if (progressBar) {
-      progressBar.style.width = percent + '%';
-    }
-    if (progressText) {
-      progressText.textContent = `Scanning matches: ${matchIdsArray.length} found (${percent}%)`;
-    }
+    updateProgress(
+      100,
+      `${loadingStats.totalMatches} matches ready (${loadingStats.loadedFiles} files loaded)`
+    );
 
-    if (currentIndex < lines.length) {
-      // More lines to parse
-      setTimeout(parseChunk, 0);
-    } else {
-      // Finalize the last match
-      if (previousMatchId && matchStartLine !== null) {
-        matchMetadata[previousMatchId] = {
-          startLine: matchStartLine,
-          endLine: lines.length - 1
-        };
-      }
+  } catch (error) {
+    console.error('Error loading match databases:', error);
+    updateProgress(0, 'Error loading match databases');
+  }
+}
 
-      // Scanning complete
-      allMatchIds = matchIdsArray;
-      setupSearchInterface();
-      fullDataLoaded = true;
-
-      if (progressText) {
-        progressText.textContent = `${matchIdsArray.length} matches ready`;
+// Extract unique match IDs from a points CSV file
+function extractMatchIdsFromPointsFile(csvText) {
+  const lines = csvText.split('\n');
+  const matchIds = new Set();
+  
+  // Skip header row
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line) {
+      const columns = line.split(',');
+      if (columns[0]) {
+        matchIds.add(columns[0]);
       }
     }
   }
-
-  parseChunk();
+  
+  return Array.from(matchIds);
 }
 
-// Load a specific match by ID from the stored CSV
+// Download a single CSV file with progress tracking
+async function downloadCSVFile(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  return response.text();
+}
+
+// Load a specific match by ID from the appropriate CSV source
 function loadMatchById(matchId, callback) {
-  if (!matchMetadata[matchId]) {
-    console.error('Match not found:', matchId);
+  
+  // Determine which period this match belongs to based on date
+  const dateStr = matchId.substring(0, 8); // YYYYMMDD
+  const year = parseInt(dateStr.substring(0, 4));
+  const gender = matchId.includes('-M-') ? 'men' : 'women';
+  
+  let period;
+  if (year >= 2020) {
+    period = '2020s';
+  } else if (year >= 2010) {
+    period = '2010s';
+  } else {
+    period = 'to-2009';
+  }
+  
+  // Load the points file for this match
+  const pointsUrl = window.pointsFileUrls[`${gender}-${period}`];
+  const cacheKey = `${gender}-${period}`;
+  
+  if (!pointsUrl) {
+    console.error('No points file URL found for:', gender + '-' + period);
+    updateProgress(0, 'Error: Points file not available for this time period');
     return;
   }
 
-  let metadata = matchMetadata[matchId];
-  let lines = csvText.split('\n');
-
-  // Extract just the lines for this match
-  let matchLines = [];
-  for (let i = metadata.startLine; i <= metadata.endLine; i++) {
-    if (lines[i] && lines[i].trim()) {
-      matchLines.push(lines[i]);
-    }
+  // Check cache first
+  if (pointsFileCache[cacheKey].loaded) {
+    // Use cached data
+    extractMatchFromPointsData(matchId, pointsFileCache[cacheKey].csvText, callback);
+    return;
   }
 
-  // Build mini table
-  let miniTableData = csvHeaders.join(',') + '\n' + matchLines.join('\n');
+  // Download and cache if not already loaded
+  fetch(pointsUrl)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return response.text();
+    })
+    .then(csvText => {
+      // Cache the data
+      pointsFileCache[cacheKey] = {
+        csvText: csvText,
+        loaded: true
+      };
+      
+      extractMatchFromPointsData(matchId, csvText, callback);
+    })
+    .catch(error => {
+      console.error('Error loading points file:', error);
+    });
+}
 
+// Extract a specific match from points CSV data
+function extractMatchFromPointsData(matchId, csvText, callback) {
+  const lines = csvText.split('\n');
+  const headers = lines[0].split(',');
+  
+  // Find all lines belonging to this match
+  const matchLines = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line) {
+      const columns = line.split(',');
+      if (columns[0] === matchId) {
+        matchLines.push(line);
+      }
+    }
+  }
+  
+  if (matchLines.length === 0) {
+    // Show user-friendly message
+    updateProgress(0, `No point-by-point data available for this match. Try another match.`);
+    
+    // Try to load a random match that has data instead
+    setTimeout(() => {
+      findAndLoadRandomMatchWithData();
+    }, 2000);
+    
+    return;
+  }
+  
+  // Build table data
+  const tableData = headers.join(',') + '\n' + matchLines.join('\n');
+  
   loadTable(
-    'data:text/csv;charset=utf-8,' + encodeURIComponent(miniTableData),
+    'data:text/csv;charset=utf-8,' + encodeURIComponent(tableData),
     'csv',
     'header',
     function (table) {
@@ -255,22 +289,53 @@ function loadMatchById(matchId, callback) {
       if (callback) callback();
     },
     function (error) {
-      console.error('Error loading match:', matchId, error);
+      console.error('Error loading points table:', error);
     }
   );
 }
 
+// Helper function to find and load a random match that has actual point data
+function findAndLoadRandomMatchWithData() {
+  // Try a few recent matches (more likely to have point data)
+  const recentMatches = allMatchIds.filter(id => {
+    const year = parseInt(id.substring(0, 4));
+    return year >= 2020; // Focus on recent matches
+  });
+  
+  if (recentMatches.length === 0) {
+    if (allMatchIds.length > 0) {
+      const randomMatch = allMatchIds[Math.floor(Math.random() * allMatchIds.length)];
+      loadMatch(randomMatch);
+    }
+    return;
+  }
+  
+  // Try loading a random recent match
+  const randomMatch = recentMatches[Math.floor(Math.random() * recentMatches.length)];
+  
+  // Update progress to show what we're doing
+  updateProgress(50, `Searching for match data: ${randomMatch.substring(0, 20)}...`);
+  
+  loadMatch(randomMatch);
+}
+
 function loadMatch(matchId, options = { setCurrent: true }) {
   try {
+    
     if (options.setCurrent) {
       matchSpecifier = matchId;
       currentMatchId = matchId;
+      // Also track for preview system
+      window.currentSelectedMatch = matchId;
+      window.currentlyDisplayedMatch = matchId;
     }
 
     // Load match data lazily from CSV
     loadMatchById(matchId, function () {
+      
       // Check if we have valid match data
       if (matchData.getRowCount() === 0) {
+        console.error('No data found for match:', matchId);
         return; // Skip if no data found
       }
 
@@ -279,6 +344,7 @@ function loadMatch(matchId, options = { setCurrent: true }) {
 
       // Check if parsing was successful
       if (!tennisMatch || !tennisMatch.sets || tennisMatch.sets.length === 0) {
+        console.error('Parsing failed for match:', matchId, 'tennisMatch:', tennisMatch);
         return; // Skip if parsing failed
       }
 
@@ -286,9 +352,9 @@ function loadMatch(matchId, options = { setCurrent: true }) {
       let maxSetsWon = Math.max(tennisMatch.setsInMatchWonByPlayer[1], tennisMatch.setsInMatchWonByPlayer[2]);
       SETS_TO_WIN_MATCH = maxSetsWon; // 2 for best of 3, 3 for best of 5
 
-      // Update the scoresnake visualization
-      scoresnake = new ScoresnakeChart();
-      scoresnake.update(tennisMatch);
+      // Create new scoresnake visualization
+      currentScoresnake = new ScoresnakeChart();
+      currentScoresnake.update(tennisMatch);
 
       if (options.setCurrent) {
         updateMatchDisplay(matchId);
@@ -300,13 +366,29 @@ function loadMatch(matchId, options = { setCurrent: true }) {
       }
     });
   } catch (e) {
-    // Silently catch errors for incomplete/invalid matches during loading
-    console.warn('Error loading match ' + matchId + ':', e);
+    // Enhanced error logging
+    console.error('Error loading match ' + matchId + ':', e);
+    console.error('Stack trace:', e.stack);
   }
 }
 
-function previewMatch(matchId) {
-  loadMatch(matchId, { setCurrent: false });
+// Extract unique match IDs from a points CSV file
+function extractMatchIdsFromPointsFile(csvText) {
+  const lines = csvText.split('\n');
+  const matchIds = new Set();
+  
+  // Skip header row
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line) {
+      const columns = line.split(',');
+      if (columns[0]) {
+        matchIds.add(columns[0]);
+      }
+    }
+  }
+  
+  return Array.from(matchIds);
 }
 
 function updatePlayer1Width(input, playerFields) {
@@ -392,7 +474,14 @@ function renderNextMatchBatch(dropdown) {
       previewMatch(matchId);
     });
 
+    item.addEventListener('mouseleave', function () {
+      stopPreview();
+    });
+
     item.addEventListener('click', function () {
+      // Set this as the selected match
+      window.currentSelectedMatch = matchId;
+      window.currentlyDisplayedMatch = matchId;
       loadMatch(matchId);
       if (searchDateYear) searchDateYear.value = '';
       if (searchDateMonth) searchDateMonth.value = '';
@@ -415,31 +504,90 @@ function renderNextMatchBatch(dropdown) {
   matchesRendered += nextChunk.length;
 }
 
+const ROUND_PATTERN = /^(F|SF|QF|R\d{1,3}|RR\d?|BR|Q\d|ER)$/i;
+
 function parseMatchId(matchId) {
+  if (!matchId) return null;
+  if (parsedMatchCache[matchId]) return parsedMatchCache[matchId];
+
   let parts = matchId.split('-');
-  if (parts.length < 6) {
-    return null;
-  }
+  if (parts.length < 4) return null;
 
   let date = parts[0] || '';
   let year = date.slice(0, 4);
   let month = date.slice(4, 6);
   let day = date.slice(6, 8);
+  let gender = parts[1] || '';
 
-  return {
-    year,
-    month,
-    day,
-    gender: parts[1] || '',
-    tournament: parts[2] || '',
-    round: parts[3] || '',
-    player1: parts[4] || '',
-    player2: parts[5] || ''
-  };
+  // Find the round by scanning from index 2 for a known round pattern
+  let roundIndex = -1;
+  for (let i = 2; i < parts.length; i++) {
+    if (ROUND_PATTERN.test(parts[i])) {
+      roundIndex = i;
+      break;
+    }
+  }
+
+  if (roundIndex === -1) {
+    // Fallback: assume tournament=parts[2], round=parts[3], rest are players
+    let tournament = parts[2] || '';
+    let round = parts[3] || '';
+    let player1 = parts[4] || '';
+    let player2 = parts.slice(5).join('-') || '';
+    let result = { year, month, day, gender, tournament, round, player1, player2 };
+    parsedMatchCache[matchId] = result;
+    return result;
+  }
+
+  let tournament = parts.slice(2, roundIndex).join('-');
+  let round = parts[roundIndex];
+
+  // Split remaining parts into player1 and player2
+  let playerParts = parts.slice(roundIndex + 1);
+  let player1 = '';
+  let player2 = '';
+
+  if (playerParts.length === 0) {
+    // No players
+  } else if (playerParts.length === 1) {
+    player1 = playerParts[0];
+  } else if (playerParts.length === 2 && playerParts[0].includes('_') && playerParts[1].includes('_')) {
+    // Simple common case: First_Last-First_Last
+    player1 = playerParts[0];
+    player2 = playerParts[1];
+  } else {
+    // Complex case: accumulate parts for player1 until we have an underscore,
+    // then the next part with an underscore starts player2
+    let accumulated = [];
+    let foundFirstPlayerUnderscore = false;
+    let splitIndex = playerParts.length; // default: all parts are player1
+
+    for (let i = 0; i < playerParts.length; i++) {
+      accumulated.push(playerParts[i]);
+      if (!foundFirstPlayerUnderscore) {
+        if (accumulated.join('-').includes('_')) {
+          foundFirstPlayerUnderscore = true;
+        }
+      } else {
+        // Already found player1's underscore; if this part has underscore, it starts player2
+        if (playerParts[i].includes('_')) {
+          splitIndex = i;
+          break;
+        }
+      }
+    }
+
+    player1 = playerParts.slice(0, splitIndex).join('-');
+    player2 = playerParts.slice(splitIndex).join('-');
+  }
+
+  let result = { year, month, day, gender, tournament, round, player1, player2 };
+  parsedMatchCache[matchId] = result;
+  return result;
 }
 
 function createMatchRow(matchId) {
-  let data = parseMatchId(matchId);
+  let data = getMatchMetadata(matchId);
   let row = document.createElement('div');
   row.className = 'match-row';
 
@@ -451,82 +599,186 @@ function createMatchRow(matchId) {
     return row;
   }
 
+  // Extract consistent data from summary or parsed match ID
+  let date = data.Date || (data.year + data.month + data.day);
+  let year = date.slice(0, 4);
+  let month = date.slice(4, 6);
+  let day = date.slice(6, 8);
+  let gender = data.match_id ? (data.match_id.includes('-M-') ? 'M' : 'W') : data.gender;
+  let tournament = (data.Tournament || data.tournament || '').replace(/_/g, ' ');
+  let round = data.Round || data.round || '';
+  let player1 = (data['Player 1'] || data.player1 || '').replace(/_/g, ' ');
+  let player2 = (data['Player 2'] || data.player2 || '').replace(/_/g, ' ');
+
   let dateCell = document.createElement('div');
   dateCell.className = 'date-container match-date';
   dateCell.dataset.field = 'date';
-  dateCell.dataset.year = data.year;
-  dateCell.dataset.month = data.month;
-  dateCell.dataset.day = data.day;
-  dateCell.title = 'Click to add this to search filters';
+  dateCell.dataset.year = year;
+  dateCell.dataset.month = month;
+  dateCell.dataset.day = day;
+  // No tooltip for dropdown items
 
-  let year = document.createElement('span');
-  year.className = 'match-date-part year';
-  year.textContent = data.year;
+  let yearSpan = document.createElement('span');
+  yearSpan.className = 'match-date-part year';
+  yearSpan.textContent = year;
 
-  let month = document.createElement('span');
-  month.className = 'match-date-part month';
-  month.textContent = data.month;
+  let monthSpan = document.createElement('span');
+  monthSpan.className = 'match-date-part month';
+  monthSpan.textContent = month;
 
-  let day = document.createElement('span');
-  day.className = 'match-date-part day';
-  day.textContent = data.day;
+  let daySpan = document.createElement('span');
+  daySpan.className = 'match-date-part day';
+  daySpan.textContent = day;
 
-  dateCell.appendChild(year);
-  dateCell.appendChild(month);
-  dateCell.appendChild(day);
+  dateCell.appendChild(yearSpan);
+  dateCell.appendChild(monthSpan);
+  dateCell.appendChild(daySpan);
   row.appendChild(dateCell);
 
-  let gender = document.createElement('div');
-  gender.className = 'match-cell centered';
-  gender.textContent = data.gender;
-  gender.dataset.field = 'gender';
-  gender.dataset.value = data.gender;
-  gender.title = 'Click to add this to search filters';
-  row.appendChild(gender);
+  let genderCell = document.createElement('div');
+  genderCell.className = 'match-cell centered';
+  genderCell.textContent = gender;
+  genderCell.dataset.field = 'gender';
+  genderCell.dataset.value = gender;
+  // No tooltip for dropdown items
+  row.appendChild(genderCell);
 
-  let tournament = document.createElement('div');
-  tournament.className = 'match-cell';
-  tournament.textContent = data.tournament.replace(/_/g, ' ');
-  tournament.dataset.field = 'tournament';
-  tournament.dataset.value = data.tournament;
-  tournament.title = 'Click to add this to search filters';
-  row.appendChild(tournament);
+  let tournamentCell = document.createElement('div');
+  tournamentCell.className = 'match-cell';
+  tournamentCell.textContent = tournament;
+  tournamentCell.dataset.field = 'tournament';
+  tournamentCell.dataset.value = tournament.replace(/ /g, '_');
+  // No tooltip for dropdown items
+  row.appendChild(tournamentCell);
 
-  let round = document.createElement('div');
-  round.className = 'match-cell';
-  round.textContent = data.round;
-  round.dataset.field = 'round';
-  round.dataset.value = data.round;
-  round.title = 'Click to add this to search filters';
-  row.appendChild(round);
+  let roundCell = document.createElement('div');
+  roundCell.className = 'match-cell';
+  roundCell.textContent = round;
+  roundCell.dataset.field = 'round';
+  roundCell.dataset.value = round;
+  // No tooltip for dropdown items
+  row.appendChild(roundCell);
 
   let players = document.createElement('div');
   players.className = 'match-cell match-players';
 
-  let player1 = document.createElement('span');
-  player1.className = 'match-player';
-  player1.textContent = data.player1.replace(/_/g, ' ');
-  player1.dataset.field = 'player1';
-  player1.dataset.value = data.player1;
-  player1.title = 'Click to add this to search filters';
+  let player1Span = document.createElement('span');
+  player1Span.className = 'match-player';
+  player1Span.textContent = player1;
+  player1Span.dataset.field = 'player1';
+  player1Span.dataset.value = player1.replace(/ /g, '_');
+  // No tooltip for dropdown items
 
   let sep = document.createElement('span');
   sep.className = 'player-sep';
   sep.textContent = ' vs ';
 
-  let player2 = document.createElement('span');
-  player2.className = 'match-player';
-  player2.textContent = data.player2.replace(/_/g, ' ');
-  player2.dataset.field = 'player2';
-  player2.dataset.value = data.player2;
-  player2.title = 'Click to add this to search filters';
+  let player2Span = document.createElement('span');
+  player2Span.className = 'match-player';
+  player2Span.textContent = player2;
+  player2Span.dataset.field = 'player2';
+  player2Span.dataset.value = player2.replace(/ /g, '_');
+  // No tooltip for dropdown items
 
-  players.appendChild(player1);
+  players.appendChild(player1Span);
   players.appendChild(sep);
-  players.appendChild(player2);
+  players.appendChild(player2Span);
   row.appendChild(players);
 
   return row;
+}
+
+// Add debouncing for preview
+let previewTimeout = null;
+let currentPreviewMatch = null;
+
+// Preview match on hover - temporarily update visualization only
+function previewMatch(matchId) {
+  // Clear any existing preview timeout
+  if (previewTimeout) {
+    clearTimeout(previewTimeout);
+  }
+  
+  // Don't re-preview the same match
+  if (currentPreviewMatch === matchId) {
+    return;
+  }
+  
+  // Debounce the preview to avoid rapid-fire hovers
+  previewTimeout = setTimeout(() => {
+    currentPreviewMatch = matchId;
+    
+    // Store current state for restoration
+    if (!window.currentSelectedMatch) {
+      window.currentSelectedMatch = currentMatchId;
+    }
+    
+    // Load and display the match temporarily (don't change currentMatchId)
+    loadMatchById(matchId, () => {
+      // Check if this is still the match we want to preview (avoid race conditions)
+      if (currentPreviewMatch === matchId && matchData && matchData.getRowCount() > 0) {
+        // Parse and create temporary visualization
+        parseMatchData();
+        if (tennisMatch) {
+          currentScoresnake = new ScoresnakeChart();
+          currentScoresnake.update(tennisMatch);
+          redraw();
+        }
+      }
+    });
+  }, 50); // Fast preview since CSV is cached
+}
+
+// Revert to the selected match when hover ends
+function stopPreview() {
+  currentPreviewMatch = null;
+  if (previewTimeout) {
+    clearTimeout(previewTimeout);
+    previewTimeout = null;
+  }
+  
+  // Restore the originally selected match visualization
+  if (window.currentSelectedMatch) {
+    loadMatchById(window.currentSelectedMatch, () => {
+      // Check if we're still in "restore" mode (no active preview)
+      if (currentPreviewMatch === null && matchData && matchData.getRowCount() > 0) {
+        parseMatchData();
+        if (tennisMatch) {
+          currentScoresnake = new ScoresnakeChart();
+          currentScoresnake.update(tennisMatch);
+          redraw();
+        }
+      }
+    });
+  }
+}
+
+// Lightweight display update for previews
+function updateMatchDisplayInfo(matchId, metadata) {
+  let displayElement = document.getElementById('match-display');
+  if (displayElement) {
+    displayElement.innerHTML = '';
+    displayElement.appendChild(createMatchRow(matchId));
+  }
+}
+
+// Update the tennis match visualization
+function updateMatchVisualization() {
+  if (matchData && typeof parseMatchData === 'function') {
+    try {
+      parseMatchData();
+      
+      // Create new scoresnake chart with match data
+      if (tennisMatch) {
+        currentScoresnake = new ScoresnakeChart();
+        currentScoresnake.update(tennisMatch);
+      }
+      
+      redraw(); // Trigger p5.js redraw
+    } catch (error) {
+      console.error('Error updating match visualization:', error);
+    }
+  }
 }
 
 function setupSearchInterfaceLoading() {
@@ -562,9 +814,22 @@ function setupSearchInterfaceLoading() {
     searchPlayer1.addEventListener('input', function () {
       syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
       updatePlayer1Width(searchPlayer1, playerFields);
+      // Refresh player2 dropdown if it's focused to show updated excluded options
+      if (activeSearchField === 'search-player2' && dropdown && matchCountBar && matchCountText) {
+        renderFacetedDropdown('search-player2', dropdown, matchCountBar, matchCountText);
+      }
     });
     syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
     updatePlayer1Width(searchPlayer1, playerFields);
+  }
+
+  if (searchPlayer2) {
+    searchPlayer2.addEventListener('input', function () {
+      // Refresh player1 dropdown if it's focused to show updated excluded options
+      if (activeSearchField === 'search-player1' && dropdown && matchCountBar && matchCountText) {
+        renderFacetedDropdown('search-player1', dropdown, matchCountBar, matchCountText);
+      }
+    });
   }
 
   if (searchScroll && dropdown && matchDisplay) {
@@ -801,12 +1066,52 @@ function setupSearchInterfaceLoading() {
   [searchDateYear, searchDateMonth, searchDateDay, searchGender, searchTournament, searchRound, searchPlayer1, searchPlayer2]
     .filter(Boolean)
     .forEach(input => {
-      input.addEventListener('input', handleSearchInput);
+      input.addEventListener('input', function() {
+        // Clear validation when user types manually
+        if (validatedFields[this.id]) {
+          delete validatedFields[this.id];
+          this.classList.remove('field-validated');
+        }
+        handleSearchInput();
+      });
     });
+
+  // Track focused field for faceted dropdown
+  ['search-date-year', 'search-date-month', 'search-date-day', 'search-gender', 'search-tournament', 'search-round', 'search-player1', 'search-player2'].forEach(id => {
+    let field = document.getElementById(id);
+    if (!field) return;
+    field.addEventListener('focus', function () {
+      activeSearchField = this.id;
+      handleSearchInput();
+    });
+    field.addEventListener('blur', function () {
+      let blurredId = this.id;
+      setTimeout(() => {
+        if (activeSearchField === blurredId) {
+          activeSearchField = null;
+          handleSearchInput();
+        }
+      }, 150);
+    });
+  });
+
+  // Capture-phase handler for Enter/Tab autocomplete on faceted options
+  window.addEventListener('keydown', function (e) {
+    if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
+      const searchFieldIds = ['search-date-year', 'search-date-month', 'search-date-day', 'search-gender', 'search-tournament', 'search-round', 'search-player1', 'search-player2'];
+      if (searchFieldIds.includes(e.target.id) && activeSearchField && currentFacetOptions && currentFacetOptions.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        fillFieldAndAdvance(activeSearchField, currentFacetOptions[0]);
+      }
+    }
+  }, true);
 
 }
 
-function handleSearchInput() {
+// ====== Search helpers ======
+
+function getSearchValues() {
   let searchDateYear = document.getElementById('search-date-year');
   let searchDateMonth = document.getElementById('search-date-month');
   let searchDateDay = document.getElementById('search-date-day');
@@ -815,56 +1120,437 @@ function handleSearchInput() {
   let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
   let searchPlayer2 = document.getElementById('search-player2');
+
+  let yearValue = searchDateYear ? searchDateYear.value : '';
+  let monthValue = searchDateMonth ? searchDateMonth.value : '';
+  let dayValue = searchDateDay ? searchDateDay.value : '';
+
+  if (yearValue.length === 2) yearValue = '20' + yearValue;
+  if (monthValue.length === 1 && monthValue !== '') monthValue = '0' + monthValue;
+  if (dayValue.length === 1 && dayValue !== '') dayValue = '0' + dayValue;
+
+  // Build date progressively - only include parts that are filled
+  let dateSearch = '';
+  if (yearValue) {
+    dateSearch = yearValue;
+    if (monthValue) {
+      dateSearch += monthValue;
+      if (dayValue) {
+        dateSearch += dayValue;
+      }
+    }
+  }
+
+  return {
+    date: dateSearch.toLowerCase(),
+    year: yearValue.toLowerCase(),
+    month: monthValue.toLowerCase(), 
+    day: dayValue.toLowerCase(),
+    gender: searchGender ? searchGender.value.toLowerCase() : '',
+    tournament: searchTournament ? searchTournament.value.toLowerCase().replace(/\s+/g, '_') : '',
+    round: searchRound ? searchRound.value.toLowerCase().replace(/\s+/g, '_') : '',
+    player1: (searchPlayer1 ? searchPlayer1.value : '').toLowerCase().replace(/\s+/g, '_'),
+    player2: (searchPlayer2 ? searchPlayer2.value : '').toLowerCase().replace(/\s+/g, '_'),
+  };
+}
+
+function filterMatchesWith(sv) {
+  return allMatchIds.filter(matchId => {
+    // Parse match ID directly since we have all match IDs from points files
+    let parsed = parseMatchId(matchId);
+    if (!parsed) return false;
+
+    // Use substring match for date (don't use validation for partial dates)
+    let dateOk = !sv.date || (parsed.year + (parsed.month || '') + (parsed.day || '')).includes(sv.date);
+    
+    let genderOk = !sv.gender || (validatedFields['search-gender'] ? 
+      parsed.gender.toLowerCase() === sv.gender : parsed.gender.toLowerCase().includes(sv.gender));
+    let tournamentOk = !sv.tournament || (validatedFields['search-tournament'] ? 
+      parsed.tournament.toLowerCase() === sv.tournament : parsed.tournament.toLowerCase().includes(sv.tournament));
+    let roundOk = !sv.round || (validatedFields['search-round'] ? 
+      parsed.round.toLowerCase() === sv.round : parsed.round.toLowerCase().includes(sv.round));
+
+    let playersOk = true;
+    if (sv.player1 && !sv.player2) {
+      if (validatedFields['search-player1']) {
+        playersOk = parsed.player1.toLowerCase() === sv.player1 || parsed.player2.toLowerCase() === sv.player1;
+      } else {
+        playersOk = parsed.player1.toLowerCase().includes(sv.player1) || parsed.player2.toLowerCase().includes(sv.player1);
+      }
+    } else if (sv.player2 && !sv.player1) {
+      if (validatedFields['search-player2']) {
+        playersOk = parsed.player1.toLowerCase() === sv.player2 || parsed.player2.toLowerCase() === sv.player2;
+      } else {
+        playersOk = parsed.player1.toLowerCase().includes(sv.player2) || parsed.player2.toLowerCase().includes(sv.player2);
+      }
+    } else if (sv.player1 && sv.player2) {
+      if (validatedFields['search-player1'] && validatedFields['search-player2']) {
+        playersOk = (parsed.player1.toLowerCase() === sv.player1 && parsed.player2.toLowerCase() === sv.player2) ||
+          (parsed.player1.toLowerCase() === sv.player2 && parsed.player2.toLowerCase() === sv.player1);
+      } else {
+        playersOk = (parsed.player1.toLowerCase().includes(sv.player1) && parsed.player2.toLowerCase().includes(sv.player2)) ||
+          (parsed.player1.toLowerCase().includes(sv.player2) && parsed.player2.toLowerCase().includes(sv.player1));
+      }
+    }
+
+    return dateOk && genderOk && tournamentOk && roundOk && playersOk;
+  });
+}
+
+function filterMatchesExcluding(excludeFieldId) {
+  let sv = getSearchValues();
+  switch (excludeFieldId) {
+    case 'search-date-year':
+    case 'search-date-month':
+    case 'search-date-day': {
+      let searchDateYear = document.getElementById('search-date-year');
+      let searchDateMonth = document.getElementById('search-date-month');
+      let searchDateDay = document.getElementById('search-date-day');
+      let y = excludeFieldId === 'search-date-year' ? '' : (searchDateYear ? searchDateYear.value : '');
+      let m = excludeFieldId === 'search-date-month' ? '' : (searchDateMonth ? searchDateMonth.value : '');
+      let d = excludeFieldId === 'search-date-day' ? '' : (searchDateDay ? searchDateDay.value : '');
+      if (y.length === 2) y = '20' + y;
+      if (m.length === 1) m = '0' + m;
+      if (d.length === 1) d = '0' + d;
+      sv.date = (y + m + d).toLowerCase();
+      break;
+    }
+    case 'search-gender': sv.gender = ''; break;
+    case 'search-tournament': sv.tournament = ''; break;
+    case 'search-round': sv.round = ''; break;
+    case 'search-player1': sv.player1 = ''; break;
+    case 'search-player2': sv.player2 = ''; break;
+  }
+  return filterMatchesWith(sv);
+}
+
+// Get match metadata by parsing match ID
+function getMatchMetadata(matchId) {
+  return parseMatchId(matchId);
+}
+
+function extractFieldValues(data, fieldId) {
+  // If data is a match ID string, convert it to metadata object
+  if (typeof data === 'string') {
+    data = getMatchMetadata(data);
+  }
+  
+  if (!data) return [];
+
+  switch (fieldId) {
+    case 'search-date-year': 
+      return [data.Date ? data.Date.slice(0, 4) : (data.year || '')];
+    case 'search-date-month': 
+      return [data.Date ? data.Date.slice(4, 6) : (data.month || '')];
+    case 'search-date-day': 
+      return [data.Date ? data.Date.slice(6, 8) : (data.day || '')];
+    case 'search-gender': 
+      return [data.match_id ? (data.match_id.includes('-M-') ? 'M' : 'W') : (data.gender || '')];
+    case 'search-tournament': 
+      let tournament = data.Tournament || data.tournament || '';
+      // Normalize tournament names in dropdown to show with spaces but handle underscores in filtering
+      return [tournament];
+    case 'search-round': 
+      return [data.Round || data.round || '']; 
+      return [data.Round || data.round || ''];
+    case 'search-player1':
+      // Get the value in player2 field to exclude it
+      let player2Input = document.getElementById('search-player2');
+      let excludePlayer2 = player2Input ? player2Input.value.replace(/\s+/g, '_') : '';
+      let players1 = [
+        (data['Player 1'] || data.player1 || '').replace(/\s+/g, '_'),
+        (data['Player 2'] || data.player2 || '').replace(/\s+/g, '_')
+      ].filter(p => p && p !== excludePlayer2);
+      return players1;
+    case 'search-player2':
+      // Get the value in player1 field to exclude it
+      let player1Input = document.getElementById('search-player1');
+      let excludePlayer1 = player1Input ? player1Input.value.replace(/\s+/g, '_') : '';
+      let players2 = [
+        (data['Player 1'] || data.player1 || '').replace(/\s+/g, '_'),
+        (data['Player 2'] || data.player2 || '').replace(/\s+/g, '_')
+      ].filter(p => p && p !== excludePlayer1);
+      return players2;
+    default: return [];
+  }
+}
+
+function getColumnIndex(fieldId) {
+  switch (fieldId) {
+    case 'search-date-year':
+    case 'search-date-month':
+    case 'search-date-day':
+      return 0;
+    case 'search-gender': return 1;
+    case 'search-tournament': return 2;
+    case 'search-round': return 3;
+    case 'search-player1':
+    case 'search-player2':
+      return 4;
+    default: return -1;
+  }
+}
+
+function formatFacetValue(value, fieldId) {
+  if (fieldId === 'search-tournament' || fieldId === 'search-player1' || fieldId === 'search-player2') {
+    return value.replace(/_/g, ' ');
+  }
+  return value;
+}
+
+function renderFacetedDropdown(focusedFieldId, dropdown, matchCountBar, matchCountText) {
+  let baseMatches = filterMatchesExcluding(focusedFieldId);
+
+  let valueCounts = {};
+  let valueMatchIds = {};
+
+  baseMatches.forEach(matchId => {
+    // Use the match ID directly - extractFieldValues will handle metadata lookup
+    let values = extractFieldValues(matchId, focusedFieldId);
+    values.forEach(value => {
+      if (!value) return;
+      if (!valueCounts[value]) {
+        valueCounts[value] = 0;
+        valueMatchIds[value] = [];
+      }
+      if (!valueMatchIds[value].includes(matchId)) {
+        valueCounts[value]++;
+        valueMatchIds[value].push(matchId);
+      }
+    });
+  });
+
+  // Filter by partial text in focused field
+  let focusedInput = document.getElementById(focusedFieldId);
+  let partialText = focusedInput ? focusedInput.value.toLowerCase().replace(/\s+/g, '_') : '';
+
+  if (focusedFieldId === 'search-date-year' && partialText.length === 2) {
+    partialText = '20' + partialText;
+  }
+  if ((focusedFieldId === 'search-date-month' || focusedFieldId === 'search-date-day') && partialText.length === 1) {
+    partialText = '0' + partialText;
+  }
+
+  let filteredValues = Object.keys(valueCounts).filter(value => {
+    if (!partialText) return true;
+    // Normalize both the value and partial text for comparison
+    let normalizedValue = value.toLowerCase().replace(/\s+/g, '_');
+    return normalizedValue.includes(partialText);
+  });
+
+  // Sort by count descending
+  filteredValues.sort((a, b) => valueCounts[b] - valueCounts[a]);
+
+  // Store for autocomplete
+  currentFacetOptions = filteredValues;
+
+  // Count unique matches (not sum of per-value counts, which would double-count for player fields)
+  let uniqueMatchIds = {};
+  filteredValues.forEach(v => valueMatchIds[v].forEach(id => { uniqueMatchIds[id] = true; }));
+  let totalCount = Object.keys(uniqueMatchIds).length;
+
+  if (matchCountBar && matchCountText) {
+    let matchWord = totalCount === 1 ? 'match' : 'matches';
+    matchCountText.textContent = `Matching: ${totalCount} ${matchWord}`;
+    matchCountBar.classList.remove('match-count-hidden');
+  }
+
+  dropdown.innerHTML = '';
+  dropdown.classList.remove('dropdown-hidden');
+
+  if (filteredValues.length === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.className = 'dropdown-empty-message';
+    emptyMsg.textContent = 'No matching options';
+    dropdown.appendChild(emptyMsg);
+    return;
+  }
+
+  let colIndex = getColumnIndex(focusedFieldId);
+
+  filteredValues.forEach(value => {
+    let group = createFacetGroup(value, valueCounts[value], valueMatchIds[value], focusedFieldId, colIndex);
+    dropdown.appendChild(group);
+  });
+}
+
+function createFacetGroup(value, count, matchIds, focusedFieldId, colIndex) {
+  let group = document.createElement('div');
+  group.className = 'facet-group';
+
+  let matchesDiv = document.createElement('div');
+  matchesDiv.className = 'facet-matches facet-collapsed';
+
+  let toggleBtn;
+
+  function toggleExpand(e) {
+    e.preventDefault();
+    let isExpanded = !matchesDiv.classList.contains('facet-collapsed');
+    if (isExpanded) {
+      matchesDiv.classList.add('facet-collapsed');
+      if (toggleBtn) toggleBtn.textContent = '\u25B6';
+    } else {
+      matchesDiv.classList.remove('facet-collapsed');
+      if (toggleBtn) toggleBtn.textContent = '\u25BC';
+      if (matchesDiv.children.length === 0) {
+        loadFacetMatches(matchesDiv, matchIds);
+      }
+    }
+  }
+
+  let bar = document.createElement('div');
+  bar.className = 'facet-bar';
+
+  const colCount = 5;
+  for (let i = 0; i < colCount; i++) {
+    let cell = document.createElement('div');
+    cell.className = 'facet-cell';
+
+    if (i === colIndex) {
+      cell.classList.add('facet-active-cell');
+
+      let valueBtn = document.createElement('button');
+      valueBtn.className = 'facet-value-btn';
+      valueBtn.textContent = formatFacetValue(value, focusedFieldId);
+
+      let countSpan = document.createElement('span');
+      countSpan.className = 'facet-count';
+      countSpan.textContent = count;
+
+      toggleBtn = document.createElement('button');
+      toggleBtn.className = 'facet-toggle-btn';
+      toggleBtn.textContent = '\u25B6';
+
+      cell.appendChild(valueBtn);
+      cell.appendChild(countSpan);
+      cell.appendChild(toggleBtn);
+
+      valueBtn.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        fillFieldAndAdvance(focusedFieldId, value);
+      });
+
+      toggleBtn.addEventListener('mousedown', toggleExpand);
+    }
+
+    bar.appendChild(cell);
+  }
+
+  bar.addEventListener('mousedown', function (e) {
+    if (e.target.classList.contains('facet-value-btn')) return;
+    toggleExpand(e);
+  });
+
+  group.appendChild(bar);
+  group.appendChild(matchesDiv);
+
+  return group;
+}
+
+function loadFacetMatches(container, matchIds) {
+  matchIds.sort((a, b) => a.localeCompare(b));
+  matchIds.forEach(matchId => {
+    let item = document.createElement('div');
+    item.className = 'dropdown-item dropdown-item-match';
+    item.appendChild(createMatchRow(matchId));
+
+    item.addEventListener('mouseenter', function () {
+      previewMatch(matchId);
+    });
+
+    item.addEventListener('mouseleave', function () {
+      stopPreview();
+    });
+
+    item.addEventListener('click', function () {
+      loadMatch(matchId);
+      ['search-date-year', 'search-date-month', 'search-date-day', 'search-gender', 'search-tournament', 'search-round', 'search-player1'].forEach(id => {
+        let el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      let searchPlayer2 = document.getElementById('search-player2');
+      let playerFields = document.getElementById('player-fields');
+      if (searchPlayer2) {
+        searchPlayer2.value = '';
+        searchPlayer2.classList.add('player-field-hidden');
+      }
+      if (playerFields) playerFields.classList.remove('player2-visible');
+      activeSearchField = null;
+      handleSearchInput();
+    });
+
+    container.appendChild(item);
+  });
+}
+
+function fillFieldAndAdvance(fieldId, value) {
+  let input = document.getElementById(fieldId);
+  if (!input) return;
+
+  if (fieldId === 'search-tournament' || fieldId === 'search-player1' || fieldId === 'search-player2') {
+    input.value = value.replace(/_/g, ' ');
+  } else {
+    input.value = value;
+  }
+
+  // Mark field as validated (exact value entered)
+  validatedFields[fieldId] = true;
+  input.classList.add('field-validated');
+
+  if (fieldId === 'search-player1') {
+    let searchPlayer1 = document.getElementById('search-player1');
+    let searchPlayer2 = document.getElementById('search-player2');
+    let playerFields = document.getElementById('player-fields');
+    syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
+    updatePlayer1Width(searchPlayer1, playerFields);
+  }
+
+  const fieldOrder = [
+    'search-date-year', 'search-date-month', 'search-date-day',
+    'search-gender', 'search-tournament', 'search-round',
+    'search-player1', 'search-player2'
+  ];
+
+  let currentIndex = fieldOrder.indexOf(fieldId);
+  let nextField = null;
+
+  if (currentIndex >= 0 && currentIndex < fieldOrder.length - 1) {
+    let nextFieldId = fieldOrder[currentIndex + 1];
+    nextField = document.getElementById(nextFieldId);
+
+    if (nextFieldId === 'search-player2') {
+      let searchPlayer2 = document.getElementById('search-player2');
+      let playerFields = document.getElementById('player-fields');
+      if (searchPlayer2) {
+        searchPlayer2.classList.remove('player-field-hidden');
+        if (playerFields) playerFields.classList.add('player2-visible');
+        let searchPlayer1 = document.getElementById('search-player1');
+        updatePlayer1Width(searchPlayer1, playerFields);
+      }
+    }
+  }
+
+  if (nextField) {
+    nextField.focus();
+  } else {
+    activeSearchField = null;
+    input.blur();
+    handleSearchInput();
+  }
+}
+
+// ====== Main search handler ======
+
+function handleSearchInput() {
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
   let playerFields = document.getElementById('player-fields');
   let dropdown = document.getElementById('dropdown');
   let matchCountBar = document.getElementById('match-count-bar');
   let matchCountText = document.getElementById('match-count-text');
 
-  let yearValue = searchDateYear.value;
   syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
   updatePlayer1Width(searchPlayer1, playerFields);
-  let monthValue = searchDateMonth.value;
-  let dayValue = searchDateDay.value;
-
-  if (yearValue.length === 2) {
-    yearValue = '20' + yearValue;
-  }
-
-  if (monthValue.length === 1) {
-    monthValue = '0' + monthValue;
-  }
-  if (dayValue.length === 1) {
-    dayValue = '0' + dayValue;
-  }
-
-  let dateSearch = (yearValue + monthValue + dayValue).toLowerCase();
-  let genderSearch = searchGender.value.toLowerCase();
-  let tournamentSearch = searchTournament.value.toLowerCase().replace(/\s+/g, '_');
-  let roundSearch = searchRound.value.toLowerCase().replace(/\s+/g, '_');
-  let player1Search = (searchPlayer1 ? searchPlayer1.value : '').toLowerCase().replace(/\s+/g, '_');
-  let player2Search = (searchPlayer2 ? searchPlayer2.value : '').toLowerCase().replace(/\s+/g, '_');
-
-  let hasAnyInput = dateSearch || genderSearch || tournamentSearch || roundSearch || player1Search || player2Search;
-
-  if (!hasAnyInput) {
-    dropdown.classList.remove('dropdown-hidden');
-    dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Type in the search bar fields to filter matches</div>';
-    currentMatches = [];
-    matchesRendered = 0;
-    if (searchPlayer2) {
-      searchPlayer2.classList.add('player-field-hidden');
-      searchPlayer2.value = '';
-    }
-    if (playerFields) playerFields.classList.remove('player2-visible');
-    if (matchCountBar && matchCountText) {
-      matchCountText.textContent = 'Matching: 0';
-      matchCountBar.classList.remove('match-count-hidden');
-    }
-    if (currentMatchId) {
-      previewMatch(currentMatchId);
-    }
-    return;
-  }
 
   if (!fullDataLoaded) {
     dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Loading match database...</div>';
@@ -878,42 +1564,67 @@ function handleSearchInput() {
     return;
   }
 
-  let matches = allMatchIds.filter(matchId => {
-    let parts = matchId.toLowerCase().split('-');
-    if (parts.length < 6) return false;
-
-    let date = parts[0];
-    let gender = parts[1];
-    let tournament = parts[2];
-    let round = parts[3];
-    let player1 = parts[4];
-    let player2 = parts[5];
-
-    let dateOk = !dateSearch || date.includes(dateSearch);
-    let genderOk = !genderSearch || gender.includes(genderSearch);
-    let tournamentOk = !tournamentSearch || tournament.includes(tournamentSearch);
-    let roundOk = !roundSearch || round.includes(roundSearch);
-
-    let playersOk = true;
-    if (player1Search && !player2Search) {
-      playersOk = player1.includes(player1Search) || player2.includes(player1Search);
-    } else if (player2Search && !player1Search) {
-      playersOk = player1.includes(player2Search) || player2.includes(player2Search);
-    } else if (player1Search && player2Search) {
-      playersOk = (player1.includes(player1Search) && player2.includes(player2Search)) ||
-        (player1.includes(player2Search) && player2.includes(player1Search));
+  // If a field is focused, show faceted dropdown for that field
+  if (activeSearchField) {
+    // Don't show faceted options if the field is already validated
+    if (validatedFields[activeSearchField]) {
+      dropdown.innerHTML = '';
+      dropdown.classList.remove('dropdown-hidden');
+      const emptyMsg = document.createElement('div');
+      emptyMsg.className = 'dropdown-empty-message';
+      emptyMsg.textContent = 'Field validated - type to see new options';
+      dropdown.appendChild(emptyMsg);
+      return;
     }
+    
+    try {
+      renderFacetedDropdown(activeSearchField, dropdown, matchCountBar, matchCountText);
+    } catch (err) {
+      console.error('Faceted dropdown error:', err);
+      dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #f66;">Error rendering options: ' + err.message + '</div>';
+      dropdown.classList.remove('dropdown-hidden');
+    }
+    return;
+  }
 
-    return dateOk && genderOk && tournamentOk && roundOk && playersOk;
-  });
+  // No focused field — check for input and show flat results
+  let sv = getSearchValues();
+  let hasAnyInput = sv.date || sv.gender || sv.tournament || sv.round || sv.player1 || sv.player2;
 
+  if (!hasAnyInput) {
+    dropdown.classList.remove('dropdown-hidden');
+    dropdown.innerHTML = '';
+    const emptyMsg = document.createElement('div');
+    emptyMsg.className = 'dropdown-empty-message';
+    emptyMsg.textContent = 'Type in the search bar fields to filter matches';
+    dropdown.appendChild(emptyMsg);
+    currentMatches = [];
+    matchesRendered = 0;
+    currentFacetOptions = [];
+    if (searchPlayer2) {
+      searchPlayer2.classList.add('player-field-hidden');
+      searchPlayer2.value = '';
+    }
+    if (playerFields) playerFields.classList.remove('player2-visible');
+    if (matchCountBar && matchCountText) {
+      matchCountText.textContent = 'Matching: 0 matches';
+      matchCountBar.classList.remove('match-count-hidden');
+    }
+    if (currentMatchId) {
+      previewMatch(currentMatchId);
+    }
+    return;
+  }
+
+  let matches = filterMatchesWith(sv);
   matches.sort((a, b) => a.localeCompare(b));
 
   if (matches.length > 0) {
     dropdown.innerHTML = '';
     dropdown.classList.remove('dropdown-hidden');
     if (matchCountBar && matchCountText) {
-      matchCountText.textContent = `Matching: ${matches.length}`;
+      let matchWord = matches.length === 1 ? 'match' : 'matches';
+      matchCountText.textContent = `Matching: ${matches.length} ${matchWord}`;
       matchCountBar.classList.remove('match-count-hidden');
     }
     currentMatches = matches;
@@ -925,7 +1636,7 @@ function handleSearchInput() {
     currentMatches = [];
     matchesRendered = 0;
     if (matchCountBar && matchCountText) {
-      matchCountText.textContent = 'Matching: 0';
+      matchCountText.textContent = 'Matching: 0 matches';
       matchCountBar.classList.remove('match-count-hidden');
     }
   }
@@ -950,6 +1661,13 @@ function setupSearchInterface() {
   // Enable random match button
   if (randomMatchBtn) {
     randomMatchBtn.disabled = false;
+  }
+
+  // Add dropdown mouseleave handler to stop previews when leaving dropdown area
+  if (dropdown) {
+    dropdown.addEventListener('mouseleave', function () {
+      stopPreview();
+    });
   }
 
   // If user already typed something, update results
@@ -1202,7 +1920,7 @@ class Game {
 
 }
 
-class Set {
+class TennisSet {
   constructor(tiebreakerSet = false) {
 
     this.tiebreakerSet = tiebreakerSet;
@@ -1449,9 +2167,9 @@ class ScoresnakeChart {
 
       for (let p2_setsWon = 0; p2_setsWon < SETS_TO_WIN_MATCH; p2_setsWon++) {
         if (p1_setsWon == SETS_TO_WIN_MATCH - 1 && p2_setsWon == SETS_TO_WIN_MATCH - 1) {
-          this.sets[p1_setsWon].push(new Set(true));
+          this.sets[p1_setsWon].push(new TennisSet(true));
         } else {
-          this.sets[p1_setsWon].push(new Set());
+          this.sets[p1_setsWon].push(new TennisSet());
         }
       }
     }
@@ -1797,9 +2515,9 @@ class ScoresnakeChart {
 
     }
 
-
-    this.maxX = setPos.x;
-    this.maxY = setPos.y;
+    this.recalculateTargetScale();
+    this.maxX = this.targetMaxX;
+    this.maxY = this.targetMaxY;
 
 
   }
@@ -2162,11 +2880,11 @@ function mouseWheel(event) {
 
 
   if (event.deltaY < 0) { // scrolling up
-    if (scoresnake.hoverSet != null) {
-      scoresnake.zoomedSet = scoresnake.hoverSet;
+    if (currentScoresnake.hoverSet != null) {
+      currentScoresnake.zoomedSet = currentScoresnake.hoverSet;
     }
   } else if (event.deltaY > 0) { // scrolling down
-    scoresnake.zoomedSet = null;
+    currentScoresnake.zoomedSet = null;
   }
 }
 
@@ -2183,7 +2901,13 @@ function draw() {
     return;
   }
 
-  if (!tennisMatch || !scoresnake) {
+  // Create ScoresnakeChart if we have match data
+  if (dataLoaded && tennisMatch && !currentScoresnake) {
+    currentScoresnake = new ScoresnakeChart();
+    currentScoresnake.update(tennisMatch);
+  }
+
+  if (!tennisMatch || !currentScoresnake) {
     fill(255);
     textSize(24);
     textAlign(CENTER, CENTER);
@@ -2195,7 +2919,7 @@ function draw() {
 
   matchX = width / 2, matchY = 50;
 
-  scoresnake.draw({ x: 0, y: 0 });
+  currentScoresnake.draw({ x: 0, y: 0 });
 
   drawNames();
 
@@ -2211,9 +2935,10 @@ function windowResized() {
     layers[i] = createGraphics(windowWidth * 0.6, windowHeight);
   }
 
-  // Redraw visualization with new dimensions
-  if (dataLoaded && scoresnake) {
-    scoresnake.update(tennisMatch);
+  // Create new scoresnake with new dimensions
+  if (dataLoaded && tennisMatch) {
+    currentScoresnake = new ScoresnakeChart();
+    currentScoresnake.update(tennisMatch);
     redraw();
   }
 }
