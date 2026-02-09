@@ -42,7 +42,6 @@
             <div id="search-labels">
               <div class="search-label">Date</div>
               <div class="search-label">Tournament</div>
-              <div class="search-label">Round</div>
               <div class="search-label">Players</div>
             </div>
             <div id="search-fields">
@@ -50,12 +49,34 @@
                 <input type="text" id="search-date-year" maxlength="4" autocomplete="off" placeholder="Year">
               </div>
               <input type="text" id="search-tournament" autocomplete="off">
-              <input type="text" id="search-round" autocomplete="off">
               <div class="player-field-wrapper" id="player-fields">
                 <input type="text" id="search-player1" autocomplete="off">
                 <span class="player-sep"> vs </span>
                 <input type="text" id="search-player2" autocomplete="off" class="player-field-hidden">
               </div>
+            </div>
+            <div id="round-selector">
+              <span class="round-label">Round:</span>
+              <button class="round-btn round-active" data-round="Q1">Q1</button>
+              <span class="round-sep">›</span>
+              <button class="round-btn round-in-range" data-round="Q2">Q2</button>
+              <span class="round-sep">›</span>
+              <button class="round-btn round-in-range" data-round="Q3">Q3</button>
+              <span class="round-sep">›</span>
+              <button class="round-btn round-in-range" data-round="R128">128</button>
+              <span class="round-sep">›</span>
+              <button class="round-btn round-in-range" data-round="R64">64</button>
+              <span class="round-sep">›</span>
+              <button class="round-btn round-in-range" data-round="R32">32</button>
+              <span class="round-sep">›</span>
+              <button class="round-btn round-in-range" data-round="R16">16</button>
+              <span class="round-sep">›</span>
+              <button class="round-btn round-in-range" data-round="QF">QF</button>
+              <span class="round-sep">›</span>
+              <button class="round-btn round-in-range" data-round="SF">SF</button>
+              <span class="round-sep">›</span>
+              <button class="round-btn round-in-range" data-round="F">F</button>
+              <button class="round-btn round-other round-in-range" data-round="other">Other</button>
             </div>
           </div>
           <div id="match-count-bar" class="match-count-hidden">

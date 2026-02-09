@@ -44,9 +44,8 @@ body {
   --date-pad-right: 16px;
   --date-field-width: calc(var(--date-field-content-width) + var(--date-pad-left) + var(--date-pad-right));
   --col-tournament-min: 200px;
-  --col-round-width: calc(4ch + 24px);
   --col-players-min: 300px;
-  --search-grid-columns: var(--date-field-width) var(--col-tournament-min) var(--col-round-width) minmax(var(--col-players-min), 1fr);
+  --search-grid-columns: var(--date-field-width) minmax(var(--col-tournament-min), 1fr) minmax(var(--col-players-min), 1fr);
   --current-match-height: 120px;
 }
 
@@ -220,6 +219,85 @@ h3 {
   margin-bottom: 10px;
 }
 
+/* Round selector segmented control */
+#round-selector {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 4px 12px;
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+#round-selector .round-label {
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+#round-selector .round-btn {
+  background: none;
+  border: 1px solid #444;
+  color: #888;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: bold;
+  transition: all 0.15s;
+  margin-left: -1px;
+  line-height: 1.2;
+}
+
+#round-selector .round-btn:first-of-type {
+  border-radius: 3px 0 0 3px;
+  margin-left: 0;
+}
+
+#round-selector .round-btn.round-other {
+  border-radius: 0 3px 3px 0;
+  margin-left: 4px;
+  border-left: 1px solid #444;
+}
+
+#round-selector .round-btn:hover {
+  background: #3a3a3a;
+  color: #ccc;
+}
+
+#round-selector .round-btn.round-active {
+  background: #2a4a2a;
+  border-color: #4CAF50;
+  color: #4CAF50;
+}
+
+#round-selector .round-btn.round-in-range {
+  background: #2a3a2a;
+  border-color: #3a6a3a;
+  color: #7ac97a;
+}
+
+#round-selector .round-sep {
+  color: #555;
+  padding: 0 1px;
+  font-size: 10px;
+  user-select: none;
+}
+
+/* Round description in tournament cell */
+.round-description {
+  font-style: italic;
+  font-weight: normal;
+  opacity: 0.6;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
 #search-scroll {
   overflow-x: hidden;
   overflow-y: hidden;
@@ -274,12 +352,8 @@ h3 {
   color: #4CAF50;
 }
 
-#search-scroll:has(#search-round:focus) #search-labels .search-label:nth-child(3) {
-  color: #4CAF50;
-}
-
-#search-scroll:has(#search-player1:focus) #search-labels .search-label:nth-child(4),
-#search-scroll:has(#search-player2:focus) #search-labels .search-label:nth-child(4) {
+#search-scroll:has(#search-player1:focus) #search-labels .search-label:nth-child(3),
+#search-scroll:has(#search-player2:focus) #search-labels .search-label:nth-child(3) {
   color: #4CAF50;
 }
 

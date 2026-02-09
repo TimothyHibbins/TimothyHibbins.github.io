@@ -316,6 +316,10 @@ function loadMatchById(matchId, callback) {
   }
   
   // Load the points file for this match
+  if (!window.pointsFileUrls) {
+    console.warn('Points file URLs not yet initialized');
+    return;
+  }
   const pointsUrl = window.pointsFileUrls[`${gender}-${period}`];
   const cacheKey = `${gender}-${period}`;
   
@@ -562,9 +566,7 @@ function renderNextMatchBatch(dropdown) {
   if (!dropdown || matchesRendered >= currentMatches.length) return;
 
   let searchDateYear = document.getElementById('search-date-year');
-  let searchGender = null; // Gender now handled by radio buttons
   let searchTournament = document.getElementById('search-tournament');
-  let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
   let searchPlayer2 = document.getElementById('search-player2');
   let playerFields = document.getElementById('player-fields');
@@ -588,7 +590,6 @@ function renderNextMatchBatch(dropdown) {
       loadMatch(matchId);
       if (searchDateYear) searchDateYear.value = '';
       if (searchTournament) searchTournament.value = '';
-      if (searchRound) searchRound.value = '';
       if (searchPlayer1) {
         searchPlayer1.value = '';
         syncUIToPlayers(); // Sync to backend array
@@ -609,6 +610,77 @@ function renderNextMatchBatch(dropdown) {
 }
 
 const ROUND_PATTERN = /^(F|SF|QF|R\d{1,3}|RR\d?|BR|Q\d|ER)$/i;
+
+// Round selector constants
+const ROUND_ORDER = ['Q1', 'Q2', 'Q3', 'R128', 'R64', 'R32', 'R16', 'QF', 'SF', 'F'];
+const ROUND_FULL_NAMES = {
+  'Q1': 'Qualifying R1',
+  'Q2': 'Qualifying R2',
+  'Q3': 'Qualifying R3',
+  'R128': 'Round of 128',
+  'R64': 'Round of 64',
+  'R32': 'Round of 32',
+  'R16': 'Round of 16',
+  'QF': 'Quarterfinals',
+  'SF': 'Semifinals',
+  'F': 'Final'
+};
+
+// State for round selector: which minimum round is selected, and whether "other" is included
+let roundSelectorMin = 'Q1'; // default: include all standard rounds including qualies
+let roundOtherEnabled = true;  // default: include "other" rounds too
+
+function getRoundFullName(roundCode) {
+  if (!roundCode) return '';
+  let upper = roundCode.toUpperCase();
+  if (ROUND_FULL_NAMES[upper]) return ROUND_FULL_NAMES[upper];
+  // For other round types, provide descriptive names
+  if (/^RR\d?$/i.test(roundCode)) return 'Round Robin';
+  if (/^BR$/i.test(roundCode)) return 'Bronze Medal';
+  if (/^ER$/i.test(roundCode)) return 'Early Round';
+  return roundCode;
+}
+
+function isStandardRound(roundCode) {
+  return ROUND_ORDER.includes(roundCode.toUpperCase());
+}
+
+function roundPassesFilter(roundCode) {
+  if (!roundCode) return true;
+  let upper = roundCode.toUpperCase();
+  if (isStandardRound(upper)) {
+    let minIndex = ROUND_ORDER.indexOf(roundSelectorMin);
+    let roundIndex = ROUND_ORDER.indexOf(upper);
+    return roundIndex >= minIndex;
+  } else {
+    // Non-standard round: only passes if "Other" is enabled
+    return roundOtherEnabled;
+  }
+}
+
+function updateRoundSelectorUI() {
+  let buttons = document.querySelectorAll('#round-selector .round-btn:not(.round-other)');
+  let otherBtn = document.querySelector('#round-selector .round-other');
+  let minIndex = ROUND_ORDER.indexOf(roundSelectorMin);
+  
+  buttons.forEach(btn => {
+    let round = btn.dataset.round;
+    let index = ROUND_ORDER.indexOf(round);
+    btn.classList.remove('round-active', 'round-in-range');
+    if (index === minIndex) {
+      btn.classList.add('round-active');
+    } else if (index > minIndex) {
+      btn.classList.add('round-in-range');
+    }
+  });
+  
+  if (otherBtn) {
+    otherBtn.classList.remove('round-active', 'round-in-range');
+    if (roundOtherEnabled) {
+      otherBtn.classList.add('round-in-range');
+    }
+  }
+}
 
 function parseMatchId(matchId) {
   if (!matchId) return null;
@@ -760,10 +832,21 @@ function createMatchRow(matchId, isCurrentMatch = false) {
 
   let tournamentCell = document.createElement('div');
   tournamentCell.className = 'match-cell';
-  tournamentCell.textContent = tournament;
   tournamentCell.dataset.field = 'tournament';
   tournamentCell.dataset.value = tournament.replace(/ /g, '_');
   tournamentCell.style.cursor = 'pointer';
+
+  let tournamentText = document.createElement('span');
+  tournamentText.textContent = tournament;
+  tournamentCell.appendChild(tournamentText);
+
+  // Append round description in italic
+  if (round) {
+    let roundDesc = document.createElement('span');
+    roundDesc.className = 'round-description';
+    roundDesc.textContent = getRoundFullName(round);
+    tournamentCell.appendChild(roundDesc);
+  }
   
   // Add hover highlighting and custom tooltip only for current match display
   if (isCurrentMatch) {
@@ -796,45 +879,6 @@ function createMatchRow(matchId, isCurrentMatch = false) {
     handleSearchInput();
   });
   row.appendChild(tournamentCell);
-
-  let roundCell = document.createElement('div');
-  roundCell.className = 'match-cell';
-  roundCell.textContent = round;
-  roundCell.dataset.field = 'round';
-  roundCell.dataset.value = round;
-  roundCell.style.cursor = 'pointer';
-  
-  // Add hover highlighting and custom tooltip only for current match display
-  if (isCurrentMatch) {
-    roundCell.addEventListener('mouseenter', function(e) {
-      if (!fullDataLoaded) return; // Prevent permanent previews before data loads
-      showCustomTooltip(e, 'Click to fill round field');
-      highlightMatchField(roundCell, 'round');
-      previewFieldValue('search-round', round);
-    });
-    roundCell.addEventListener('mouseleave', function() {
-      hideCustomTooltip();
-      unhighlightMatchField(roundCell, 'round');
-      clearFieldPreviews(['search-round']);
-    });
-  }
-  
-  roundCell.addEventListener('click', function() {
-    // Clear any preview data first
-    let field = document.getElementById('search-round');
-    if (field.dataset.originalValue !== undefined) {
-      delete field.dataset.originalValue;
-    }
-    field.style.color = '';
-    
-    // Set the actual value
-    field.value = round;
-    // Mark round field as validated and add styling
-    validatedFields['search-round'] = true;
-    field.classList.add('field-validated');
-    handleSearchInput();
-  });
-  row.appendChild(roundCell);
 
   let players = document.createElement('div');
   players.className = 'match-cell match-players';
@@ -1218,12 +1262,16 @@ function previewMatch(matchId) {
     loadMatchById(matchId, () => {
       // Check if this is still the match we want to preview (avoid race conditions)
       if (currentPreviewMatch === matchId && matchData && matchData.getRowCount() > 0) {
-        // Parse and create temporary visualization
-        parseMatchData();
-        if (tennisMatch) {
-          currentScoresnake = new ScoresnakeChart();
-          currentScoresnake.update(tennisMatch);
-          redraw();
+        try {
+          // Parse and create temporary visualization
+          parseMatchData();
+          if (tennisMatch) {
+            currentScoresnake = new ScoresnakeChart();
+            currentScoresnake.update(tennisMatch);
+            redraw();
+          }
+        } catch (e) {
+          console.warn('Preview failed for match:', matchId, e.message);
         }
       }
     });
@@ -1285,7 +1333,6 @@ function updateMatchVisualization() {
 function setupSearchInterfaceLoading() {
   let searchDateYear = document.getElementById('search-date-year');
   let searchTournament = document.getElementById('search-tournament');
-  let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
   let searchPlayer2 = document.getElementById('search-player2');
   let playerFields = document.getElementById('player-fields');
@@ -1372,8 +1419,6 @@ function setupSearchInterfaceLoading() {
         let field = cell.dataset.field;
         if (field === 'tournament' && searchTournament) {
           searchTournament.value = (cell.dataset.value || '').replace(/_/g, ' ');
-        } else if (field === 'round' && searchRound) {
-          searchRound.value = cell.dataset.value || '';
         } else if (field === 'player1' && searchPlayer1) {
           searchPlayer1.value = (cell.dataset.value || '').replace(/_/g, ' ');
           syncUIToPlayers(); // Sync to backend array
@@ -1450,7 +1495,6 @@ function setupSearchInterfaceLoading() {
     const searchFields = [
       searchDateYear,
       searchTournament,
-      searchRound,
       searchPlayer1,
       searchPlayer2 && !searchPlayer2.classList.contains('player-field-hidden') ? searchPlayer2 : null
     ].filter(Boolean);
@@ -1567,7 +1611,7 @@ function setupSearchInterfaceLoading() {
   }
 
   // Allow typing immediately - will show empty results until data loads
-  [searchDateYear, searchTournament, searchRound, searchPlayer1, searchPlayer2]
+  [searchDateYear, searchTournament, searchPlayer1, searchPlayer2]
     .filter(Boolean)
     .forEach(input => {
       input.addEventListener('input', function() {
@@ -1581,7 +1625,7 @@ function setupSearchInterfaceLoading() {
     });
 
   // Track focused field for faceted dropdown
-  ['search-date-year', 'search-tournament', 'search-round', 'search-player1', 'search-player2'].forEach(id => {
+  ['search-date-year', 'search-tournament', 'search-player1', 'search-player2'].forEach(id => {
     let field = document.getElementById(id);
     if (!field) return;
     field.addEventListener('focus', function () {
@@ -1602,7 +1646,7 @@ function setupSearchInterfaceLoading() {
   // Capture-phase handler for Enter/Tab autocomplete on faceted options
   window.addEventListener('keydown', function (e) {
     if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
-      const searchFieldIds = ['search-date-year', 'search-tournament', 'search-round', 'search-player1', 'search-player2'];
+      const searchFieldIds = ['search-date-year', 'search-tournament', 'search-player1', 'search-player2'];
       if (searchFieldIds.includes(e.target.id) && activeSearchField && currentFacetOptions && currentFacetOptions.length > 0) {
         e.preventDefault();
         e.stopPropagation();
@@ -1618,7 +1662,6 @@ function setupSearchInterfaceLoading() {
 function getSearchValues() {
   let searchDateYear = document.getElementById('search-date-year');
   let searchTournament = document.getElementById('search-tournament');
-  let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
   let searchPlayer2 = document.getElementById('search-player2');
 
@@ -1635,7 +1678,6 @@ function getSearchValues() {
     year: yearValue.toLowerCase(),
     gender: genderValue.toLowerCase(),
     tournament: searchTournament ? searchTournament.value.toLowerCase().replace(/\s+/g, '_') : '',
-    round: searchRound ? searchRound.value.toLowerCase().replace(/\s+/g, '_') : '',
     player1: searchPlayer1 ? searchPlayer1.value.toLowerCase().replace(/\s+/g, '_') : '',
     player2: searchPlayer2 ? searchPlayer2.value.toLowerCase().replace(/\s+/g, '_') : '',
   };
@@ -1653,8 +1695,7 @@ function filterMatchesWith(sv) {
     let genderOk = !sv.gender || parsed.gender.toLowerCase() === sv.gender;
     let tournamentOk = !sv.tournament || (validatedFields['search-tournament'] ? 
       parsed.tournament.toLowerCase() === sv.tournament : parsed.tournament.toLowerCase().includes(sv.tournament));
-    let roundOk = !sv.round || (validatedFields['search-round'] ? 
-      parsed.round.toLowerCase() === sv.round : parsed.round.toLowerCase().includes(sv.round));
+    let roundOk = roundPassesFilter(parsed.round);
 
     let playersOk = true;
     if (sv.player1 && !sv.player2) {
@@ -1694,7 +1735,6 @@ function filterMatchesExcluding(excludeFieldId) {
       break;
     }
     case 'search-tournament': sv.tournament = ''; break;
-    case 'search-round': sv.round = ''; break;
     case 'search-player1': sv.player1 = ''; break;
     case 'search-player2': sv.player2 = ''; break;
   }
@@ -1721,9 +1761,6 @@ function extractFieldValues(data, fieldId) {
       let tournament = data.Tournament || data.tournament || '';
       // Normalize tournament names in dropdown to show with spaces but handle underscores in filtering
       return [tournament];
-    case 'search-round': 
-      return [data.Round || data.round || '']; 
-      return [data.Round || data.round || ''];
     case 'search-player1':
       // Get the value in player2 field to exclude it
       let player2Input = document.getElementById('search-player2');
@@ -1751,10 +1788,9 @@ function getColumnIndex(fieldId) {
     case 'search-date-year':
       return 0;
     case 'search-tournament': return 1;
-    case 'search-round': return 2;
     case 'search-player1':
     case 'search-player2':
-      return 3;
+      return 2;
     default: return -1;
   }
 }
@@ -1927,7 +1963,7 @@ function loadFacetMatches(container, matchIds) {
 
     item.addEventListener('click', function () {
       loadMatch(matchId);
-      ['search-date-year', 'search-tournament', 'search-round'].forEach(id => {
+      ['search-date-year', 'search-tournament'].forEach(id => {
         let el = document.getElementById(id);
         if (el) el.value = '';
       });
@@ -1968,7 +2004,7 @@ function fillFieldAndAdvance(fieldId, value) {
 
   const fieldOrder = [
     'search-date-year',
-    'search-tournament', 'search-round',
+    'search-tournament',
     'search-player1', 'search-player2'
   ];
 
@@ -2081,8 +2117,7 @@ function handleSearchInput() {
   let isPreview = (searchPlayer1 && searchPlayer1.dataset.originalValue) || 
                   (searchPlayer2 && searchPlayer2.dataset.originalValue) ||
                   (document.getElementById('search-date-year') && document.getElementById('search-date-year').dataset.originalValue) ||
-                  (document.getElementById('search-tournament') && document.getElementById('search-tournament').dataset.originalValue) ||
-                  (document.getElementById('search-round') && document.getElementById('search-round').dataset.originalValue);
+                  (document.getElementById('search-tournament') && document.getElementById('search-tournament').dataset.originalValue);
 
   // Only sync UI to array if this is NOT preview mode and user is actively typing
   if (!isPreview && (document.activeElement === searchPlayer1 || document.activeElement === searchPlayer2)) {
@@ -2178,7 +2213,6 @@ function setupSearchInterface() {
   let dropdown = document.getElementById('dropdown');
   let searchDateYear = document.getElementById('search-date-year');
   let searchTournament = document.getElementById('search-tournament');
-  let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
   let searchPlayer2 = document.getElementById('search-player2');
   let randomMatchBtn = document.getElementById('random-match-btn');
@@ -2195,6 +2229,27 @@ function setupSearchInterface() {
       handleSearchInput();
     });
   });
+  
+  // Add event listeners for round selector buttons
+  document.querySelectorAll('#round-selector .round-btn:not(.round-other)').forEach(btn => {
+    btn.addEventListener('click', function() {
+      roundSelectorMin = this.dataset.round;
+      updateRoundSelectorUI();
+      handleSearchInput();
+    });
+  });
+  
+  let otherBtn = document.querySelector('#round-selector .round-other');
+  if (otherBtn) {
+    otherBtn.addEventListener('click', function() {
+      roundOtherEnabled = !roundOtherEnabled;
+      updateRoundSelectorUI();
+      handleSearchInput();
+    });
+  }
+  
+  // Initialize round selector UI
+  updateRoundSelectorUI();
   
   // Add event listeners for two-way binding with backend array
   if (searchPlayer1) {
@@ -2234,7 +2289,7 @@ function setupSearchInterface() {
 
   // If user already typed something, update results, otherwise show all matches
   let hasInput = searchDateYear.value ||
-    searchTournament.value || searchRound.value || searchPlayer1.value || searchPlayer2.value;
+    searchTournament.value || searchPlayer1.value || searchPlayer2.value;
   if (hasInput) {
     handleSearchInput();
   } else {
@@ -2741,14 +2796,14 @@ class ScoresnakeChart {
     this.minX = 0;
     this.minY = 0;
 
-    this.targetMinX;
-    this.targetMinY;
+    this.targetMinX = 0;
+    this.targetMinY = 0;
 
-    this.maxX;
-    this.maxY;
+    this.maxX = 1;
+    this.maxY = 1;
 
-    this.targetMaxX;
-    this.targetMaxY;
+    this.targetMaxX = 1;
+    this.targetMaxY = 1;
 
     this.hoverSet = null;
     this.hoverGame = null;
@@ -2908,14 +2963,24 @@ class ScoresnakeChart {
 
       let gamePos = createVector(0, 0);
 
-      this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].active[1][0] = true;
-      this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].active[2][0] = true;
+      // Guard against out-of-bounds set indices
+      let p1Sets = set.setsInMatchWonByPlayerSoFar[1];
+      let p2Sets = set.setsInMatchWonByPlayerSoFar[2];
+      if (!this.sets[p1Sets] || !this.sets[p1Sets][p2Sets]) continue;
+      let currentSet = this.sets[p1Sets][p2Sets];
+
+      currentSet.active[1][0] = true;
+      currentSet.active[2][0] = true;
 
       for (let [g, game] of set.games.entries()) {
 
+        // Guard against out-of-bounds game indices
+        let p1Games = game.gamesInSetWonByPlayerSoFar[1];
+        let p2Games = game.gamesInSetWonByPlayerSoFar[2];
+        if (!currentSet.games[p1Games] || !currentSet.games[p1Games][p2Games]) continue;
+        let currentGame = currentSet.games[p1Games][p2Games];
 
-        this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].
-          games[game.gamesInSetWonByPlayerSoFar[1]][game.gamesInSetWonByPlayerSoFar[2]].active = true;
+        currentGame.active = true;
 
         let pointPos = createVector(0, 0);
 
@@ -2927,8 +2992,7 @@ class ScoresnakeChart {
           // layers[2].rect(setPos.x + gamePos.x + pointPos.x, setPos.y + gamePos.y + pointPos.y, s, s);
 
 
-          let displayGame = this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].
-            games[game.gamesInSetWonByPlayerSoFar[1]][game.gamesInSetWonByPlayerSoFar[2]];
+          let displayGame = currentGame;
 
 
           // growing the tail and adding new point squares if the number of points in the game exceeds the initial tiles (e.g. due to deuce)
@@ -2992,15 +3056,14 @@ class ScoresnakeChart {
 
         let gX = gamePos.x; let gY = gamePos.y;
 
-        let gameOffsets = this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].gameOffsets;
+        let gameOffsets = currentSet.gameOffsets;
 
         if (game.gamesInSetWonByPlayerSoFar[l] >= GAMES_TO_WIN_SET - 1 || game.gamesInSetWonByPlayerSoFar[w] < GAMES_TO_WIN_SET - 1) {
-          this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].active[w][game.gamesInSetWonByPlayerSoFar[w] + 1] = true;
+          currentSet.active[w][game.gamesInSetWonByPlayerSoFar[w] + 1] = true;
         }
 
 
-        let sGame = this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].
-          games[game.gamesInSetWonByPlayerSoFar[1]][game.gamesInSetWonByPlayerSoFar[2]]
+        let sGame = currentGame;
 
         sGame.tailSize = pointPos[pAxes[w]] / s - sGame.tiles;
 
