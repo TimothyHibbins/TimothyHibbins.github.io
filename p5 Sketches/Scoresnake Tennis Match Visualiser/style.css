@@ -39,7 +39,7 @@ body {
 }
 
 :root {
-  --date-field-content-width: calc(4ch + 2ch + 2ch + 2ch);
+  --date-field-content-width: 4ch;
   --date-pad-left: 12px;
   --date-pad-right: 16px;
   --date-field-width: calc(var(--date-field-content-width) + var(--date-pad-left) + var(--date-pad-right));
@@ -47,7 +47,7 @@ body {
   --col-round-width: calc(4ch + 24px);
   --col-players-min: 300px;
   --search-grid-columns: var(--date-field-width) var(--col-tournament-min) var(--col-round-width) minmax(var(--col-players-min), 1fr);
-  --current-match-height: 150px;
+  --current-match-height: 120px;
 }
 
 #search-container {
@@ -265,13 +265,8 @@ h3 {
 }
 
 /* Highlight label for focused field */
-#search-scroll:has(#search-date-year:focus),
-#search-scroll:has(#search-date-month:focus),
-#search-scroll:has(#search-date-day:focus) {}
 
-#search-scroll:has(#search-date-year:focus) #search-labels .search-label:nth-child(1),
-#search-scroll:has(#search-date-month:focus) #search-labels .search-label:nth-child(1),
-#search-scroll:has(#search-date-day:focus) #search-labels .search-label:nth-child(1) {
+#search-scroll:has(#search-date-year:focus) #search-labels .search-label:nth-child(1) {
   color: #4CAF50;
 }
 
@@ -311,8 +306,10 @@ h3 {
 }
 
 #search-fields input {
-  padding: 12px 12px;
+  padding: 6px 12px;
   font-size: 14px;
+  line-height: 1.2;
+  height: 32px;
   font-family: 'JetBrains Mono', monospace;
   font-weight: bold;
   border: none;
@@ -333,6 +330,8 @@ h3 {
   gap: 1ch;
   padding: 0 var(--date-pad-right) 0 var(--date-pad-left);
   box-sizing: border-box;
+  align-items: center;
+  height: 100%;
 }
 
 #date-container {
@@ -349,21 +348,13 @@ h3 {
 .date-container .match-date-part {
   border: none !important;
   border-right: none !important;
-  padding: 12px 0 !important;
+  padding: 0 !important;
   text-align: right;
   flex-shrink: 0;
 }
 
 #search-date-year {
   width: 4ch;
-}
-
-#search-date-month {
-  width: 2ch;
-}
-
-#search-date-day {
-  width: 2ch;
 }
 
 #search-gender {
@@ -501,6 +492,7 @@ h3 {
   flex-shrink: 0;
   align-self: stretch;
   line-height: 1.2;
+  height: 32px;
 }
 
 .match-count-hidden {
@@ -587,6 +579,8 @@ h3 {
   font-weight: bold;
   font-family: 'JetBrains Mono', monospace;
   font-size: 14px;
+  line-height: 1.2;
+  height: 32px;
   cursor: pointer;
   min-width: 100%;
   box-sizing: border-box;
@@ -598,8 +592,10 @@ h3 {
 }
 
 .facet-cell {
-  padding: 8px 12px;
+  padding: 6px 12px;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
 }
 
 .facet-active-cell {
@@ -774,9 +770,9 @@ h3 {
 }
 
 #current-match {
-  margin-top: 20px;
+  margin-top: 10px;
   height: var(--current-match-height);
-  overflow-y: auto;
+  overflow: visible;
   border-bottom: none;
   flex-shrink: 0;
 }
@@ -795,16 +791,20 @@ h3 {
   font-weight: bold;
   color: #e0e0e0;
   font-size: 14px;
+  line-height: 1.2;
+  height: 32px;
   align-items: stretch;
   background-color: #2d2d2d;
   box-sizing: border-box;
 }
 
 .match-cell {
-  padding: 12px 12px;
+  padding: 0 12px;
   border-right: 1px solid #3a3a3a;
   box-sizing: border-box;
   text-align: left;
+  display: flex;
+  align-items: center;
   height: 100%;
 }
 
@@ -818,6 +818,7 @@ h3 {
   display: flex;
   align-items: center;
   gap: 0;
+  height: 100%;
 }
 
 .match-player {

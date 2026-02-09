@@ -562,8 +562,6 @@ function renderNextMatchBatch(dropdown) {
   if (!dropdown || matchesRendered >= currentMatches.length) return;
 
   let searchDateYear = document.getElementById('search-date-year');
-  let searchDateMonth = document.getElementById('search-date-month');
-  let searchDateDay = document.getElementById('search-date-day');
   let searchGender = null; // Gender now handled by radio buttons
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
@@ -589,9 +587,6 @@ function renderNextMatchBatch(dropdown) {
       window.currentlyDisplayedMatch = matchId;
       loadMatch(matchId);
       if (searchDateYear) searchDateYear.value = '';
-      if (searchDateMonth) searchDateMonth.value = '';
-      if (searchDateDay) searchDateDay.value = '';
-      if (searchGender) searchGender.value = '';
       if (searchTournament) searchTournament.value = '';
       if (searchRound) searchRound.value = '';
       if (searchPlayer1) {
@@ -723,46 +718,36 @@ function createMatchRow(matchId, isCurrentMatch = false) {
   dateCell.className = 'date-container match-date';
   dateCell.dataset.field = 'date';
   dateCell.dataset.year = year;
-  dateCell.dataset.month = month;
-  dateCell.dataset.day = day;
   dateCell.style.cursor = 'pointer';
   
   // Add hover highlighting and custom tooltip only for current match display
   if (isCurrentMatch) {
     dateCell.addEventListener('mouseenter', function(e) {
       if (!fullDataLoaded) return; // Prevent permanent previews before data loads
-      showCustomTooltip(e, 'Click to fill date fields');
+      showCustomTooltip(e, 'Click to fill date field');
       highlightMatchField(dateCell, 'date');
       previewFieldValue('search-date-year', year);
-      previewFieldValue('search-date-month', month);
-      previewFieldValue('search-date-day', day);
     });
     dateCell.addEventListener('mouseleave', function() {
       hideCustomTooltip();
       unhighlightMatchField(dateCell, 'date');
-      clearFieldPreviews(['search-date-year', 'search-date-month', 'search-date-day']);
+      clearFieldPreviews(['search-date-year']);
     });
   }
   
   dateCell.addEventListener('click', function() {
     // Clear any preview data first
-    ['search-date-year', 'search-date-month', 'search-date-day'].forEach(id => {
-      let field = document.getElementById(id);
-      if (field && field.dataset.originalValue !== undefined) {
-        delete field.dataset.originalValue;
-      }
-      if (field) field.style.color = '';
-    });
+    let field = document.getElementById('search-date-year');
+    if (field && field.dataset.originalValue !== undefined) {
+      delete field.dataset.originalValue;
+    }
+    if (field) field.style.color = '';
     
-    // Set the actual values
+    // Set the actual value
     document.getElementById('search-date-year').value = year;
-    document.getElementById('search-date-month').value = month;
-    document.getElementById('search-date-day').value = day;
-    // Mark date fields as validated and add styling
-    ['search-date-year', 'search-date-month', 'search-date-day'].forEach(id => {
-      validatedFields[id] = true;
-      document.getElementById(id).classList.add('field-validated');
-    });
+    // Mark date field as validated and add styling
+    validatedFields['search-date-year'] = true;
+    document.getElementById('search-date-year').classList.add('field-validated');
     handleSearchInput();
   });
 
@@ -770,17 +755,7 @@ function createMatchRow(matchId, isCurrentMatch = false) {
   yearSpan.className = 'match-date-part year';
   yearSpan.textContent = year;
 
-  let monthSpan = document.createElement('span');
-  monthSpan.className = 'match-date-part month';
-  monthSpan.textContent = month;
-
-  let daySpan = document.createElement('span');
-  daySpan.className = 'match-date-part day';
-  daySpan.textContent = day;
-
   dateCell.appendChild(yearSpan);
-  dateCell.appendChild(monthSpan);
-  dateCell.appendChild(daySpan);
   row.appendChild(dateCell);
 
   let tournamentCell = document.createElement('div');
@@ -1309,8 +1284,6 @@ function updateMatchVisualization() {
 
 function setupSearchInterfaceLoading() {
   let searchDateYear = document.getElementById('search-date-year');
-  let searchDateMonth = document.getElementById('search-date-month');
-  let searchDateDay = document.getElementById('search-date-day');
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
@@ -1391,8 +1364,6 @@ function setupSearchInterfaceLoading() {
 
       if (dateCell && dateCell.dataset.field === 'date') {
         if (searchDateYear) searchDateYear.value = dateCell.dataset.year || '';
-        if (searchDateMonth) searchDateMonth.value = dateCell.dataset.month || '';
-        if (searchDateDay) searchDateDay.value = dateCell.dataset.day || '';
         handleSearchInput();
         return;
       }
@@ -1433,8 +1404,6 @@ function setupSearchInterfaceLoading() {
     function completeFieldValue() {
       if (field.id === 'search-date-year' && field.value.length === 2) {
         field.value = '20' + field.value;
-      } else if ((field.id === 'search-date-month' || field.id === 'search-date-day') && field.value.length === 1) {
-        field.value = '0' + field.value;
       }
     }
 
@@ -1480,8 +1449,6 @@ function setupSearchInterfaceLoading() {
     // Define all search fields in order
     const searchFields = [
       searchDateYear,
-      searchDateMonth,
-      searchDateDay,
       searchTournament,
       searchRound,
       searchPlayer1,
@@ -1500,8 +1467,6 @@ function setupSearchInterfaceLoading() {
     function completeDateField(field) {
       if (field.id === 'search-date-year' && field.value.length === 2) {
         field.value = '20' + field.value;
-      } else if ((field.id === 'search-date-month' || field.id === 'search-date-day') && field.value.length === 1) {
-        field.value = '0' + field.value;
       }
     }
 
@@ -1521,7 +1486,7 @@ function setupSearchInterfaceLoading() {
 
     // Arrow right on non-empty date fields - complete and advance
     if ((e.key === 'ArrowRight' || e.key === 'Right') &&
-      (currentField.id === 'search-date-year' || currentField.id === 'search-date-month' || currentField.id === 'search-date-day') &&
+      currentField.id === 'search-date-year' &&
       currentField.value.length > 0 && nextField) {
       e.preventDefault();
       e.stopPropagation();
@@ -1531,9 +1496,22 @@ function setupSearchInterfaceLoading() {
     }
   });
 
-  setupDateFieldAutoAdvance(searchDateYear, searchDateMonth, null, 4);
-  setupDateFieldAutoAdvance(searchDateMonth, searchDateDay, searchDateYear, 2);
-  setupDateFieldAutoAdvance(searchDateDay, searchTournament, searchDateMonth, 2);
+  // Set up year field auto-completion
+  if (searchDateYear) {
+    searchDateYear.addEventListener('input', function (e) {
+      // Remove spaces
+      this.value = this.value.replace(/\s/g, '');
+
+      // Auto-complete 2-digit year to 20XX
+      if (this.value.length === 2) {
+        this.value = '20' + this.value;
+        // Auto-advance to tournament field
+        if (searchTournament) {
+          searchTournament.focus();
+        }
+      }
+    });
+  }
 
   if (searchPlayer1) {
     searchPlayer1.addEventListener('keydown', function (e) {
@@ -1589,7 +1567,7 @@ function setupSearchInterfaceLoading() {
   }
 
   // Allow typing immediately - will show empty results until data loads
-  [searchDateYear, searchDateMonth, searchDateDay, searchTournament, searchRound, searchPlayer1, searchPlayer2]
+  [searchDateYear, searchTournament, searchRound, searchPlayer1, searchPlayer2]
     .filter(Boolean)
     .forEach(input => {
       input.addEventListener('input', function() {
@@ -1603,7 +1581,7 @@ function setupSearchInterfaceLoading() {
     });
 
   // Track focused field for faceted dropdown
-  ['search-date-year', 'search-date-month', 'search-date-day', 'search-tournament', 'search-round', 'search-player1', 'search-player2'].forEach(id => {
+  ['search-date-year', 'search-tournament', 'search-round', 'search-player1', 'search-player2'].forEach(id => {
     let field = document.getElementById(id);
     if (!field) return;
     field.addEventListener('focus', function () {
@@ -1624,7 +1602,7 @@ function setupSearchInterfaceLoading() {
   // Capture-phase handler for Enter/Tab autocomplete on faceted options
   window.addEventListener('keydown', function (e) {
     if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
-      const searchFieldIds = ['search-date-year', 'search-date-month', 'search-date-day', 'search-tournament', 'search-round', 'search-player1', 'search-player2'];
+      const searchFieldIds = ['search-date-year', 'search-tournament', 'search-round', 'search-player1', 'search-player2'];
       if (searchFieldIds.includes(e.target.id) && activeSearchField && currentFacetOptions && currentFacetOptions.length > 0) {
         e.preventDefault();
         e.stopPropagation();
@@ -1639,32 +1617,13 @@ function setupSearchInterfaceLoading() {
 
 function getSearchValues() {
   let searchDateYear = document.getElementById('search-date-year');
-  let searchDateMonth = document.getElementById('search-date-month');
-  let searchDateDay = document.getElementById('search-date-day');
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
   let searchPlayer2 = document.getElementById('search-player2');
 
   let yearValue = searchDateYear ? searchDateYear.value : '';
-  let monthValue = searchDateMonth ? searchDateMonth.value : '';
-  let dayValue = searchDateDay ? searchDateDay.value : '';
-
   if (yearValue.length === 2) yearValue = '20' + yearValue;
-  if (monthValue.length === 1 && monthValue !== '') monthValue = '0' + monthValue;
-  if (dayValue.length === 1 && dayValue !== '') dayValue = '0' + dayValue;
-
-  // Build date progressively - only include parts that are filled
-  let dateSearch = '';
-  if (yearValue) {
-    dateSearch = yearValue;
-    if (monthValue) {
-      dateSearch += monthValue;
-      if (dayValue) {
-        dateSearch += dayValue;
-      }
-    }
-  }
 
   // Get gender from radio buttons
   let selectedGender = document.querySelector('input[name="gender"]:checked');
@@ -1672,10 +1631,8 @@ function getSearchValues() {
   if (genderValue === 'all') genderValue = '';
 
   return {
-    date: dateSearch.toLowerCase(),
+    date: yearValue.toLowerCase(),
     year: yearValue.toLowerCase(),
-    month: monthValue.toLowerCase(), 
-    day: dayValue.toLowerCase(),
     gender: genderValue.toLowerCase(),
     tournament: searchTournament ? searchTournament.value.toLowerCase().replace(/\s+/g, '_') : '',
     round: searchRound ? searchRound.value.toLowerCase().replace(/\s+/g, '_') : '',
@@ -1691,7 +1648,7 @@ function filterMatchesWith(sv) {
     if (!parsed) return false;
 
     // Use substring match for date (don't use validation for partial dates)
-    let dateOk = !sv.date || (parsed.year + (parsed.month || '') + (parsed.day || '')).includes(sv.date);
+    let dateOk = !sv.date || parsed.year.includes(sv.date);
     
     let genderOk = !sv.gender || parsed.gender.toLowerCase() === sv.gender;
     let tournamentOk = !sv.tournament || (validatedFields['search-tournament'] ? 
@@ -1729,19 +1686,11 @@ function filterMatchesWith(sv) {
 function filterMatchesExcluding(excludeFieldId) {
   let sv = getSearchValues();
   switch (excludeFieldId) {
-    case 'search-date-year':
-    case 'search-date-month':
-    case 'search-date-day': {
+    case 'search-date-year': {
       let searchDateYear = document.getElementById('search-date-year');
-      let searchDateMonth = document.getElementById('search-date-month');
-      let searchDateDay = document.getElementById('search-date-day');
       let y = excludeFieldId === 'search-date-year' ? '' : (searchDateYear ? searchDateYear.value : '');
-      let m = excludeFieldId === 'search-date-month' ? '' : (searchDateMonth ? searchDateMonth.value : '');
-      let d = excludeFieldId === 'search-date-day' ? '' : (searchDateDay ? searchDateDay.value : '');
       if (y.length === 2) y = '20' + y;
-      if (m.length === 1) m = '0' + m;
-      if (d.length === 1) d = '0' + d;
-      sv.date = (y + m + d).toLowerCase();
+      sv.date = y.toLowerCase();
       break;
     }
     case 'search-tournament': sv.tournament = ''; break;
@@ -1768,10 +1717,6 @@ function extractFieldValues(data, fieldId) {
   switch (fieldId) {
     case 'search-date-year': 
       return [data.Date ? data.Date.slice(0, 4) : (data.year || '')];
-    case 'search-date-month': 
-      return [data.Date ? data.Date.slice(4, 6) : (data.month || '')];
-    case 'search-date-day': 
-      return [data.Date ? data.Date.slice(6, 8) : (data.day || '')];
     case 'search-tournament': 
       let tournament = data.Tournament || data.tournament || '';
       // Normalize tournament names in dropdown to show with spaces but handle underscores in filtering
@@ -1804,8 +1749,6 @@ function extractFieldValues(data, fieldId) {
 function getColumnIndex(fieldId) {
   switch (fieldId) {
     case 'search-date-year':
-    case 'search-date-month':
-    case 'search-date-day':
       return 0;
     case 'search-tournament': return 1;
     case 'search-round': return 2;
@@ -1851,9 +1794,6 @@ function renderFacetedDropdown(focusedFieldId, dropdown, matchCountBar, matchCou
 
   if (focusedFieldId === 'search-date-year' && partialText.length === 2) {
     partialText = '20' + partialText;
-  }
-  if ((focusedFieldId === 'search-date-month' || focusedFieldId === 'search-date-day') && partialText.length === 1) {
-    partialText = '0' + partialText;
   }
 
   let filteredValues = Object.keys(valueCounts).filter(value => {
@@ -1987,7 +1927,7 @@ function loadFacetMatches(container, matchIds) {
 
     item.addEventListener('click', function () {
       loadMatch(matchId);
-      ['search-date-year', 'search-date-month', 'search-date-day', 'search-tournament', 'search-round'].forEach(id => {
+      ['search-date-year', 'search-tournament', 'search-round'].forEach(id => {
         let el = document.getElementById(id);
         if (el) el.value = '';
       });
@@ -2027,7 +1967,7 @@ function fillFieldAndAdvance(fieldId, value) {
   }
 
   const fieldOrder = [
-    'search-date-year', 'search-date-month', 'search-date-day',
+    'search-date-year',
     'search-tournament', 'search-round',
     'search-player1', 'search-player2'
   ];
@@ -2141,8 +2081,6 @@ function handleSearchInput() {
   let isPreview = (searchPlayer1 && searchPlayer1.dataset.originalValue) || 
                   (searchPlayer2 && searchPlayer2.dataset.originalValue) ||
                   (document.getElementById('search-date-year') && document.getElementById('search-date-year').dataset.originalValue) ||
-                  (document.getElementById('search-date-month') && document.getElementById('search-date-month').dataset.originalValue) ||
-                  (document.getElementById('search-date-day') && document.getElementById('search-date-day').dataset.originalValue) ||
                   (document.getElementById('search-tournament') && document.getElementById('search-tournament').dataset.originalValue) ||
                   (document.getElementById('search-round') && document.getElementById('search-round').dataset.originalValue);
 
@@ -2239,8 +2177,6 @@ function setupSearchInterface() {
   let loadingIndicator = document.getElementById('loading-indicator');
   let dropdown = document.getElementById('dropdown');
   let searchDateYear = document.getElementById('search-date-year');
-  let searchDateMonth = document.getElementById('search-date-month');
-  let searchDateDay = document.getElementById('search-date-day');
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
@@ -2297,7 +2233,7 @@ function setupSearchInterface() {
   }
 
   // If user already typed something, update results, otherwise show all matches
-  let hasInput = searchDateYear.value || searchDateMonth.value || searchDateDay.value ||
+  let hasInput = searchDateYear.value ||
     searchTournament.value || searchRound.value || searchPlayer1.value || searchPlayer2.value;
   if (hasInput) {
     handleSearchInput();
