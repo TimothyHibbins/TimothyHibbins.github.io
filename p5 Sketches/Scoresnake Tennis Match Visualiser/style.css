@@ -43,11 +43,10 @@ body {
   --date-pad-left: 12px;
   --date-pad-right: 16px;
   --date-field-width: calc(var(--date-field-content-width) + var(--date-pad-left) + var(--date-pad-right));
-  --col-gender: 33px;
-  --col-tournament-min: 130px;
-  --col-round-width: calc(7ch + 24px);
+  --col-tournament-min: 200px;
+  --col-round-width: calc(4ch + 24px);
   --col-players-min: 300px;
-  --search-grid-columns: var(--date-field-width) var(--col-gender) var(--col-tournament-min) var(--col-round-width) minmax(var(--col-players-min), 1fr);
+  --search-grid-columns: var(--date-field-width) var(--col-tournament-min) var(--col-round-width) minmax(var(--col-players-min), 1fr);
   --current-match-height: 150px;
 }
 
@@ -82,12 +81,42 @@ body {
 #search-header {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
   padding-left: 30px;
   padding-right: 30px;
   margin-top: 0;
   margin-bottom: 15px;
   flex-shrink: 0;
+}
+
+#gender-filters {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #b3b3b3;
+  font-size: 14px;
+  transition: color 0.2s ease;
+}
+
+.radio-label:hover {
+  color: #e0e0e0;
+}
+
+.radio-label input[type="radio"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.radio-label input[type="radio"]:checked+.radio-text {
+  color: #4ade80;
+  font-weight: 500;
 }
 
 #search-header h2 {
@@ -227,7 +256,7 @@ h3 {
 
 
 #search-labels .search-label:nth-child(2) {
-  justify-self: center;
+  justify-self: start;
   width: max-content;
 }
 
@@ -246,20 +275,16 @@ h3 {
   color: #4CAF50;
 }
 
-#search-scroll:has(#search-gender:focus) #search-labels .search-label:nth-child(2) {
+#search-scroll:has(#search-tournament:focus) #search-labels .search-label:nth-child(2) {
   color: #4CAF50;
 }
 
-#search-scroll:has(#search-tournament:focus) #search-labels .search-label:nth-child(3) {
+#search-scroll:has(#search-round:focus) #search-labels .search-label:nth-child(3) {
   color: #4CAF50;
 }
 
-#search-scroll:has(#search-round:focus) #search-labels .search-label:nth-child(4) {
-  color: #4CAF50;
-}
-
-#search-scroll:has(#search-player1:focus) #search-labels .search-label:nth-child(5),
-#search-scroll:has(#search-player2:focus) #search-labels .search-label:nth-child(5) {
+#search-scroll:has(#search-player1:focus) #search-labels .search-label:nth-child(4),
+#search-scroll:has(#search-player2:focus) #search-labels .search-label:nth-child(4) {
   color: #4CAF50;
 }
 
@@ -471,10 +496,11 @@ h3 {
   color: #cfe9cf;
   font-size: 14px;
   font-weight: bold;
-  padding: 8px 12px;
+  padding: 6px 12px;
   box-sizing: border-box;
   flex-shrink: 0;
   align-self: stretch;
+  line-height: 1.2;
 }
 
 .match-count-hidden {
@@ -782,6 +808,12 @@ h3 {
   height: 100%;
 }
 
+.field-validated {
+  color: #4ade80 !important;
+  /* green-400 */
+  border-color: #4ade80 !important;
+}
+
 .match-players {
   display: flex;
   align-items: center;
@@ -853,4 +885,32 @@ main {
   position: absolute;
   top: 0;
   left: 0;
+}
+
+/* Custom tooltip styles */
+.custom-tooltip {
+  position: fixed;
+  background: #333;
+  color: #4ade80;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  z-index: 10000;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  border: 1px solid #555;
+  transform: translateX(-50%);
+}
+
+.custom-tooltip.hidden {
+  display: none;
+}
+
+/* Enhanced match field hover states */
+.match-cell:hover,
+.match-date:hover,
+.match-player:hover {
+  transition: background-color 0.1s ease, color 0.1s ease;
 }

@@ -23,11 +23,24 @@
         <div id="search-stack">
           <div id="search-header">
             <h2>Match Search</h2>
+            <div id="gender-filters">
+              <label class="radio-label">
+                <input type="radio" name="gender" value="all" checked>
+                <span class="radio-text">All matches</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="gender" value="W">
+                <span class="radio-text">Women's</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="gender" value="M">
+                <span class="radio-text">Men's</span>
+              </label>
+            </div>
           </div>
           <div id="search-scroll">
             <div id="search-labels">
               <div class="search-label">Date</div>
-              <div class="search-label">Gender</div>
               <div class="search-label">Tournament</div>
               <div class="search-label">Round</div>
               <div class="search-label">Players</div>
@@ -38,7 +51,6 @@
                 <input type="text" id="search-date-month" maxlength="2" autocomplete="off" placeholder="MM">
                 <input type="text" id="search-date-day" maxlength="2" autocomplete="off" placeholder="DD">
               </div>
-              <input type="text" id="search-gender" autocomplete="off">
               <input type="text" id="search-tournament" autocomplete="off">
               <input type="text" id="search-round" autocomplete="off">
               <div class="player-field-wrapper" id="player-fields">
@@ -77,6 +89,8 @@
       </div>
     </div>
   </div>
+  <!-- Custom tooltip -->
+  <div id="custom-tooltip" class="custom-tooltip hidden"></div>
   <script src="sketch.js?v=3"></script>
 </body>
 

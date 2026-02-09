@@ -29,6 +29,110 @@ let activeSearchField = null;
 let currentFacetOptions = [];
 let parsedMatchCache = {};
 let validatedFields = {}; // Track which fields have validated (exact) values
+let searchPlayers = []; // Backend array state - holds up to 2 player names
+
+// Sync the array state to the visual fields
+function syncPlayersToUI() {
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
+  let playerFields = document.getElementById('player-fields');
+  
+  if (!searchPlayer1 || !searchPlayer2) return;
+  
+  // Update field values
+  searchPlayer1.value = searchPlayers[0] || '';
+  searchPlayer2.value = searchPlayers[1] || '';
+  
+  // Update visibility - show player2 field when we have ANY players (so it's ready for the second)
+  if (searchPlayers.length > 0) {
+    searchPlayer2.classList.remove('player-field-hidden');
+    if (playerFields) {
+      playerFields.classList.add('player2-visible');
+      playerFields.classList.add('player1-has-content');
+    }
+  } else {
+    searchPlayer2.classList.add('player-field-hidden');
+    if (playerFields) {
+      playerFields.classList.remove('player2-visible');
+      playerFields.classList.remove('player1-has-content');
+    }
+  }
+  
+  // Update validation styling
+  if (validatedFields['search-player1']) {
+    searchPlayer1.classList.add('field-validated');
+  } else {
+    searchPlayer1.classList.remove('field-validated');
+  }
+  if (validatedFields['search-player2']) {
+    searchPlayer2.classList.add('field-validated');
+  } else {
+    searchPlayer2.classList.remove('field-validated');
+  }
+}
+
+// Sync UI changes back to the array (for when user types)
+function syncUIToPlayers() {
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
+  
+  if (!searchPlayer1 || !searchPlayer2) return;
+  
+  let newPlayers = [];
+  if (searchPlayer1.value.trim()) {
+    newPlayers.push(searchPlayer1.value.trim());
+  }
+  if (searchPlayer2.value.trim()) {
+    newPlayers.push(searchPlayer2.value.trim());
+  }
+  
+  // Only update the array if it actually changed
+  // This prevents clearing validation state unnecessarily
+  let arrayChanged = newPlayers.length !== searchPlayers.length || 
+    newPlayers.some((player, index) => player !== searchPlayers[index]);
+  
+  if (arrayChanged) {
+    searchPlayers = newPlayers;
+  }
+}
+
+// Smart player addition from current match clicks
+function addPlayerToSearchFromMatch(playerName) {
+  // Clear any preview data first
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
+  [searchPlayer1, searchPlayer2].forEach(field => {
+    if (field && field.dataset.originalValue !== undefined) {
+      delete field.dataset.originalValue;
+    }
+    if (field) field.style.color = '';
+  });
+  
+  // Don't add if it's already in the array
+  if (searchPlayers.includes(playerName)) {
+    return;
+  }
+  
+  if (searchPlayers.length === 0) {
+    // First player
+    searchPlayers = [playerName];
+    validatedFields['search-player1'] = true;
+    validatedFields['search-player2'] = false; // Ensure player2 not marked as validated
+  } else if (searchPlayers.length === 1) {
+    // Second player - preserve player1 validation if it was validated
+    searchPlayers = [searchPlayers[0], playerName];
+    // Keep player1 validation state as is (might already be validated)
+    validatedFields['search-player2'] = true;
+  } else {
+    // Both filled - replace second player, keep player1 validation state
+    searchPlayers = [searchPlayers[0], playerName];
+    validatedFields['search-player2'] = true;
+  }
+  
+  // Sync to UI and trigger search
+  syncPlayersToUI();
+  handleSearchInput();
+}
 
 let JetBrainsMonoBold;
 let dataLoaded = false;
@@ -149,9 +253,11 @@ async function loadAllMatchData() {
     allMatchIds = [...new Set(allMatchIds)].sort();
     loadingStats.totalMatches = allMatchIds.length;
     
-    // Set up search interface
-    setupSearchInterface();
+    // Data is now fully loaded
     fullDataLoaded = true;
+    
+    // Set up search interface (now that data is loaded)
+    setupSearchInterface();
 
     updateProgress(
       100,
@@ -432,6 +538,7 @@ function syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields) {
   if (!searchPlayer1 || !searchPlayer2) return;
   if (searchPlayer1.value.trim() === '') {
     searchPlayer2.value = '';
+    syncUIToPlayers(); // Sync to backend array
     searchPlayer2.classList.add('player-field-hidden');
     if (playerFields) {
       playerFields.classList.remove('player2-visible');
@@ -447,7 +554,7 @@ function updateMatchDisplay(matchId) {
   let displayElement = document.getElementById('match-display');
   if (displayElement) {
     displayElement.innerHTML = '';
-    displayElement.appendChild(createMatchRow(matchId));
+    displayElement.appendChild(createMatchRow(matchId, true)); // true = current match display
   }
 }
 
@@ -457,7 +564,7 @@ function renderNextMatchBatch(dropdown) {
   let searchDateYear = document.getElementById('search-date-year');
   let searchDateMonth = document.getElementById('search-date-month');
   let searchDateDay = document.getElementById('search-date-day');
-  let searchGender = document.getElementById('search-gender');
+  let searchGender = null; // Gender now handled by radio buttons
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
@@ -468,15 +575,13 @@ function renderNextMatchBatch(dropdown) {
   nextChunk.forEach(matchId => {
     let item = document.createElement('div');
     item.className = 'dropdown-item dropdown-item-match';
-    item.appendChild(createMatchRow(matchId));
+    item.appendChild(createMatchRow(matchId, false)); // false = dropdown item
 
     item.addEventListener('mouseenter', function () {
       previewMatch(matchId);
     });
 
-    item.addEventListener('mouseleave', function () {
-      stopPreview();
-    });
+    // Remove individual mouseleave - handled at container level to prevent flicker
 
     item.addEventListener('click', function () {
       // Set this as the selected match
@@ -489,9 +594,13 @@ function renderNextMatchBatch(dropdown) {
       if (searchGender) searchGender.value = '';
       if (searchTournament) searchTournament.value = '';
       if (searchRound) searchRound.value = '';
-      if (searchPlayer1) searchPlayer1.value = '';
+      if (searchPlayer1) {
+        searchPlayer1.value = '';
+        syncUIToPlayers(); // Sync to backend array
+      }
       if (searchPlayer2) {
         searchPlayer2.value = '';
+        syncUIToPlayers(); // Sync to backend array
         searchPlayer2.classList.add('player-field-hidden');
       }
       if (playerFields) playerFields.classList.remove('player2-visible');
@@ -586,7 +695,7 @@ function parseMatchId(matchId) {
   return result;
 }
 
-function createMatchRow(matchId) {
+function createMatchRow(matchId, isCurrentMatch = false) {
   let data = getMatchMetadata(matchId);
   let row = document.createElement('div');
   row.className = 'match-row';
@@ -616,7 +725,46 @@ function createMatchRow(matchId) {
   dateCell.dataset.year = year;
   dateCell.dataset.month = month;
   dateCell.dataset.day = day;
-  // No tooltip for dropdown items
+  dateCell.style.cursor = 'pointer';
+  
+  // Add hover highlighting and custom tooltip only for current match display
+  if (isCurrentMatch) {
+    dateCell.addEventListener('mouseenter', function(e) {
+      if (!fullDataLoaded) return; // Prevent permanent previews before data loads
+      showCustomTooltip(e, 'Click to fill date fields');
+      highlightMatchField(dateCell, 'date');
+      previewFieldValue('search-date-year', year);
+      previewFieldValue('search-date-month', month);
+      previewFieldValue('search-date-day', day);
+    });
+    dateCell.addEventListener('mouseleave', function() {
+      hideCustomTooltip();
+      unhighlightMatchField(dateCell, 'date');
+      clearFieldPreviews(['search-date-year', 'search-date-month', 'search-date-day']);
+    });
+  }
+  
+  dateCell.addEventListener('click', function() {
+    // Clear any preview data first
+    ['search-date-year', 'search-date-month', 'search-date-day'].forEach(id => {
+      let field = document.getElementById(id);
+      if (field && field.dataset.originalValue !== undefined) {
+        delete field.dataset.originalValue;
+      }
+      if (field) field.style.color = '';
+    });
+    
+    // Set the actual values
+    document.getElementById('search-date-year').value = year;
+    document.getElementById('search-date-month').value = month;
+    document.getElementById('search-date-day').value = day;
+    // Mark date fields as validated and add styling
+    ['search-date-year', 'search-date-month', 'search-date-day'].forEach(id => {
+      validatedFields[id] = true;
+      document.getElementById(id).classList.add('field-validated');
+    });
+    handleSearchInput();
+  });
 
   let yearSpan = document.createElement('span');
   yearSpan.className = 'match-date-part year';
@@ -635,20 +783,43 @@ function createMatchRow(matchId) {
   dateCell.appendChild(daySpan);
   row.appendChild(dateCell);
 
-  let genderCell = document.createElement('div');
-  genderCell.className = 'match-cell centered';
-  genderCell.textContent = gender;
-  genderCell.dataset.field = 'gender';
-  genderCell.dataset.value = gender;
-  // No tooltip for dropdown items
-  row.appendChild(genderCell);
-
   let tournamentCell = document.createElement('div');
   tournamentCell.className = 'match-cell';
   tournamentCell.textContent = tournament;
   tournamentCell.dataset.field = 'tournament';
   tournamentCell.dataset.value = tournament.replace(/ /g, '_');
-  // No tooltip for dropdown items
+  tournamentCell.style.cursor = 'pointer';
+  
+  // Add hover highlighting and custom tooltip only for current match display
+  if (isCurrentMatch) {
+    tournamentCell.addEventListener('mouseenter', function(e) {
+      if (!fullDataLoaded) return; // Prevent permanent previews before data loads
+      showCustomTooltip(e, 'Click to fill tournament field');
+      highlightMatchField(tournamentCell, 'tournament');
+      previewFieldValue('search-tournament', tournament);
+    });
+    tournamentCell.addEventListener('mouseleave', function() {
+      hideCustomTooltip();
+      unhighlightMatchField(tournamentCell, 'tournament');
+      clearFieldPreviews(['search-tournament']);
+    });
+  }
+  
+  tournamentCell.addEventListener('click', function() {
+    // Clear any preview data first
+    let field = document.getElementById('search-tournament');
+    if (field.dataset.originalValue !== undefined) {
+      delete field.dataset.originalValue;
+    }
+    field.style.color = '';
+    
+    // Set the actual value
+    field.value = tournament;
+    // Mark tournament field as validated and add styling
+    validatedFields['search-tournament'] = true;
+    field.classList.add('field-validated');
+    handleSearchInput();
+  });
   row.appendChild(tournamentCell);
 
   let roundCell = document.createElement('div');
@@ -656,18 +827,49 @@ function createMatchRow(matchId) {
   roundCell.textContent = round;
   roundCell.dataset.field = 'round';
   roundCell.dataset.value = round;
-  // No tooltip for dropdown items
+  roundCell.style.cursor = 'pointer';
+  
+  // Add hover highlighting and custom tooltip only for current match display
+  if (isCurrentMatch) {
+    roundCell.addEventListener('mouseenter', function(e) {
+      if (!fullDataLoaded) return; // Prevent permanent previews before data loads
+      showCustomTooltip(e, 'Click to fill round field');
+      highlightMatchField(roundCell, 'round');
+      previewFieldValue('search-round', round);
+    });
+    roundCell.addEventListener('mouseleave', function() {
+      hideCustomTooltip();
+      unhighlightMatchField(roundCell, 'round');
+      clearFieldPreviews(['search-round']);
+    });
+  }
+  
+  roundCell.addEventListener('click', function() {
+    // Clear any preview data first
+    let field = document.getElementById('search-round');
+    if (field.dataset.originalValue !== undefined) {
+      delete field.dataset.originalValue;
+    }
+    field.style.color = '';
+    
+    // Set the actual value
+    field.value = round;
+    // Mark round field as validated and add styling
+    validatedFields['search-round'] = true;
+    field.classList.add('field-validated');
+    handleSearchInput();
+  });
   row.appendChild(roundCell);
 
   let players = document.createElement('div');
   players.className = 'match-cell match-players';
+  players.style.position = 'relative';
 
   let player1Span = document.createElement('span');
   player1Span.className = 'match-player';
   player1Span.textContent = player1;
   player1Span.dataset.field = 'player1';
   player1Span.dataset.value = player1.replace(/ /g, '_');
-  // No tooltip for dropdown items
 
   let sep = document.createElement('span');
   sep.className = 'player-sep';
@@ -678,14 +880,338 @@ function createMatchRow(matchId) {
   player2Span.textContent = player2;
   player2Span.dataset.field = 'player2';
   player2Span.dataset.value = player2.replace(/ /g, '_');
-  // No tooltip for dropdown items
 
   players.appendChild(player1Span);
   players.appendChild(sep);
   players.appendChild(player2Span);
+
+  // Add hover areas only for current match display
+  if (isCurrentMatch) {
+    // Calculate the position of 'vs' to split hover areas properly  
+    let sepWidth = sep.offsetWidth || 20; // fallback width
+    let player1Width = player1Span.offsetWidth || 100;
+    let vsStart = player1Width + 4; // 4px for any spacing
+    let vsCenter = vsStart + (sepWidth / 2);
+    let leftWidth = `${vsCenter}px`;
+    let rightStart = `${vsCenter}px`;
+    
+    // Create invisible overlay for left half (player 1)
+    let player1Overlay = document.createElement('div');
+    player1Overlay.style.position = 'absolute';
+    player1Overlay.style.left = '0';
+    player1Overlay.style.top = '0';
+    player1Overlay.style.width = leftWidth;
+    player1Overlay.style.height = '100%';
+    player1Overlay.style.cursor = 'pointer';
+    player1Overlay.style.zIndex = '1';
+    
+    player1Overlay.addEventListener('mouseenter', function(e) {
+      if (!fullDataLoaded) return; // Prevent permanent previews before data loads
+      
+      showCustomTooltip(e, 'Click to add player');
+      highlightMatchField(player1Span, 'player1');
+      
+      let searchPlayer1 = document.getElementById('search-player1');
+      let searchPlayer2 = document.getElementById('search-player2');
+      
+      // Check for duplicates - allow highlight/tooltip but prevent preview
+      let isDuplicate = searchPlayers.some(p => 
+        p.toLowerCase().replace(/\s+/g, '_') === player1.toLowerCase().replace(/\s+/g, '_')
+      );
+      
+      if (!isDuplicate) {
+        // Only show preview if not duplicate
+        if (!searchPlayer1.value.trim()) {
+          previewFieldValue('search-player1', player1);
+        } else if (!searchPlayer2.value.trim()) {
+          previewFieldValue('search-player2', player1);
+        } else {
+          previewFieldValue('search-player2', player1);
+        }
+      }
+    });
+    player1Overlay.addEventListener('mouseleave', function() {
+      hideCustomTooltip();
+      unhighlightMatchField(player1Span, 'player1');
+      clearFieldPreviews(['search-player1', 'search-player2']);
+    });
+    player1Overlay.addEventListener('click', function() {
+      addPlayerToSearchFromMatch(player1);
+    });
+    
+    // Create invisible overlay for right half (player 2)
+    let player2Overlay = document.createElement('div');
+    player2Overlay.style.position = 'absolute';
+    player2Overlay.style.left = rightStart;
+    player2Overlay.style.top = '0';
+    player2Overlay.style.right = '0';
+    player2Overlay.style.height = '100%';
+    player2Overlay.style.cursor = 'pointer';
+    player2Overlay.style.zIndex = '1';
+    
+    player2Overlay.addEventListener('mouseenter', function(e) {
+      if (!fullDataLoaded) return; // Prevent permanent previews before data loads
+      
+      showCustomTooltip(e, 'Click to add player');
+      highlightMatchField(player2Span, 'player2');
+      
+      let searchPlayer1 = document.getElementById('search-player1');
+      let searchPlayer2 = document.getElementById('search-player2');
+      
+      // Check for duplicates - allow highlight/tooltip but prevent preview
+      let isDuplicate = searchPlayers.some(p => 
+        p.toLowerCase().replace(/\s+/g, '_') === player2.toLowerCase().replace(/\s+/g, '_')
+      );
+      
+      if (!isDuplicate) {
+        // Only show preview if not duplicate
+        if (!searchPlayer1.value.trim()) {
+          previewFieldValue('search-player1', player2);
+        } else if (!searchPlayer2.value.trim()) {
+          previewFieldValue('search-player2', player2);
+        } else {
+          previewFieldValue('search-player2', player2);
+        }
+      }
+    });
+    player2Overlay.addEventListener('mouseleave', function() {
+      hideCustomTooltip();
+      unhighlightMatchField(player2Span, 'player2');
+      clearFieldPreviews(['search-player1', 'search-player2']);
+    });
+    player2Overlay.addEventListener('click', function() {
+      addPlayerToSearchFromMatch(player2);
+    });
+    
+    // Create invisible overlay for middle "vs" area (both players)
+    let vsOverlay = document.createElement('div');
+    vsOverlay.style.position = 'absolute';
+    vsOverlay.style.left = '0';
+    vsOverlay.style.top = '0';
+    vsOverlay.style.right = '0';
+    vsOverlay.style.height = '100%';
+    vsOverlay.style.cursor = 'pointer';
+    vsOverlay.style.zIndex = '2'; // Higher than individual overlays
+    vsOverlay.style.pointerEvents = 'none'; // Initially disabled
+    
+    // Only enable vs overlay in the middle "vs" area
+    let enableVsOverlay = function() {
+      let sepRect = sep.getBoundingClientRect();
+      let playersRect = players.getBoundingClientRect();
+      let sepLeft = sepRect.left - playersRect.left;
+      let sepRight = sepRect.right - playersRect.left;
+      
+      vsOverlay.style.left = `${sepLeft}px`;
+      vsOverlay.style.width = `${sepRight - sepLeft}px`;
+      vsOverlay.style.pointerEvents = 'auto';
+    };
+    
+    vsOverlay.addEventListener('mouseenter', function(e) {
+      if (!fullDataLoaded) return; // Prevent permanent previews before data loads
+      
+      // Always allow vs hover - clicking will overwrite both fields anyway
+      showCustomTooltip(e, 'Click to add both players');
+      highlightMatchField(player1Span, 'player1');
+      highlightMatchField(player2Span, 'player2');
+      
+      // Preview players without adding extra "vs" (UI already shows vs)
+      previewFieldValue('search-player1', player1);
+      previewFieldValue('search-player2', player2);
+    });
+    
+    vsOverlay.addEventListener('mouseleave', function() {
+      hideCustomTooltip();
+      unhighlightMatchField(player1Span, 'player1');
+      unhighlightMatchField(player2Span, 'player2');
+      clearFieldPreviews(['search-player1', 'search-player2']);
+    });
+    
+    vsOverlay.addEventListener('click', function() {
+      // Clear any preview data first
+      let searchPlayer1 = document.getElementById('search-player1');
+      let searchPlayer2 = document.getElementById('search-player2');
+      
+      [searchPlayer1, searchPlayer2].forEach(field => {
+        if (field && field.dataset.originalValue !== undefined) {
+          delete field.dataset.originalValue;
+        }
+        if (field) field.style.color = '';
+      });
+      
+      // Set both players - p1 in first field, p2 in second field 
+      searchPlayer1.value = player1;
+      searchPlayer2.value = player2;
+      
+      // Make sure player2 field is visible
+      let playerFields = document.getElementById('player-fields');
+      searchPlayer2.classList.remove('player-field-hidden');
+      if (playerFields) playerFields.classList.add('player2-visible');
+      
+      // Update backend array to match both players
+      searchPlayers = [player1, player2];
+      syncPlayersToUI();
+      
+      // Mark both player fields as validated
+      validatedFields['search-player1'] = true;
+      validatedFields['search-player2'] = true;
+      searchPlayer1.classList.add('field-validated');
+      searchPlayer2.classList.add('field-validated');
+      
+      handleSearchInput();
+    });
+    
+    // Add overlays after a brief delay to ensure proper sizing
+    setTimeout(() => {
+      // Recalculate positions after DOM has settled
+      let sepRect = sep.getBoundingClientRect();
+      let playersRect = players.getBoundingClientRect();
+      let sepCenterFromLeft = (sepRect.left + sepRect.width/2) - playersRect.left;
+      
+      player1Overlay.style.width = `${sepCenterFromLeft}px`;
+      player2Overlay.style.left = `${sepCenterFromLeft}px`;
+      
+      players.appendChild(player1Overlay);
+      players.appendChild(player2Overlay);
+      
+      // Enable and add vs overlay
+      enableVsOverlay();
+      players.appendChild(vsOverlay);
+    }, 1);
+  }
+
   row.appendChild(players);
 
   return row;
+}
+
+// Custom tooltip system
+function showCustomTooltip(event, text) {
+  const tooltip = document.getElementById('custom-tooltip');
+  if (!tooltip) return;
+  
+  tooltip.textContent = text;
+  tooltip.classList.remove('hidden');
+  
+  // Position tooltip near cursor
+  const rect = event.target.getBoundingClientRect();
+  tooltip.style.left = (rect.left + rect.width / 2) + 'px';
+  tooltip.style.top = (rect.top - 35) + 'px';
+}
+
+function hideCustomTooltip() {
+  const tooltip = document.getElementById('custom-tooltip');
+  if (!tooltip) return;
+  
+  tooltip.classList.add('hidden');
+}
+
+// Match field highlighting system
+function highlightMatchField(element, fieldType) {
+  // Highlight the match field element text only
+  element.style.color = '#4ade80';  // green-400
+  
+  // Highlight corresponding search label text
+  const labels = document.querySelectorAll('.search-label');
+  let labelIndex;
+  
+  switch(fieldType) {
+    case 'date': labelIndex = 0; break;
+    case 'tournament': labelIndex = 1; break;
+    case 'round': labelIndex = 2; break;
+    case 'player1':
+    case 'player2': labelIndex = 3; break;
+  }
+  
+  if (labels[labelIndex]) {
+    labels[labelIndex].style.color = '#4ade80';
+  }
+}
+
+function unhighlightMatchField(element, fieldType) {
+  // Remove highlight from match field element
+  element.style.color = '';
+  
+  // Remove highlight from corresponding search label
+  const labels = document.querySelectorAll('.search-label');
+  let labelIndex;
+  
+  switch(fieldType) {
+    case 'date': labelIndex = 0; break;
+    case 'tournament': labelIndex = 1; break;
+    case 'round': labelIndex = 2; break;
+    case 'player1':
+    case 'player2': labelIndex = 3; break;
+  }
+  
+  if (labels[labelIndex]) {
+    labels[labelIndex].style.color = '';
+  }
+}
+
+// Field preview system for search inputs
+function previewFieldValue(fieldId, value) {
+  const field = document.getElementById(fieldId);
+  if (!field) return;
+  
+  // Store original value if not already stored
+  if (!field.dataset.originalValue) {
+    field.dataset.originalValue = field.value;
+  }
+  
+  // Show preview value
+  field.value = value;
+  field.style.color = 'rgba(74, 222, 128, 0.6)';
+  
+  // Special handling for player2 field - make it visible if previewing
+  if (fieldId === 'search-player2') {
+    let searchPlayer2 = document.getElementById('search-player2');
+    let playerFields = document.getElementById('player-fields');
+    if (searchPlayer2 && searchPlayer2.classList.contains('player-field-hidden')) {
+      // Store original visibility state
+      if (!searchPlayer2.dataset.originallyHidden) {
+        searchPlayer2.dataset.originallyHidden = 'true';
+      }
+      // Make visible for preview
+      searchPlayer2.classList.remove('player-field-hidden');
+      if (playerFields) playerFields.classList.add('player2-visible');
+    }
+  }
+  
+  // For player fields, bypass the normal handleSearchInput to avoid array sync override
+  if (fieldId === 'search-player1' || fieldId === 'search-player2') {
+    // Directly trigger search logic without syncing
+    triggerSearchWithCurrentValues();
+  } else {
+    // Trigger search update for preview
+    handleSearchInput();
+  }
+}
+
+function clearFieldPreviews(fieldIds) {
+  fieldIds.forEach(fieldId => {
+    const field = document.getElementById(fieldId);
+    if (!field) return;
+    
+    // Restore original value
+    if (field.dataset.originalValue !== undefined) {
+      field.value = field.dataset.originalValue;
+      delete field.dataset.originalValue;
+    }
+    
+    // Reset text color
+    field.style.color = '';
+    
+    // Special handling for player2 field - restore visibility if it was originally hidden
+    if (fieldId === 'search-player2' && field.dataset.originallyHidden) {
+      let playerFields = document.getElementById('player-fields');
+      field.classList.add('player-field-hidden');
+      if (playerFields) playerFields.classList.remove('player2-visible');
+      delete field.dataset.originallyHidden;
+    }
+  });
+  
+  // Trigger search update after clearing previews
+  handleSearchInput();
 }
 
 // Add debouncing for preview
@@ -758,7 +1284,7 @@ function updateMatchDisplayInfo(matchId, metadata) {
   let displayElement = document.getElementById('match-display');
   if (displayElement) {
     displayElement.innerHTML = '';
-    displayElement.appendChild(createMatchRow(matchId));
+    displayElement.appendChild(createMatchRow(matchId, true)); // true = current match display
   }
 }
 
@@ -785,7 +1311,6 @@ function setupSearchInterfaceLoading() {
   let searchDateYear = document.getElementById('search-date-year');
   let searchDateMonth = document.getElementById('search-date-month');
   let searchDateDay = document.getElementById('search-date-day');
-  let searchGender = document.getElementById('search-gender');
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
@@ -803,9 +1328,10 @@ function setupSearchInterfaceLoading() {
   if (dropdown) {
     dropdown.classList.remove('dropdown-hidden');
     dropdown.innerHTML = '';
+    // Just show loading message during setup - actual matches shown after data loads
     const emptyMsg = document.createElement('div');
     emptyMsg.className = 'dropdown-empty-message';
-    emptyMsg.textContent = 'Type in the search bar fields to filter matches';
+    emptyMsg.textContent = 'Loading matches...';
     dropdown.appendChild(emptyMsg);
   }
 
@@ -873,21 +1399,22 @@ function setupSearchInterfaceLoading() {
 
       if (cell && cell.dataset.field) {
         let field = cell.dataset.field;
-        if (field === 'gender' && searchGender) {
-          searchGender.value = cell.dataset.value || '';
-        } else if (field === 'tournament' && searchTournament) {
+        if (field === 'tournament' && searchTournament) {
           searchTournament.value = (cell.dataset.value || '').replace(/_/g, ' ');
         } else if (field === 'round' && searchRound) {
           searchRound.value = cell.dataset.value || '';
         } else if (field === 'player1' && searchPlayer1) {
           searchPlayer1.value = (cell.dataset.value || '').replace(/_/g, ' ');
+          syncUIToPlayers(); // Sync to backend array
         } else if (field === 'player2' && searchPlayer2) {
           let value = (cell.dataset.value || '').replace(/_/g, ' ');
           if (searchPlayer1 && searchPlayer1.value.trim() === '') {
             searchPlayer1.value = value;
+            syncUIToPlayers(); // Sync to backend array
             updatePlayer1Width(searchPlayer1, playerFields);
           } else {
             searchPlayer2.value = value;
+            syncUIToPlayers(); // Sync to backend array
             searchPlayer2.classList.remove('player-field-hidden');
             if (playerFields) playerFields.classList.add('player2-visible');
             updatePlayer1Width(searchPlayer1, playerFields);
@@ -955,7 +1482,6 @@ function setupSearchInterfaceLoading() {
       searchDateYear,
       searchDateMonth,
       searchDateDay,
-      searchGender,
       searchTournament,
       searchRound,
       searchPlayer1,
@@ -1007,7 +1533,7 @@ function setupSearchInterfaceLoading() {
 
   setupDateFieldAutoAdvance(searchDateYear, searchDateMonth, null, 4);
   setupDateFieldAutoAdvance(searchDateMonth, searchDateDay, searchDateYear, 2);
-  setupDateFieldAutoAdvance(searchDateDay, searchGender, searchDateMonth, 2);
+  setupDateFieldAutoAdvance(searchDateDay, searchTournament, searchDateMonth, 2);
 
   if (searchPlayer1) {
     searchPlayer1.addEventListener('keydown', function (e) {
@@ -1063,7 +1589,7 @@ function setupSearchInterfaceLoading() {
   }
 
   // Allow typing immediately - will show empty results until data loads
-  [searchDateYear, searchDateMonth, searchDateDay, searchGender, searchTournament, searchRound, searchPlayer1, searchPlayer2]
+  [searchDateYear, searchDateMonth, searchDateDay, searchTournament, searchRound, searchPlayer1, searchPlayer2]
     .filter(Boolean)
     .forEach(input => {
       input.addEventListener('input', function() {
@@ -1077,7 +1603,7 @@ function setupSearchInterfaceLoading() {
     });
 
   // Track focused field for faceted dropdown
-  ['search-date-year', 'search-date-month', 'search-date-day', 'search-gender', 'search-tournament', 'search-round', 'search-player1', 'search-player2'].forEach(id => {
+  ['search-date-year', 'search-date-month', 'search-date-day', 'search-tournament', 'search-round', 'search-player1', 'search-player2'].forEach(id => {
     let field = document.getElementById(id);
     if (!field) return;
     field.addEventListener('focus', function () {
@@ -1098,7 +1624,7 @@ function setupSearchInterfaceLoading() {
   // Capture-phase handler for Enter/Tab autocomplete on faceted options
   window.addEventListener('keydown', function (e) {
     if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
-      const searchFieldIds = ['search-date-year', 'search-date-month', 'search-date-day', 'search-gender', 'search-tournament', 'search-round', 'search-player1', 'search-player2'];
+      const searchFieldIds = ['search-date-year', 'search-date-month', 'search-date-day', 'search-tournament', 'search-round', 'search-player1', 'search-player2'];
       if (searchFieldIds.includes(e.target.id) && activeSearchField && currentFacetOptions && currentFacetOptions.length > 0) {
         e.preventDefault();
         e.stopPropagation();
@@ -1115,7 +1641,6 @@ function getSearchValues() {
   let searchDateYear = document.getElementById('search-date-year');
   let searchDateMonth = document.getElementById('search-date-month');
   let searchDateDay = document.getElementById('search-date-day');
-  let searchGender = document.getElementById('search-gender');
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
@@ -1141,16 +1666,21 @@ function getSearchValues() {
     }
   }
 
+  // Get gender from radio buttons
+  let selectedGender = document.querySelector('input[name="gender"]:checked');
+  let genderValue = selectedGender ? selectedGender.value : 'all';
+  if (genderValue === 'all') genderValue = '';
+
   return {
     date: dateSearch.toLowerCase(),
     year: yearValue.toLowerCase(),
     month: monthValue.toLowerCase(), 
     day: dayValue.toLowerCase(),
-    gender: searchGender ? searchGender.value.toLowerCase() : '',
+    gender: genderValue.toLowerCase(),
     tournament: searchTournament ? searchTournament.value.toLowerCase().replace(/\s+/g, '_') : '',
     round: searchRound ? searchRound.value.toLowerCase().replace(/\s+/g, '_') : '',
-    player1: (searchPlayer1 ? searchPlayer1.value : '').toLowerCase().replace(/\s+/g, '_'),
-    player2: (searchPlayer2 ? searchPlayer2.value : '').toLowerCase().replace(/\s+/g, '_'),
+    player1: searchPlayer1 ? searchPlayer1.value.toLowerCase().replace(/\s+/g, '_') : '',
+    player2: searchPlayer2 ? searchPlayer2.value.toLowerCase().replace(/\s+/g, '_') : '',
   };
 }
 
@@ -1163,8 +1693,7 @@ function filterMatchesWith(sv) {
     // Use substring match for date (don't use validation for partial dates)
     let dateOk = !sv.date || (parsed.year + (parsed.month || '') + (parsed.day || '')).includes(sv.date);
     
-    let genderOk = !sv.gender || (validatedFields['search-gender'] ? 
-      parsed.gender.toLowerCase() === sv.gender : parsed.gender.toLowerCase().includes(sv.gender));
+    let genderOk = !sv.gender || parsed.gender.toLowerCase() === sv.gender;
     let tournamentOk = !sv.tournament || (validatedFields['search-tournament'] ? 
       parsed.tournament.toLowerCase() === sv.tournament : parsed.tournament.toLowerCase().includes(sv.tournament));
     let roundOk = !sv.round || (validatedFields['search-round'] ? 
@@ -1215,7 +1744,6 @@ function filterMatchesExcluding(excludeFieldId) {
       sv.date = (y + m + d).toLowerCase();
       break;
     }
-    case 'search-gender': sv.gender = ''; break;
     case 'search-tournament': sv.tournament = ''; break;
     case 'search-round': sv.round = ''; break;
     case 'search-player1': sv.player1 = ''; break;
@@ -1244,8 +1772,6 @@ function extractFieldValues(data, fieldId) {
       return [data.Date ? data.Date.slice(4, 6) : (data.month || '')];
     case 'search-date-day': 
       return [data.Date ? data.Date.slice(6, 8) : (data.day || '')];
-    case 'search-gender': 
-      return [data.match_id ? (data.match_id.includes('-M-') ? 'M' : 'W') : (data.gender || '')];
     case 'search-tournament': 
       let tournament = data.Tournament || data.tournament || '';
       // Normalize tournament names in dropdown to show with spaces but handle underscores in filtering
@@ -1281,12 +1807,11 @@ function getColumnIndex(fieldId) {
     case 'search-date-month':
     case 'search-date-day':
       return 0;
-    case 'search-gender': return 1;
-    case 'search-tournament': return 2;
-    case 'search-round': return 3;
+    case 'search-tournament': return 1;
+    case 'search-round': return 2;
     case 'search-player1':
     case 'search-player2':
-      return 4;
+      return 3;
     default: return -1;
   }
 }
@@ -1452,29 +1977,25 @@ function loadFacetMatches(container, matchIds) {
   matchIds.forEach(matchId => {
     let item = document.createElement('div');
     item.className = 'dropdown-item dropdown-item-match';
-    item.appendChild(createMatchRow(matchId));
+    item.appendChild(createMatchRow(matchId, false)); // false = dropdown item
 
     item.addEventListener('mouseenter', function () {
       previewMatch(matchId);
     });
 
-    item.addEventListener('mouseleave', function () {
-      stopPreview();
-    });
+    // Remove individual mouseleave - handled at container level to prevent flicker
 
     item.addEventListener('click', function () {
       loadMatch(matchId);
-      ['search-date-year', 'search-date-month', 'search-date-day', 'search-gender', 'search-tournament', 'search-round', 'search-player1'].forEach(id => {
+      ['search-date-year', 'search-date-month', 'search-date-day', 'search-tournament', 'search-round'].forEach(id => {
         let el = document.getElementById(id);
         if (el) el.value = '';
       });
-      let searchPlayer2 = document.getElementById('search-player2');
-      let playerFields = document.getElementById('player-fields');
-      if (searchPlayer2) {
-        searchPlayer2.value = '';
-        searchPlayer2.classList.add('player-field-hidden');
-      }
-      if (playerFields) playerFields.classList.remove('player2-visible');
+      // Clear backend array and sync to UI
+      searchPlayers = [];
+      validatedFields['search-player1'] = false;
+      validatedFields['search-player2'] = false;
+      syncPlayersToUI();
       activeSearchField = null;
       handleSearchInput();
     });
@@ -1507,7 +2028,7 @@ function fillFieldAndAdvance(fieldId, value) {
 
   const fieldOrder = [
     'search-date-year', 'search-date-month', 'search-date-day',
-    'search-gender', 'search-tournament', 'search-round',
+    'search-tournament', 'search-round',
     'search-player1', 'search-player2'
   ];
 
@@ -1541,6 +2062,73 @@ function fillFieldAndAdvance(fieldId, value) {
 
 // ====== Main search handler ======
 
+// Trigger search without syncing arrays (for previews)
+function triggerSearchWithCurrentValues() {
+  let searchPlayer1 = document.getElementById('search-player1');
+  let searchPlayer2 = document.getElementById('search-player2');
+  let playerFields = document.getElementById('player-fields');
+  let dropdown = document.getElementById('dropdown');
+  let matchCountBar = document.getElementById('match-count-bar');
+  let matchCountText = document.getElementById('match-count-text');
+
+  // Just do layout updates without array syncing
+  updatePlayer1Width(searchPlayer1, playerFields);
+
+  if (!fullDataLoaded) {
+    dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">Loading match database...</div>';
+    dropdown.classList.remove('dropdown-hidden');
+    currentMatches = [];
+    matchesRendered = 0;
+    if (matchCountBar && matchCountText) {
+      matchCountText.textContent = 'Matching: ...';
+      matchCountBar.classList.remove('match-count-hidden');
+    }
+    return;
+  }
+
+  // During preview, we want flat results, not faceted dropdowns - skip activeSearchField logic 
+  
+  // Check for input and show flat results
+  let sv = getSearchValues();
+  let hasAnyInput = sv.date || sv.gender || sv.tournament || sv.round || sv.player1 || sv.player2;
+
+  // Always show all matches when no input (instead of empty message)
+  let matches;
+  if (!hasAnyInput) {
+    matches = allMatchIds.slice(); // Clone the array
+  } else {
+    matches = filterMatchesWith(sv);
+  }
+  
+  matches.sort((a, b) => a.localeCompare(b));
+
+  if (matches.length > 0) {
+    dropdown.innerHTML = '';
+    dropdown.classList.remove('dropdown-hidden');
+    if (matchCountBar && matchCountText) {
+      let matchWord = matches.length === 1 ? 'match' : 'matches';
+      if (!hasAnyInput) {
+        matchCountText.textContent = `Matching: ${matches.length} ${matchWord} - type in fields to filter`;
+      } else {
+        matchCountText.textContent = `Matching: ${matches.length} ${matchWord}`;
+      }
+      matchCountBar.classList.remove('match-count-hidden');
+    }
+    currentMatches = matches;
+    matchesRendered = 0;
+    renderNextMatchBatch(dropdown);
+  } else {
+    dropdown.innerHTML = '<div class="dropdown-item dropdown-item-text" style="color: #666;">No matches</div>';
+    dropdown.classList.remove('dropdown-hidden');
+    currentMatches = [];
+    matchesRendered = 0;
+    if (matchCountBar && matchCountText) {
+      matchCountText.textContent = 'Matching: 0 matches';
+      matchCountBar.classList.remove('match-count-hidden');
+    }
+  }
+}
+
 function handleSearchInput() {
   let searchPlayer1 = document.getElementById('search-player1');
   let searchPlayer2 = document.getElementById('search-player2');
@@ -1549,7 +2137,26 @@ function handleSearchInput() {
   let matchCountBar = document.getElementById('match-count-bar');
   let matchCountText = document.getElementById('match-count-text');
 
-  syncPlayer2Visibility(searchPlayer1, searchPlayer2, playerFields);
+  // Check if we're in preview mode (any field has preview data)
+  let isPreview = (searchPlayer1 && searchPlayer1.dataset.originalValue) || 
+                  (searchPlayer2 && searchPlayer2.dataset.originalValue) ||
+                  (document.getElementById('search-date-year') && document.getElementById('search-date-year').dataset.originalValue) ||
+                  (document.getElementById('search-date-month') && document.getElementById('search-date-month').dataset.originalValue) ||
+                  (document.getElementById('search-date-day') && document.getElementById('search-date-day').dataset.originalValue) ||
+                  (document.getElementById('search-tournament') && document.getElementById('search-tournament').dataset.originalValue) ||
+                  (document.getElementById('search-round') && document.getElementById('search-round').dataset.originalValue);
+
+  // Only sync UI to array if this is NOT preview mode and user is actively typing
+  if (!isPreview && (document.activeElement === searchPlayer1 || document.activeElement === searchPlayer2)) {
+    syncUIToPlayers();
+  }
+  
+  // Always sync array to UI to ensure proper display and validation
+  if (!isPreview) {
+    syncPlayersToUI();
+  }
+  
+  // Legacy width update for layout
   updatePlayer1Width(searchPlayer1, playerFields);
 
   if (!fullDataLoaded) {
@@ -1591,32 +2198,14 @@ function handleSearchInput() {
   let sv = getSearchValues();
   let hasAnyInput = sv.date || sv.gender || sv.tournament || sv.round || sv.player1 || sv.player2;
 
+  // Always show all matches when no input (instead of empty message)
+  let matches;
   if (!hasAnyInput) {
-    dropdown.classList.remove('dropdown-hidden');
-    dropdown.innerHTML = '';
-    const emptyMsg = document.createElement('div');
-    emptyMsg.className = 'dropdown-empty-message';
-    emptyMsg.textContent = 'Type in the search bar fields to filter matches';
-    dropdown.appendChild(emptyMsg);
-    currentMatches = [];
-    matchesRendered = 0;
-    currentFacetOptions = [];
-    if (searchPlayer2) {
-      searchPlayer2.classList.add('player-field-hidden');
-      searchPlayer2.value = '';
-    }
-    if (playerFields) playerFields.classList.remove('player2-visible');
-    if (matchCountBar && matchCountText) {
-      matchCountText.textContent = 'Matching: 0 matches';
-      matchCountBar.classList.remove('match-count-hidden');
-    }
-    if (currentMatchId) {
-      previewMatch(currentMatchId);
-    }
-    return;
+    matches = allMatchIds.slice(); // Clone the array
+  } else {
+    matches = filterMatchesWith(sv);
   }
-
-  let matches = filterMatchesWith(sv);
+  
   matches.sort((a, b) => a.localeCompare(b));
 
   if (matches.length > 0) {
@@ -1624,7 +2213,11 @@ function handleSearchInput() {
     dropdown.classList.remove('dropdown-hidden');
     if (matchCountBar && matchCountText) {
       let matchWord = matches.length === 1 ? 'match' : 'matches';
-      matchCountText.textContent = `Matching: ${matches.length} ${matchWord}`;
+      if (!hasAnyInput) {
+        matchCountText.textContent = `Matching: ${matches.length} ${matchWord} - type in fields to filter`;
+      } else {
+        matchCountText.textContent = `Matching: ${matches.length} ${matchWord}`;
+      }
       matchCountBar.classList.remove('match-count-hidden');
     }
     currentMatches = matches;
@@ -1648,12 +2241,45 @@ function setupSearchInterface() {
   let searchDateYear = document.getElementById('search-date-year');
   let searchDateMonth = document.getElementById('search-date-month');
   let searchDateDay = document.getElementById('search-date-day');
-  let searchGender = document.getElementById('search-gender');
   let searchTournament = document.getElementById('search-tournament');
   let searchRound = document.getElementById('search-round');
   let searchPlayer1 = document.getElementById('search-player1');
   let searchPlayer2 = document.getElementById('search-player2');
   let randomMatchBtn = document.getElementById('random-match-btn');
+
+  // Initialize backend array from any existing field values
+  if (searchPlayer1.value || searchPlayer2.value) {
+    syncUIToPlayers();
+  }
+  
+  // Add event listeners for gender radio buttons
+  let genderRadios = document.querySelectorAll('input[name="gender"]');
+  genderRadios.forEach(radio => {
+    radio.addEventListener('change', function() {
+      handleSearchInput();
+    });
+  });
+  
+  // Add event listeners for two-way binding with backend array
+  if (searchPlayer1) {
+    searchPlayer1.addEventListener('input', function() {
+      // Remove validation when user starts typing manually
+      if (validatedFields['search-player1']) {
+        validatedFields['search-player1'] = false;
+      }
+      // Let handleSearchInput do the sync
+    });
+  }
+  
+  if (searchPlayer2) {
+    searchPlayer2.addEventListener('input', function() {
+      // Remove validation when user starts typing manually  
+      if (validatedFields['search-player2']) {
+        validatedFields['search-player2'] = false;
+      }
+      // Let handleSearchInput do the sync
+    });
+  }
 
   // Hide loading indicator now that data is loaded
   loadingIndicator.classList.add('loading-hidden');
@@ -1670,11 +2296,13 @@ function setupSearchInterface() {
     });
   }
 
-  // If user already typed something, update results
+  // If user already typed something, update results, otherwise show all matches
   let hasInput = searchDateYear.value || searchDateMonth.value || searchDateDay.value ||
-    searchGender.value || searchTournament.value ||
-    searchRound.value || searchPlayer1.value || searchPlayer2.value;
+    searchTournament.value || searchRound.value || searchPlayer1.value || searchPlayer2.value;
   if (hasInput) {
+    handleSearchInput();
+  } else {
+    // Show all matches initially after data loads
     handleSearchInput();
   }
 
