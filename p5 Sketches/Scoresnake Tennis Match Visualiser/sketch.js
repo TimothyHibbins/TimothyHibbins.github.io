@@ -90,8 +90,7 @@ function loadMatch(matchId, options = { setCurrent: true }) {
       SETS_TO_WIN_MATCH = maxSetsWon; // 2 for best of 3, 3 for best of 5
 
       // Create new scoresnake visualization
-      currentScoresnake = new ScoresnakeChart();
-      currentScoresnake.update(tennisMatch);
+      currentScoresnake = new ScoresnakeChart(tennisMatch);
 
       if (options.setCurrent) {
         updateMatchDisplay(matchId);
@@ -144,11 +143,8 @@ function axisToPlayer(axis) {
   );
 }
 
-POINT_WON_BY_P1_AGAINST_SERVE = "p1 against serve";
-POINT_WON_BY_P2_AGAINST_SERVE = "p2 against serve";
-
-POINT_WON_BY_P1_ON_SERVE = "p1 on serve";
-POINT_WON_BY_P2_ON_SERVE = "p2 on serve";
+POINT_WON_AGAINST_SERVE = "against serve";
+POINT_WON_ON_SERVE = "on serve";
 
 INACTIVE = "inactive";
 ACTIVE_SET = "active set";
@@ -158,10 +154,9 @@ pointSquareColorScheme = {
   [INACTIVE]: "#202020",
   [ACTIVE_SET]: "#505050",
   [ACTIVE_GAME]: "#8f8f8f",
-  [POINT_WON_BY_P1_ON_SERVE]: "#A423B7",
-  [POINT_WON_BY_P1_AGAINST_SERVE]: "#F442FF",
-  [POINT_WON_BY_P2_ON_SERVE]: "#00A300",
-  [POINT_WON_BY_P2_AGAINST_SERVE]: "#00FF00"
+
+  [POINT_WON_ON_SERVE]: { 1: "#A423B7", 2: "#00A300" },
+  [POINT_WON_AGAINST_SERVE]: { 1: "#ff00f2", 2: "#0cdc58" }
 };
 
 
@@ -354,9 +349,12 @@ class TennisSet {
     this.tiebreakerSet = tiebreakerSet;
 
     this.gameOffsets = {
-      1: new Array(GAMES_TO_WIN_SET).fill(gameSizePlusGap),  // Offsets for player 1's games
-      2: new Array(GAMES_TO_WIN_SET).fill(gameSizePlusGap)   // Offsets for player 2's games
+      1: new Array(GAMES_TO_WIN_SET).fill(gameSize),  // Offsets for player 1's games
+      2: new Array(GAMES_TO_WIN_SET).fill(gameSize)   // Offsets for player 2's games
     }
+
+    this.gameOffsets[1].push(gameSize);
+    this.gameOffsets[2].push(gameSize);
 
     this.active = {
       1: new Array(GAMES_TO_WIN_SET + 1).fill(false),
@@ -403,153 +401,131 @@ class TennisSet {
 
   draw(x, y) {
 
+    let setDimensions = {
+      1: this.gameOffsets[1].reduce((acc, curr) => acc + curr, 0),
+      2: this.gameOffsets[2].reduce((acc, curr) => acc + curr, 0)
+    }
+
+    for (let [p, q] of [[1, 2], [2, 1]]) {
+
+      let offset = {
+        1: 0,
+        2: 0
+      }
+
+      for (let g = 0; g < this.games.length; g++) {
+
+
+        let special = 0;
+        if (g == this.games.length - 1) {
+          if (this.active[p][g]) {
+
+          } else {
+            continue;
+          }
+        }
+
+        let gapToChart = 15;
+        textFont(JetBrainsMonoBold);
+        textSize(14);
+        noStroke();
+        textAlign(CENTER, CENTER);
+
+        fill(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][p]);
+
+        if (!this.active[p][g]) {
+          fill(pointSquareColorScheme[POINT_WON_ON_SERVE][p]);
+        }
+
+        let pOffset = { [p]: gameSize, [q]: 0 };
+
+        let textOffset = { [p]: 0, [q]: -gapToChart };
+        fill(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][p]);
+
+        push();
+
+        let lineEndPoint = { [p]: 0, [q]: setDimensions[p] };
+
+        translate(x + offset[axisToPlayer("x")], y + offset[axisToPlayer("y")]);
+
+        translate(
+          pOffset[axisToPlayer("x")],
+          pOffset[axisToPlayer("y")]);
+
+        stroke(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][p]);
+        strokeWeight(0.5);
+        line(0, 0, lineEndPoint[axisToPlayer("x")], lineEndPoint[axisToPlayer("y")]);
+        noStroke();
+
+        translate(
+          textOffset[axisToPlayer("x")],
+          textOffset[axisToPlayer("y")]);
+
+
+
+        rotate(-TAU / 8);
+        text(g + 1, 0, 0);
+        pop();
+
+        for (let i = 0; i < pointScoreText.length; i++) {
+
+          textAlign(CENTER, CENTER);
+          textSize(5);
+
+          let gapToChart = 3;
+
+          let pOffset = { [p]: i * pointSquareSize, [q]: 0 };
+
+          let textOffset = { [p]: 0, [q]: -gapToChart };
+
+          let lineEndPoint = { [p]: 0, [q]: setDimensions[p] };
+
+          push();
+
+          translate(x + offset[axisToPlayer("x")] + pOffset[axisToPlayer("x")], y + offset[axisToPlayer("y")] + pOffset[axisToPlayer("y")]);
+
+          stroke(pointSquareColorScheme[POINT_WON_ON_SERVE][p]);
+          strokeWeight(0.25);
+          line(0, 0, lineEndPoint[axisToPlayer("x")], lineEndPoint[axisToPlayer("y")]);
+          noStroke();
+
+          translate(textOffset[axisToPlayer("x")], textOffset[axisToPlayer("y")]);
+
+          if (pAxes[p] == "x") {
+
+            rotate(-TAU / 4)
+
+          }
+
+          text(pointScoreText[i], 0, 0);
+
+          pop();
+
+        }
+
+        offset[p] += this.gameOffsets[p][g] + gameGap;
+
+      }
+
+
+
+    }
+
+
     let offset = {
       1: 0,
       2: 0
     }
-
     for (let p1_gamesWon = 0; p1_gamesWon < this.games.length; p1_gamesWon++) {
 
       offset[2] = 0;
 
-      textFont(JetBrainsMonoBold);
-      textSize(14);
-      noStroke();
-      textAlign(CENTER, CENTER);
-
-      let gapToChart = 15;
-
       for (let p2_gamesWon = 0; p2_gamesWon < this.games[p1_gamesWon].length; p2_gamesWon++) {
-
-
-        fill(255);
-        if (!this.active[1][p1_gamesWon]) {
-          fill(255, 255, 255, 75);
-        }
-
-        if (
-          (p2_gamesWon == 0 && p1_gamesWon < GAMES_TO_WIN_SET) ||
-          (p1_gamesWon == GAMES_TO_WIN_SET && p2_gamesWon == GAMES_TO_WIN_SET - 1 && this.active[1][p1_gamesWon])
-
-        ) {
-
-          if (pAxes[1] == "x") {
-            push();
-            translate(x + offset[axisToPlayer("x")], y + offset[axisToPlayer("y")] - gapToChart);
-            rotate(-TAU / 8);
-            text(p1_gamesWon, 0, 0);
-            pop();
-
-            for (let i = 0; i < pointScoreText.length; i++) {
-
-              textAlign(CENTER, CENTER);
-              textSize(5);
-
-              push();
-              translate(x + offset[axisToPlayer("x")] + i * pointSquareSize, y + offset[axisToPlayer("y")] - 3);
-              rotate(-TAU / 4)
-              text(pointScoreText[i], 0, 0);
-
-              pop();
-
-            }
-
-
-          } else {
-            push();
-            translate(x + offset[axisToPlayer("x")] - gapToChart, y + offset[axisToPlayer("y")]);
-            rotate(-TAU / 8);
-            text(p1_gamesWon, 0, 0);
-            pop();
-
-            for (let i = 0; i < pointScoreText.length; i++) {
-
-              textAlign(CENTER, CENTER);
-              textSize(5);
-
-              push();
-              translate(x + offset[axisToPlayer("x")] - 3, y + offset[axisToPlayer("y")] + i * pointSquareSize);
-              // rotate(TAU / 4);
-
-
-              text(pointScoreText[i], 0, 0);
-
-              pop();
-
-            }
-          }
-
-        }
-
-
-
-        if (
-          (p1_gamesWon == 0 && p2_gamesWon < GAMES_TO_WIN_SET) ||
-          (p2_gamesWon == GAMES_TO_WIN_SET && p1_gamesWon == GAMES_TO_WIN_SET - 1 && this.active[2][p2_gamesWon])
-
-        ) {
-
-          textFont(JetBrainsMonoBold);
-          textSize(14);
-          fill(255);
-          noStroke();
-          textAlign(CENTER, CENTER);
-
-          if (!this.active[2][p2_gamesWon]) {
-            fill(255, 255, 255, 75);
-          }
-
-          if (pAxes[2] == "x") {
-            push();
-            translate(x + offset[axisToPlayer("x")], y + offset[axisToPlayer("y")] - gapToChart);
-            rotate(-TAU / 8);
-            text(p2_gamesWon, 0, 0);
-            pop();
-
-            for (let i = 0; i < pointScoreText.length; i++) {
-
-              textAlign(CENTER, CENTER);
-              textSize(5);
-
-              push();
-              translate(x + offset[axisToPlayer("x")] + i * pointSquareSize, y + offset[axisToPlayer("y")] - 3);
-              rotate(-TAU / 4)
-              text(pointScoreText[i], 0, 0);
-
-              pop();
-
-            }
-
-          } else {
-            push();
-            translate(x + offset[axisToPlayer("x")] - gapToChart, y + offset[axisToPlayer("y")]);
-            rotate(-TAU / 8);
-            text(p2_gamesWon, 0, 0);
-            pop();
-
-            for (let i = 0; i < pointScoreText.length; i++) {
-
-              textAlign(CENTER, CENTER);
-              textSize(5);
-
-              push();
-              translate(x + offset[axisToPlayer("x")] - 3, y + offset[axisToPlayer("y")] + i * pointSquareSize);
-              // rotate(TAU / 4);
-
-
-              text(pointScoreText[i], 0, 0);
-
-              pop();
-
-            }
-
-          }
-        }
 
         let game = this.games[p1_gamesWon][p2_gamesWon];
 
         if (!game || (p1_gamesWon == GAMES_TO_WIN_SET && !this.active[1][p1_gamesWon]) || (p2_gamesWon == GAMES_TO_WIN_SET && !this.active[2][p2_gamesWon])) {
-          offset[2] += this.gameOffsets[2][p2_gamesWon];
+          offset[2] += this.gameOffsets[2][p2_gamesWon] + gameGap;
           continue;
         }
 
@@ -563,27 +539,27 @@ class TennisSet {
           b = 20;
         }
 
-        game.draw(x + offset[axisToPlayer("x")], y + offset[axisToPlayer("y")], b);
+        // game.draw(x + offset[axisToPlayer("x")], y + offset[axisToPlayer("y")], b);
 
-        offset[2] += this.gameOffsets[2][p2_gamesWon];
+        offset[2] += this.gameOffsets[2][p2_gamesWon] + gameGap;
 
       }
 
-      offset[1] += this.gameOffsets[1][p1_gamesWon];
+      offset[1] += this.gameOffsets[1][p1_gamesWon] + gameGap;
     }
   }
 
 }
 
 class ScoresnakeChart {
-  constructor() {
-    // this.matchData = matchData;
+  constructor(matchData) {
+    this.matchData = matchData;
 
     this.connectors = [];
 
     this.setOffsets = {
-      1: new Array(SETS_TO_WIN_MATCH).fill(setSizePlusGap),  // Offsets for player 1's sets
-      2: new Array(SETS_TO_WIN_MATCH).fill(setSizePlusGap)   // Offsets for player 2's sets
+      1: new Array(SETS_TO_WIN_MATCH + 1).fill(setSize),  // Offsets for player 1's sets
+      2: new Array(SETS_TO_WIN_MATCH + 1).fill(setSize)   // Offsets for player 2's sets
     }
 
     // this.sets[p1_setsWon][p2_setsWon]
@@ -622,6 +598,8 @@ class ScoresnakeChart {
 
     this.mousePosVec = createVector(0, 0);
 
+    this.update();
+
   }
 
   draw(pos) {
@@ -651,9 +629,9 @@ class ScoresnakeChart {
 
 
 
-    for (let connector of this.connectors) {
-      connector.drawConnector(pos);
-    }
+    // for (let connector of this.connectors) {
+    //   connector.drawConnector(pos);
+    // }
 
     let offset = {
       1: 0,
@@ -666,25 +644,25 @@ class ScoresnakeChart {
 
       textFont(JetBrainsMonoBold);
       textSize(24);
-      fill(255);
+      fill(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][1]);
       noStroke();
       textAlign(CENTER, CENTER);
 
       let gapToChart = 40;
 
-      if (pAxes[1] == "x") {
-        push();
-        translate(pos.x + offset[axisToPlayer("x")], pos.y + offset[axisToPlayer("y")] - gapToChart);
-        rotate(-TAU / 8);
-        text(p1_setsWon, 0, 0);
-        pop();
-      } else {
-        push();
-        translate(pos.x + offset[axisToPlayer("x")] - gapToChart, pos.y + offset[axisToPlayer("y")]);
-        rotate(-TAU / 8);
-        text(p1_setsWon, 0, 0);
-        pop();
-      }
+
+      let textOffset = { 1: -gapToChart, 2: this.setOffsets[1][p1_setsWon] };
+
+      push();
+
+      translate(
+        pos.x + offset[axisToPlayer("x")] + textOffset[axisToPlayer("y")],
+        pos.y + offset[axisToPlayer("y")] + textOffset[axisToPlayer("x")]
+      );
+
+      rotate(-TAU / 8);
+      text(p1_setsWon + 1, 0, 0);
+      pop();
 
       for (let p2_setsWon = 0; p2_setsWon < SETS_TO_WIN_MATCH; p2_setsWon++) {
 
@@ -692,23 +670,20 @@ class ScoresnakeChart {
 
           textFont(JetBrainsMonoBold);
           textSize(24);
-          fill(255);
+          fill(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][2]);
           noStroke();
           textAlign(CENTER, CENTER);
 
-          if (pAxes[2] == "x") {
-            push();
-            translate(pos.x + offset[axisToPlayer("x")], pos.y + offset[axisToPlayer("y")] - gapToChart);
-            rotate(-TAU / 8);
-            text(p2_setsWon, 0, 0);
-            pop();
-          } else {
-            push();
-            translate(pos.x + offset[axisToPlayer("x")] - gapToChart, pos.y + offset[axisToPlayer("y")]);
-            rotate(-TAU / 8);
-            text(p2_setsWon, 0, 0);
-            pop();
-          }
+          let textOffset = { 1: this.setOffsets[2][p2_setsWon], 2: -gapToChart };
+
+          push();
+          translate(
+            pos.x + offset[axisToPlayer("x")] + textOffset[axisToPlayer("y")],
+            pos.y + offset[axisToPlayer("y")] + textOffset[axisToPlayer("x")]
+          );
+          rotate(-TAU / 8);
+          text(p2_setsWon + 1, 0, 0);
+          pop();
 
         }
 
@@ -719,19 +694,82 @@ class ScoresnakeChart {
 
 
 
-        set.draw(pos.x + offset[axisToPlayer("x")], pos.y + offset[axisToPlayer("y")]);
+        set.draw(
+          pos.x + offset[axisToPlayer("x")], pos.y + offset[axisToPlayer("y")]);
 
-        offset[2] += this.setOffsets[2][p2_setsWon];
+        offset[2] += this.setOffsets[2][p2_setsWon] + setGap;
 
       }
 
-      offset[1] += this.setOffsets[1][p1_setsWon];
+      offset[1] += this.setOffsets[1][p1_setsWon] + setGap;
 
     }
 
+    let px = axisToPlayer("x");
+    let py = axisToPlayer("y");
+
+
+    let setX = 0
+    let setY = 0;
+
+    // draw the rallies and the snake itself
+    for (let set of this.matchData.sets) {
+
+      let gameX = 0
+      let gameY = 0;
+
+      for (let game of set.games) {
+        for (let point of game.points) {
+
+          let pointX = point.pointsInGameWonByPlayerSoFar[px] * pointSquareSize;
+          let pointY = point.pointsInGameWonByPlayerSoFar[py] * pointSquareSize;
+
+          let s = pointSquareSize
+          let r = s / 1.5;
+
+
+          let serveStatus;
+          if (point.server == point.winner) {
+            serveStatus = POINT_WON_ON_SERVE;
+          } else {
+            serveStatus = POINT_WON_AGAINST_SERVE;
+          }
+
+          fill(pointSquareColorScheme[serveStatus][point.winner]);
+
+          square(
+            pos.x + setX + gameX + pointX,
+            pos.y + setY + gameY + pointY,
+            s
+          );
+
+
+        }
+
+
+
+        if (game.winner == px) {
+          gameX += this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].gameOffsets[px][game.gamesInSetWonByPlayerSoFar[px]] + gameGap;
+        } else {
+          gameY += this.sets[set.setsInMatchWonByPlayerSoFar[1]][set.setsInMatchWonByPlayerSoFar[2]].gameOffsets[py][game.gamesInSetWonByPlayerSoFar[py]] + gameGap;
+        }
+      }
+
+      if (set.winner == px) {
+        setX += this.setOffsets[px][set.setsInMatchWonByPlayerSoFar[px]] + setGap;
+      } else {
+        setY += this.setOffsets[py][set.setsInMatchWonByPlayerSoFar[py]] + setGap;
+      }
+
+    }
+
+
+
+
+
+
+
     this.updateHoverVars();
-
-
 
     if (this.hoverSet != null) {
       push();
@@ -757,9 +795,72 @@ class ScoresnakeChart {
 
     pop();
 
+
+    // timeline
+    let w = width / this.matchData.allPoints.length / 10;
+
+    let x = 0;
+
+
+    fill(0);
+    rect(0, height - 150, width, 150);
+
+
+    let hover = false;
+
+    for (let p of this.matchData.allPoints) {
+
+      let h = 100;
+      if (p == this.hoverPoint) {
+        h = 150;
+      }
+
+      let serveStatus;
+      if (p.server == p.winner) {
+        serveStatus = POINT_WON_ON_SERVE;
+      } else {
+        serveStatus = POINT_WON_AGAINST_SERVE;
+      }
+
+      fill(pointSquareColorScheme[serveStatus][p.winner]);
+
+      stroke(0);
+      strokeWeight(0.1);
+      rect(x, height - h, w * p.rally.totalShots, h);
+      noStroke();
+
+      if (mouseX > x && mouseX < x + w * p.rally.totalShots && mouseY > height - h && mouseY < height) {
+        this.hoverPoint = p;
+        hover = true;
+      }
+
+      x += w * p.rally.totalShots + w;
+    }
+
+    if (!hover) {
+      this.hoverPoint = null;
+    }
+
+    if (this.hoverPoint) {
+
+      let rally = parseRally(this.hoverPoint);
+
+
+      textSize(10);
+      fill(255);
+      noStroke();
+      textAlign(LEFT, BOTTOM);
+      textWithBackground(describeRally(rally), mouseX + 10, mouseY + 10);
+
+
+    }
+
+
   }
 
-  update(matchData) {
+  update() {
+
+    matchData = this.matchData;
 
     let s = pointSquareSize;
 
@@ -824,15 +925,15 @@ class ScoresnakeChart {
 
           if (point.winner == 1) {
             if (point.server == 1) {
-              state = POINT_WON_BY_P1_ON_SERVE;
+              state = POINT_WON_ON_SERVE[1];
             } else {
-              state = POINT_WON_BY_P1_AGAINST_SERVE;
+              state = POINT_WON_AGAINST_SERVE[1];
             }
           } else if (point.winner == 2) {
             if (point.server == 2) {
-              state = POINT_WON_BY_P2_ON_SERVE;
+              state = POINT_WON_ON_SERVE[2];
             } else {
-              state = POINT_WON_BY_P2_AGAINST_SERVE;
+              state = POINT_WON_AGAINST_SERVE[2];
             }
           }
 
@@ -869,12 +970,12 @@ class ScoresnakeChart {
 
         gameOffsets[w][game.gamesInSetWonByPlayerSoFar[w]] = max(
           gameOffsets[w][game.gamesInSetWonByPlayerSoFar[w]],
-          pointPos[pAxes[w]] + gameGap
+          pointPos[pAxes[w]]
         );
 
         gameOffsets[l][game.gamesInSetWonByPlayerSoFar[l]] = max(
           gameOffsets[l][game.gamesInSetWonByPlayerSoFar[l]],
-          pointPos[pAxes[w]] + gameGap // have to account for tail protruding in both axes directions, so use winner's pointPos for both winner and loser offsets
+          pointPos[pAxes[w]] // have to account for tail protruding in both axes directions, so use winner's pointPos for both winner and loser offsets
         );
 
         if (!game.points[game.points.length - 1].isSetWinningPoint) {
@@ -930,12 +1031,12 @@ class ScoresnakeChart {
 
       setOffsets[w][set.setsInMatchWonByPlayerSoFar[w]] = max(
         setOffsets[w][set.setsInMatchWonByPlayerSoFar[w]],
-        gamePos[pAxes[w]] + setGap
+        gamePos[pAxes[w]] + gameGap * 6
       );
 
       setOffsets[l][set.setsInMatchWonByPlayerSoFar[l]] = max(
         setOffsets[l][set.setsInMatchWonByPlayerSoFar[l]],
-        gamePos[pAxes[l]] + setGap
+        gamePos[pAxes[l]] + gameGap * 6
       );
 
       setPos[pAxes[set.winner]] += setOffsets[w][set.setsInMatchWonByPlayerSoFar[w]];
@@ -1020,6 +1121,36 @@ class ScoresnakeChart {
 
 }
 
+function textWithBackground(str, x, y, padding = 6) {
+  let lines = str.split('\n');
+  let lineHeight = textAscent() + textDescent();
+  let tw = Math.max(...lines.map(l => textWidth(l)));
+  let th = lineHeight * lines.length;
+
+  // Read current alignment from p5's internal state
+  let hAlign = drawingContext.textAlign;  // "left", "center", "right"
+  let vAlign = drawingContext.textBaseline; // "top", "middle", "alphabetic", "bottom"
+
+  // Calculate background rect origin based on alignment
+  let rx = x - padding;
+  if (hAlign === 'center') rx = x - tw / 2 - padding;
+  else if (hAlign === 'right') rx = x - tw - padding;
+
+  let ry = y - padding;
+  if (vAlign === 'top') ry = y - padding;
+  else if (vAlign === 'middle') ry = y - th / 2 - padding;
+  else if (vAlign === 'alphabetic' || vAlign === 'bottom') ry = y - th - padding;
+
+  // Draw background
+  fill(0, 200);
+  noStroke();
+  rect(rx, ry, tw + padding * 2, th + padding * 2);
+
+  // Draw text at the same position with same alignment
+  fill(255);
+  text(str, x, y);
+}
+
 // Parse CSV data into a nested hierarchical object
 function parseMatchData() {
   // Create the match object with nested structure
@@ -1027,7 +1158,8 @@ function parseMatchData() {
     matchId: '',
     player1: '',
     player2: '',
-    sets: []  // Array of set objects
+    sets: [],  // Array of set objects
+    allPoints: []  // Flat sequence of all points in match order
   };
 
   // Extract match info from first row
@@ -1145,13 +1277,18 @@ function parseMatchData() {
       server: row.getNum('Svr'),
       first: row.getString('1st'),
       second: row.getString('2nd'),
-      notes: row.getString('Notes'),
       winner: pointWinner,
-      pointsInGameWonByPlayerSoFar: pointsInGameWonByPlayerSoFar  // Points won by each player BEFORE this point
+      pointsInGameWonByPlayerSoFar: pointsInGameWonByPlayerSoFar,  // Points won by each player BEFORE this point
+      setsInMatchWonByPlayerSoFar: { 1: set1, 2: set2 },  // Sets won by each player at time of this point
+      gamesInSetWonByPlayerSoFar: { 1: games1, 2: games2 }  // Games won in current set by each player at time of this point
     };
 
-    // Add point to the current game
+    // Parse rally notation into structured shot objects (replaces raw 'notes' field)
+    point.rally = parseRally(point);
+
+    // Add point to the current game and the flat allPoints array
     tennisMatch.sets[currentSetIndex].games[currentGameIndex].points.push(point);
+    tennisMatch.allPoints.push(point);
   }
 
   // Set the final score for the last set (since there's no "next set" to trigger it)
@@ -1261,7 +1398,7 @@ function drawNames() {
   triangle(width / 2 - o, 0, 0, width / 2 - o, 0, 0);
   triangle(width - width / 2 + o, 0, width, width - width / 2 - o, width, 0);
 
-  fill(255);
+
   textSize(32);
   if (JetBrainsMonoBold) textFont(JetBrainsMonoBold);
   textAlign(LEFT, TOP);
@@ -1290,11 +1427,13 @@ function drawNames() {
     return bestSplit;
   }
 
+  fill(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][1]);
   // Player 1
   let player1Parts = tennisMatch.player1.split(' ');
   let player1Lines = getOptimalTwoLinesSplit(player1Parts);
   text(player1Lines.join('\n'), 50, 50);
 
+  fill(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][2]);
   // Player 2 - keep LEFT alignment but calculate position from right edge
   let player2Parts = tennisMatch.player2.split(' ');
   let player2Lines = getOptimalTwoLinesSplit(player2Parts);
@@ -1330,8 +1469,7 @@ function draw() {
 
   // Create ScoresnakeChart if we have match data
   if (dataLoaded && tennisMatch && !currentScoresnake) {
-    currentScoresnake = new ScoresnakeChart();
-    currentScoresnake.update(tennisMatch);
+    currentScoresnake = new ScoresnakeChart(tennisMatch);
   }
 
   if (!tennisMatch || !currentScoresnake) {
@@ -1358,10 +1496,10 @@ function windowResized() {
   let paneWidth = sketchPaneEl ? sketchPaneEl.clientWidth : windowWidth * 0.6;
   resizeCanvas(paneWidth, windowHeight);
 
-  // Create new scoresnake with new dimensions
-  if (dataLoaded && tennisMatch) {
-    currentScoresnake = new ScoresnakeChart();
-    currentScoresnake.update(tennisMatch);
-    redraw();
-  }
+  // // Create new scoresnake with new dimensions
+  // if (dataLoaded && tennisMatch) {
+  //   currentScoresnake = new ScoresnakeChart();
+  //   currentScoresnake.update(tennisMatch);
+  //   redraw();
+  // }
 }

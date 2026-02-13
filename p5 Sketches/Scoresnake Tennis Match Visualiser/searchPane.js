@@ -769,8 +769,7 @@ function previewMatch(matchId) {
                 try {
                     parseMatchData();
                     if (tennisMatch) {
-                        currentScoresnake = new ScoresnakeChart();
-                        currentScoresnake.update(tennisMatch);
+                        currentScoresnake = new ScoresnakeChart(tennisMatch);
                         redraw();
                     }
                 } catch (e) {
@@ -793,8 +792,7 @@ function stopPreview() {
             if (currentPreviewMatch === null && matchData && matchData.getRowCount() > 0) {
                 parseMatchData();
                 if (tennisMatch) {
-                    currentScoresnake = new ScoresnakeChart();
-                    currentScoresnake.update(tennisMatch);
+                    currentScoresnake = new ScoresnakeChart(tennisMatch);
                     redraw();
                 }
             }
@@ -816,8 +814,7 @@ function updateMatchVisualization() {
             parseMatchData();
 
             if (tennisMatch) {
-                currentScoresnake = new ScoresnakeChart();
-                currentScoresnake.update(tennisMatch);
+                currentScoresnake = new ScoresnakeChart(tennisMatch);
             }
 
             redraw();
