@@ -926,7 +926,7 @@ function setupKeyboardShortcuts() {
     }
 
     // The set of keys we treat as shortcut keys
-    const shortcutKeys = new Set(['i','m','c','s','f','escape','r','y','t','p','h']);
+    const shortcutKeys = new Set(['i', 'm', 'c', 's', 'f', 'escape', 'r', 'y', 't', 'p', 'h']);
 
     function executeShortcut(key) {
         switch (key) {

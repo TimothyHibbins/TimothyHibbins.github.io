@@ -173,23 +173,23 @@ body {
 }
 
 /* Tournament wrapper needs the grid cell border */
-#search-fields > .field-badge-container {
+#search-fields>.field-badge-container {
   border-right: 1px solid #444;
 }
 
-#search-fields > .field-badge-container > input {
+#search-fields>.field-badge-container>input {
   border-right: none;
 }
 
-.field-badge-container input:focus ~ .field-key-badge,
-.field-badge-container input:not(:placeholder-shown) ~ .field-key-badge {
+.field-badge-container input:focus~.field-key-badge,
+.field-badge-container input:not(:placeholder-shown)~.field-key-badge {
   opacity: 0;
   pointer-events: none;
 }
 
 /* Also for the date container which wraps differently */
-#date-container input:focus ~ .field-key-badge,
-#date-container input:not(:placeholder-shown) ~ .field-key-badge {
+#date-container input:focus~.field-key-badge,
+#date-container input:not(:placeholder-shown)~.field-key-badge {
   opacity: 0;
   pointer-events: none;
 }
@@ -205,7 +205,7 @@ body {
   transform: translateY(calc(-50% + 3px));
 }
 
-#player-fields input:focus ~ .field-key-badge,
+#player-fields input:focus~.field-key-badge,
 #player-fields.player1-has-content .field-key-badge {
   opacity: 0;
   pointer-events: none;
