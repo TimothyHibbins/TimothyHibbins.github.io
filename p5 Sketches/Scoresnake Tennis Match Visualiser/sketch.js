@@ -356,8 +356,11 @@ function localMouse() {
   if (mouseX < 0 || mouseX > width || mouseY < 0 || mouseY > height) {
     return null;
   }
+  // mouseX/mouseY are CSS pixels; the drawing context transform includes
+  // the pixelDensity scale, so we must scale up to match before inverting.
+  let pd = pixelDensity();
   let inv = drawingContext.getTransform().inverse();
-  let pt = new DOMPoint(mouseX, mouseY).matrixTransform(inv);
+  let pt = new DOMPoint(mouseX * pd, mouseY * pd).matrixTransform(inv);
   return { x: pt.x, y: pt.y };
 }
 
