@@ -92,6 +92,145 @@ body {
 }
 
 /* ====== Tab Bar ====== */
+
+/* Keyboard shortcut key badges — realistic keycap */
+.key-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid #3a3a3a;
+  border-bottom: none;
+  background:
+    linear-gradient(180deg, #333 0%, #2b2b2b 40%, #262626 100%);
+  color: #777;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  box-shadow:
+    0 3px 0 0 #1a1a1a,
+    0 4px 1px 0 rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
+  transition: all 0.06s ease;
+  pointer-events: none;
+  position: relative;
+  top: 0;
+}
+
+/* Wider keys (Esc, etc.) */
+.key-badge-wide {
+  width: auto;
+  padding: 0 5px;
+}
+
+.key-badge.key-active {
+  background:
+    linear-gradient(180deg, #3fc97a 0%, #2db866 40%, #26a85c 100%);
+  color: #0d2618;
+  border-color: #2aad60;
+  top: 3px;
+  box-shadow:
+    0 0 0 0 #1a1a1a,
+    0 1px 1px 0 rgba(0, 0, 0, 0.2),
+    0 0 10px rgba(74, 222, 128, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Badges inside search fields */
+.field-key-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+  opacity: 0.5;
+  transition: all 0.06s ease, opacity 0.15s ease;
+}
+
+.field-key-badge.key-active {
+  opacity: 1;
+  top: 50%;
+  transform: translate(-50%, calc(-50% + 3px));
+}
+
+/* Hide field badge when input has content or is focused */
+.field-badge-container {
+  position: relative;
+}
+
+.field-badge-container input {
+  width: 100%;
+}
+
+/* Tournament wrapper needs the grid cell border */
+#search-fields > .field-badge-container {
+  border-right: 1px solid #444;
+}
+
+#search-fields > .field-badge-container > input {
+  border-right: none;
+}
+
+.field-badge-container input:focus ~ .field-key-badge,
+.field-badge-container input:not(:placeholder-shown) ~ .field-key-badge {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Also for the date container which wraps differently */
+#date-container input:focus ~ .field-key-badge,
+#date-container input:not(:placeholder-shown) ~ .field-key-badge {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Player wrapper badge */
+#player-fields .field-key-badge {
+  left: auto;
+  right: 8px;
+  transform: translateY(-50%);
+}
+
+#player-fields .field-key-badge.key-active {
+  transform: translateY(calc(-50% + 3px));
+}
+
+#player-fields input:focus ~ .field-key-badge,
+#player-fields.player1-has-content .field-key-badge {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Pane toggle key badge positioning */
+#pane-toggle .key-badge {
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-right: 4px;
+  opacity: 0;
+  transition: opacity 0.3s, all 0.06s ease;
+}
+
+#pane-toggle .key-badge.key-active {
+  transform: translateY(calc(-50% + 3px));
+}
+
+#pane-toggle:hover .key-badge,
+#pane-toggle .key-badge.key-active {
+  opacity: 1;
+}
+
 #tab-bar {
   display: flex;
   padding: 0 0 0 2px;
@@ -655,6 +794,7 @@ h3 {
   align-items: center;
   height: 100%;
   cursor: text;
+  position: relative;
 }
 
 #date-container input {
@@ -691,6 +831,7 @@ h3 {
   padding: 0;
   border-right: 1px solid #444;
   box-sizing: border-box;
+  position: relative;
 }
 
 .player-field-wrapper input {

@@ -100,8 +100,7 @@ function _getOrCreateGameBuffer(ctx, freq) {
 
   for (let i = 0; i < len; i++) {
     let t = i / sampleRate;
-    let envelope;
-    if (t < attack) {
+    let envelope; if (t < attack) {
       envelope = 0.5 * (1 - Math.cos(Math.PI * t / attack));
     } else if (t < attack + hold) {
       envelope = 1;
@@ -228,7 +227,7 @@ function setup() {
   parseMatchData();
 
   // Determine if this is best of 3 or best of 5
-  let maxSetsWon = Math.max(tennisMatch.setsWonByPlayer[1], tennisMatch.setsWonByPlayer[2]);
+  let maxSetsWon = Math.max(tennisMatch.setsWon[1], tennisMatch.setsWon[2]);
   SETS_TO_WIN_MATCH = maxSetsWon; // 2 for best of 3, 3 for best of 5
 
   // ScoresnakeChart will be created in draw() when needed
@@ -277,7 +276,7 @@ function loadMatch(matchId, options = { setCurrent: true }) {
       }
 
       // Determine if this is best of 3 or best of 5
-      let maxSetsWon = Math.max(tennisMatch.setsWonByPlayer[1], tennisMatch.setsWonByPlayer[2]);
+      let maxSetsWon = Math.max(tennisMatch.setsWon[1], tennisMatch.setsWon[2]);
       SETS_TO_WIN_MATCH = maxSetsWon; // 2 for best of 3, 3 for best of 5
 
       // Create new scoresnake visualization
@@ -353,6 +352,10 @@ pointSquareColorScheme = {
 };
 
 function localMouse() {
+  // Return null if the mouse is outside the canvas
+  if (mouseX < 0 || mouseX > width || mouseY < 0 || mouseY > height) {
+    return null;
+  }
   let inv = drawingContext.getTransform().inverse();
   let pt = new DOMPoint(mouseX, mouseY).matrixTransform(inv);
   return { x: pt.x, y: pt.y };
@@ -858,6 +861,8 @@ class ScoresnakeChart {
 
     let hover = false;
     let m = localMouse();
+    let mouseInCanvas = m !== null;
+    if (!mouseInCanvas) m = { x: -Infinity, y: -Infinity };
 
     let setHoverChange = false;
     let gameHoverChange = false;
@@ -869,6 +874,7 @@ class ScoresnakeChart {
       let gameY = 0;
 
       if (
+        mouseInCanvas &&
         !setHoverChange &&
         m.x < pos.x + setX + this.setOffsets[px][set.setsWon[px]]
         && m.y < pos.y + setY + this.setOffsets[py][set.setsWon[py]]
@@ -1125,6 +1131,8 @@ class ScoresnakeChart {
 
 
     m = localMouse();
+    mouseInCanvas = m !== null;
+    if (!mouseInCanvas) m = { x: -Infinity, y: -Infinity };
 
     let g = 0;
     let s = 0;
@@ -1634,7 +1642,7 @@ function parseMatchData() {
         games2: 0,  // Will be updated
         winner: null,  // Will be set when set ends
         setsWon: { 1: set1, 2: set2 },  // Sets won by each player at start of this set
-        gamesWonByPlayer: null,  // Will be set after processing all games
+        gamesWon: null,  // Will be set after processing all games
         games: []   // Array of game objects
       });
       currentSetIndex++;
@@ -1650,7 +1658,7 @@ function parseMatchData() {
         server: row.getNum('Svr'),
         winner: null,  // Will be set when game ends
         gamesWon: null,  // Will be calculated after determining winner
-        pointsWonByPlayer: null,  // Will be set after processing all points
+        pointsWon: null,  // Will be set after processing all points
         points: []     // Array of point objects
       });
       currentGameIndex++;
@@ -1712,14 +1720,14 @@ function parseMatchData() {
       if (game.points.length > 0) {
         game.winner = game.points[game.points.length - 1].winner;
 
-        // Set the final pointsWonByPlayer (soFar count + this point's winner)
+        // Set the final pointsWon (soFar count + this point's winner)
         let finalCount = {
           1: game.points[game.points.length - 1].pointsWon[1],
           2: game.points[game.points.length - 1].pointsWon[2]
         };
         if (game.winner === 1) finalCount[1]++;
         else if (game.winner === 2) finalCount[2]++;
-        game.pointsWonByPlayer = finalCount;
+        game.pointsWon = finalCount;
       }
 
       // Mark if this was a game-winning point
@@ -1744,8 +1752,8 @@ function parseMatchData() {
       else if (game.winner === 2) p2GamesWon++;
     }
 
-    // Set the final gamesWonByPlayer
-    set.gamesWonByPlayer = { 1: p1GamesWon, 2: p2GamesWon };
+    // Set the final gamesWon
+    set.gamesWon = { 1: p1GamesWon, 2: p2GamesWon };
 
     // For sets that don't have a winner yet, determine from game count
     if (set.winner === null) {
@@ -1775,7 +1783,7 @@ function parseMatchData() {
     if (set.winner === 1) setsWonSoFar[1]++;
     else if (set.winner === 2) setsWonSoFar[2]++;
   }
-  tennisMatch.setsWonByPlayer = { 1: setsWonSoFar[1], 2: setsWonSoFar[2] };
+  tennisMatch.setsWon = { 1: setsWonSoFar[1], 2: setsWonSoFar[2] };
 
   //console.log(`Loaded match: ${tennisMatch.player1} vs ${tennisMatch.player2}`);
   //console.log(`Sets: ${tennisMatch.sets.length}`);

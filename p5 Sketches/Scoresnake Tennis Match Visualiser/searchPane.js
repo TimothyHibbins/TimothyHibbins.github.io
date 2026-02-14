@@ -864,6 +864,177 @@ function setupTabs() {
             }
         });
     }
+
+    // ====== Keyboard shortcuts ======
+    setupKeyboardShortcuts();
+}
+
+// ====== Keyboard Shortcuts ======
+
+function switchToTab(tabName) {
+    let btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
+    if (btn) btn.click();
+}
+
+function isInputFocused() {
+    let el = document.activeElement;
+    return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+}
+
+function updateFullscreenKeyBadge() {
+    let badge = document.getElementById('fullscreen-key-badge');
+    if (!badge) return;
+    if (document.fullscreenElement) {
+        badge.textContent = 'Esc';
+        badge.dataset.key = 'escape';
+        badge.classList.add('key-badge-wide');
+    } else {
+        badge.textContent = 'F';
+        badge.dataset.key = 'f';
+        badge.classList.remove('key-badge-wide');
+    }
+}
+
+function focusAndSelectField(fieldId) {
+    // If pane is collapsed, un-collapse it first
+    let sketchPane = document.getElementById('sketch-pane');
+    if (sketchPane && sketchPane.classList.contains('pane-collapsed')) {
+        let toggle = document.getElementById('pane-toggle');
+        if (toggle) toggle.click();
+    }
+    // Switch to match search tab
+    switchToTab('match-search');
+
+    let field = document.getElementById(fieldId);
+    if (field) {
+        field.focus();
+        field.select();
+    }
+}
+
+function setupKeyboardShortcuts() {
+    // Track which shortcut keys are currently held down
+    let heldKeys = new Set();
+
+    function pressBadge(key) {
+        let badge = document.querySelector('.key-badge[data-key="' + key + '"]');
+        if (badge) badge.classList.add('key-active');
+    }
+    function releaseBadge(key) {
+        let badge = document.querySelector('.key-badge[data-key="' + key + '"]');
+        if (badge) badge.classList.remove('key-active');
+    }
+
+    // The set of keys we treat as shortcut keys
+    const shortcutKeys = new Set(['i','m','c','s','f','escape','r','y','t','p','h']);
+
+    function executeShortcut(key) {
+        switch (key) {
+            case 'i':
+                switchToTab('introduction');
+                break;
+            case 'm':
+                switchToTab('match-search');
+                break;
+            case 'c':
+                switchToTab('customisation');
+                break;
+            case 's':
+                switchToTab('share');
+                break;
+            case 'f':
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen();
+                }
+                break;
+            case 'escape':
+                // Browser handles Esc exit — no action needed
+                break;
+            case 'r': {
+                let matchSearchActive = document.querySelector('.tab-btn[data-tab="match-search"]');
+                if (matchSearchActive && matchSearchActive.classList.contains('tab-active')) {
+                    let btn = document.getElementById('random-match-btn');
+                    if (btn && !btn.disabled) btn.click();
+                }
+                break;
+            }
+            case 'y':
+                focusAndSelectField('search-date-year');
+                break;
+            case 't':
+                focusAndSelectField('search-tournament');
+                break;
+            case 'p': {
+                let p2 = document.getElementById('search-player2');
+                let p1 = document.getElementById('search-player1');
+                if (p2 && !p2.classList.contains('player-field-hidden') && p2.value.trim()) {
+                    focusAndSelectField('search-player2');
+                } else if (p2 && !p2.classList.contains('player-field-hidden') && p1 && p1.value.trim()) {
+                    focusAndSelectField('search-player2');
+                } else {
+                    focusAndSelectField('search-player1');
+                }
+                break;
+            }
+            case 'h': {
+                let toggle = document.getElementById('pane-toggle');
+                if (toggle) toggle.click();
+                break;
+            }
+        }
+    }
+
+    window.addEventListener('keydown', function (e) {
+        let key = e.key.toLowerCase();
+
+        // When typing in an input, only handle Escape (to blur)
+        if (isInputFocused()) {
+            if (key === 'escape') {
+                document.activeElement.blur();
+                pressBadge('escape');
+                e.preventDefault();
+            }
+            return;
+        }
+
+        if (e.repeat) return;
+
+        if (shortcutKeys.has(key)) {
+            heldKeys.add(key);
+            pressBadge(key);
+            e.preventDefault();
+        }
+    });
+
+    window.addEventListener('keyup', function (e) {
+        let key = e.key.toLowerCase();
+
+        if (!heldKeys.has(key)) {
+            releaseBadge(key);
+            return;
+        }
+
+        // Remove this key from held set
+        heldKeys.delete(key);
+        releaseBadge(key);
+
+        // Only fire the action if no other shortcut keys are still held
+        // (user "dragged" onto another key to cancel)
+        if (heldKeys.size === 0) {
+            executeShortcut(key);
+        }
+    });
+
+    // If window loses focus, clear all held state
+    window.addEventListener('blur', function () {
+        for (let key of heldKeys) {
+            releaseBadge(key);
+        }
+        heldKeys.clear();
+    });
+
+    // Update fullscreen badge on fullscreen changes
+    document.addEventListener('fullscreenchange', updateFullscreenKeyBadge);
 }
 
 // ====== Search interface loading setup ======

@@ -13,7 +13,8 @@
   <div id="container">
     <div id="sketch-pane">
       <main></main>
-      <button id="pane-toggle" title="Toggle side panel">
+      <button id="pane-toggle" title="Toggle side panel (H)">
+        <kbd class="key-badge" data-key="h">H</kbd>
         <svg width="10" height="16" viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round">
           <polyline points="2,2 8,8 2,14" />
@@ -32,6 +33,7 @@
               <path d="M2 2l3 2.5M1 6l2 .5" />
             </svg></span>
           Introduction
+          <kbd class="key-badge" data-key="i">I</kbd>
         </button>
         <button class="tab-btn" data-tab="match-search">
           <span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -40,6 +42,7 @@
               <line x1="16.5" y1="16.5" x2="21" y2="21" />
             </svg></span>
           Match Search
+          <kbd class="key-badge" data-key="m">M</kbd>
         </button>
         <button class="tab-btn" data-tab="customisation">
           <span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -52,6 +55,7 @@
               <circle cx="17.5" cy="11.5" r="1.5" fill="currentColor" />
             </svg></span>
           Customisation
+          <kbd class="key-badge" data-key="c">C</kbd>
         </button>
         <button class="tab-btn" data-tab="share">
           <span class="tab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -63,9 +67,10 @@
               <line x1="15.4" y1="6.5" x2="8.6" y2="10.5" />
             </svg></span>
           Share
+          <kbd class="key-badge" data-key="s">S</kbd>
         </button>
-        <button id="tab-bar-fullscreen" title="Fullscreen">
-          <span class="icon">⛶</span>
+        <button id="tab-bar-fullscreen" title="Fullscreen (F)">
+          <kbd class="key-badge" data-key="f" id="fullscreen-key-badge">F</kbd>
           <span class="text">Fullscreen</span>
         </button>
       </div>
@@ -81,10 +86,7 @@
             <div id="top-controls">
               <div id="random-match-section">
                 <button id="random-match-btn">
-                  <svg class="icon" width="16" height="16" viewBox="0 0 20 20" fill="none">
-                    <rect x="1" y="1" width="18" height="18" rx="2.5" stroke="#999" stroke-width="1.5" />
-                    <text x="10" y="14.5" text-anchor="middle" font-size="13" font-weight="bold" fill="#999">?</text>
-                  </svg>
+                  <kbd class="key-badge" data-key="r">R</kbd>
                   <span class="text">Load random match</span>
                 </button>
               </div>
@@ -125,14 +127,19 @@
                   </div>
                 </div>
                 <div id="search-fields">
-                  <div id="date-container">
-                    <input type="text" id="search-date-year" maxlength="4" autocomplete="off">
+                  <div id="date-container" class="field-badge-container">
+                    <input type="text" id="search-date-year" maxlength="4" autocomplete="off" placeholder=" ">
+                    <kbd class="key-badge field-key-badge" data-key="y">Y</kbd>
                   </div>
-                  <input type="text" id="search-tournament" autocomplete="off">
+                  <div class="field-badge-container">
+                    <input type="text" id="search-tournament" autocomplete="off" placeholder=" ">
+                    <kbd class="key-badge field-key-badge" data-key="t">T</kbd>
+                  </div>
                   <div class="player-field-wrapper" id="player-fields">
-                    <input type="text" id="search-player1" autocomplete="off">
+                    <input type="text" id="search-player1" autocomplete="off" placeholder=" ">
                     <span class="player-sep"> vs </span>
-                    <input type="text" id="search-player2" autocomplete="off" class="player-field-hidden">
+                    <input type="text" id="search-player2" autocomplete="off" class="player-field-hidden" placeholder=" ">
+                    <kbd class="key-badge field-key-badge" data-key="p">P</kbd>
                   </div>
                 </div>
               </div>
