@@ -919,10 +919,15 @@ function setupKeyboardShortcuts() {
     function pressBadge(key) {
         let badge = document.querySelector('.key-badge[data-key="' + key + '"]');
         if (badge) badge.classList.add('key-active');
+        // Also add hover highlight to the parent tab/button
+        let parent = badge ? badge.closest('.tab-btn, #tab-bar-fullscreen, #pane-toggle, #random-match-btn, #top-controls button') : null;
+        if (parent) parent.classList.add('key-pressing');
     }
     function releaseBadge(key) {
         let badge = document.querySelector('.key-badge[data-key="' + key + '"]');
         if (badge) badge.classList.remove('key-active');
+        let parent = badge ? badge.closest('.tab-btn, #tab-bar-fullscreen, #pane-toggle, #random-match-btn, #top-controls button') : null;
+        if (parent) parent.classList.remove('key-pressing');
     }
 
     // The set of keys we treat as shortcut keys

@@ -4,14 +4,14 @@
 <head>
   <script src="https://cdn.jsdelivr.net/npm/p5@1.11.11/lib/p5.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/p5@1.11.11/lib/addons/p5.sound.min.js"></script>
-  <link rel="stylesheet" type="text/css" href="style.css?v=3">
+  <link rel="stylesheet" type="text/css" href="style.css?v=10">
   <meta charset="utf-8" />
 
 </head>
 
 <body>
   <div id="container">
-    <div id="sketch-pane">
+    <div id="sketch-pane" class="pane-collapsed">
       <main></main>
       <button id="pane-toggle" title="Toggle side panel (H)">
         <kbd class="key-badge" data-key="h">H</kbd>
@@ -160,7 +160,137 @@
         <div class="tab-panel" id="tab-customisation">
           <div class="tab-panel-inner">
             <h2>Customisation</h2>
-            <p class="tab-placeholder-text">Customisation options coming soon.</p>
+            <div id="color-picker-section">
+              <h3>Player Colors</h3>
+              <div id="color-ring-wrap">
+                <div id="lab-toggle-bar" class="lab-toggle-hidden">
+                  <div class="lab-toggle-row">
+                    <button class="lab-toggle-btn lab-cycle-btn active" data-toggle="gamut"
+                      title="Cycle gamut: silhouette → edges → wireframe → opaque">Gamut: Silhouette</button>
+                    <button class="lab-toggle-btn active" data-toggle="surface"
+                      title="Show Pareto surface">Surface</button>
+                    <button class="lab-toggle-btn active" data-toggle="frontier"
+                      title="Chromaticity frontier">Frontier</button>
+                    <button class="lab-toggle-btn active" data-toggle="dark" title="Dark variants">Dark</button>
+                    <button class="lab-toggle-btn" data-toggle="ideal" title="Ideal complement curves">Ideal</button>
+                    <button class="lab-toggle-btn" data-toggle="closest" title="Closest-to-ideal curves">Closest</button>
+                  </div>
+                  <div class="lab-toggle-row">
+                    <button class="lab-toggle-btn" data-toggle="maxchroma"
+                      title="Max chroma ring at P1's lightness">Max C ring</button>
+                    <button class="lab-toggle-btn" data-toggle="constchroma"
+                      title="Constant chroma circle at P1's chroma">Const C ring</button>
+                  </div>
+                </div>
+                <canvas id="color-ring-canvas" width="500" height="500"></canvas>
+              </div>
+              <div id="lab-pareto-sliders" class="lab-toggle-hidden">
+                <div class="pareto-slider-row">
+                  <label title="Max lightness deviation from ideal">ΔL</label>
+                  <input type="range" class="pareto-slider" data-axis="L" min="0" max="100" value="100">
+                  <span class="pareto-val" data-axis="L">1.00</span>
+                </div>
+                <div class="pareto-slider-row">
+                  <label title="Max chroma deficit from ideal">ΔC</label>
+                  <input type="range" class="pareto-slider" data-axis="C" min="0" max="100" value="100">
+                  <span class="pareto-val" data-axis="C">1.00</span>
+                </div>
+                <div class="pareto-slider-row">
+                  <label title="Max hue deviation from ideal">Δh</label>
+                  <input type="range" class="pareto-slider" data-axis="H" min="0" max="180" value="180">
+                  <span class="pareto-val" data-axis="H">180°</span>
+                </div>
+              </div>
+              <div id="color-picker-controls">
+                <button id="color-lock-btn" class="color-ctrl-btn color-locked" title="Lock colors complementary">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                  </svg>
+                  <span>Locked</span>
+                </button>
+                <button id="color-swap-btn" class="color-ctrl-btn" title="Swap player colors">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="17 1 21 5 17 9" />
+                    <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                    <polyline points="7 23 3 19 7 15" />
+                    <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                  </svg>
+                  <span>Swap</span>
+                </button>
+                <button id="color-sacrifice-btn" class="color-ctrl-btn sacrifice-hidden" title="Toggle sacrifice mode">
+                  <span>Chroma only</span>
+                </button>
+                <button id="color-animate-btn" class="color-ctrl-btn sacrifice-hidden"
+                  title="Animate Pareto surface derivation">
+                  <span>Animate</span>
+                </button>
+                <div id="color-shape-toggle" class="shape-toggle shape-lab" title="Toggle display mode">
+                  <span class="shape-toggle-label shape-label-gamut">Gamut</span>
+                  <span class="shape-toggle-label shape-label-circle">Circle</span>
+                  <span class="shape-toggle-label shape-label-strip">Strip</span>
+                  <span class="shape-toggle-label shape-label-lab">Lab</span>
+                </div>
+              </div>
+              <div id="color-swatches">
+                <div class="color-swatch-row">
+                  <span class="swatch-label">Player 1</span>
+                  <span class="swatch-chip" id="swatch-p1-bright"></span>
+                  <span class="swatch-chip swatch-dark" id="swatch-p1-dark"></span>
+                </div>
+                <div class="color-swatch-row">
+                  <span class="swatch-label">Player 2</span>
+                  <span class="swatch-chip" id="swatch-p2-bright"></span>
+                  <span class="swatch-chip swatch-dark" id="swatch-p2-dark"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Theme controls -->
+            <div id="theme-section">
+              <h3>Theme</h3>
+              <div id="theme-controls">
+                <button id="theme-lightdark-btn" class="color-ctrl-btn" title="Toggle light/dark mode">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="5" />
+                    <line x1="12" y1="1" x2="12" y2="3" />
+                    <line x1="12" y1="21" x2="12" y2="23" />
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                    <line x1="1" y1="12" x2="3" y2="12" />
+                    <line x1="21" y1="12" x2="23" y2="12" />
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                  </svg>
+                  <span>Dark</span>
+                </button>
+                <div id="theme-temp-controls">
+                  <button class="theme-temp-btn" data-temp="warm" title="Warm tones">Warm</button>
+                  <button class="theme-temp-btn theme-temp-active" data-temp="neutral"
+                    title="Neutral tones">Neutral</button>
+                  <button class="theme-temp-btn" data-temp="cool" title="Cool tones">Cool</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Accent color picker -->
+            <div id="accent-section">
+              <h3>Accent Colour</h3>
+              <div id="accent-viewport-wrap">
+                <canvas id="accent-viewport-canvas"></canvas>
+              </div>
+              <div id="accent-bg-swatch">
+                <span id="accent-bg-label">Background</span>
+                <span id="accent-bg-chip"></span>
+              </div>
+              <div id="accent-bg-swatch" style="margin-top:2px;">
+                <span id="accent-bg-label">Foreground</span>
+                <span id="accent-fg-chip"></span>
+              </div>
+            </div>
           </div>
         </div>
         <div class="tab-panel" id="tab-share">
@@ -177,7 +307,7 @@
   <script src="rallyParser.js?v=4"></script>
   <script src="matchData.js?v=4"></script>
   <script src="searchPane.js?v=4"></script>
-  <script src="sketch.js?v=4"></script>
+  <script src="sketch.js?v=10"></script>
 </body>
 
 </html>
