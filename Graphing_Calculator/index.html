@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Graphing Calculator</title>
+
+  <link rel="stylesheet" type="text/css" href="style.css" />
+
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.11.11/lib/p5.js"></script>
+</head>
+
+<body>
+  <!-- Settings gear (top-right, FMTTM-style) -->
+  <button id="settingsGear" aria-label="Settings">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+      <path fill="currentColor"
+        d="M495.9 166.6c3.2 8.7 .5 18.4-6.4 24.6l-43.3 39.4c1.1 8.3 1.7 16.8 1.7 25.4s-.6 17.1-1.7 25.4l43.3 39.4c6.9 6.2 9.6 15.9 6.4 24.6c-4.4 11.9-9.7 23.3-15.8 34.3l-4.7 8.1c-6.6 11-14 21.4-22.1 31.2c-5.9 7.2-15.7 9.6-24.5 6.8l-55.7-17.7c-13.4 10.3-28.2 18.9-44 25.4l-12.5 57.1c-2 9.1-9 16.3-18.2 17.8c-13.8 2.3-28 3.5-42.5 3.5s-28.7-1.2-42.5-3.5c-9.2-1.5-16.2-8.7-18.2-17.8l-12.5-57.1c-15.8-6.5-30.6-15.1-44-25.4L83.1 425.9c-8.8 2.8-18.6 .3-24.5-6.8c-8.1-9.8-15.5-20.2-22.1-31.2l-4.7-8.1c-6.1-11-11.4-22.4-15.8-34.3c-3.2-8.7-.5-18.4 6.4-24.6l43.3-39.4C64.6 273.1 64 264.6 64 256s.6-17.1 1.7-25.4L22.4 191.2c-6.9-6.2-9.6-15.9-6.4-24.6c4.4-11.9 9.7-23.3 15.8-34.3l4.7-8.1c6.6-11 14-21.4 22.1-31.2c5.9-7.2 15.7-9.6 24.5-6.8l55.7 17.7c13.4-10.3 28.2-18.9 44-25.4l12.5-57.1c2-9.1 9-16.3 18.2-17.8C227.3 1.2 241.5 0 256 0s28.7 1.2 42.5 3.5c9.2 1.5 16.2 8.7 18.2 17.8l12.5 57.1c15.8 6.5 30.6 15.1 44 25.4l55.7-17.7c8.8-2.8 18.6-.3 24.5 6.8c8.1 9.8 15.5 20.2 22.1 31.2l4.7 8.1c6.1 11 11.4 22.4 15.8 34.3zM256 336a80 80 0 1 0 0-160 80 80 0 1 0 0 160z">
+      </path>
+    </svg>
+  </button>
+
+  <div id="settingsMenu">
+    <button class="theme-btn" id="themeLight" title="Light Mode">
+      <span class="theme-btn-label">Light</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-svg">
+        <circle cx="12" cy="12" r="5"></circle>
+        <line x1="12" y1="1" x2="12" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="23"></line>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        <line x1="1" y1="12" x2="3" y2="12"></line>
+        <line x1="21" y1="12" x2="23" y2="12"></line>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+      </svg>
+    </button>
+    <button class="theme-btn" id="themeDark" title="Dark Mode">
+      <span class="theme-btn-label">Dark</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-svg">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+      </svg>
+    </button>
+    <button class="theme-btn active" id="themeAuto" title="Auto Mode">
+      <span class="theme-btn-label">Auto</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-svg">
+        <circle cx="12" cy="12" r="5"></circle>
+        <line x1="12" y1="1" x2="12" y2="3"></line>
+        <line x1="12" y1="21" x2="12" y2="23"></line>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+        <line x1="1" y1="12" x2="3" y2="12"></line>
+        <line x1="21" y1="12" x2="23" y2="12"></line>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        <path d="M17 12.79A5 5 0 1 1 11.21 7 3.5 3.5 0 0 0 17 12.79z"></path>
+      </svg>
+    </button>
+    <div class="menu-separator"></div>
+    <button class="color-btn active" id="colorDefault" title="Default">
+      <span class="color-btn-label">Default</span>
+      <div class="color-swatch" style="background-color:#FFFFFF;"></div>
+    </button>
+    <button class="color-btn" id="colorOffwhite" title="Off-white">
+      <span class="color-btn-label">Off-white</span>
+      <div class="color-swatch" style="background-color:#F8F8F8;"></div>
+    </button>
+    <button class="color-btn" id="colorSolarised" title="Solarised">
+      <span class="color-btn-label">Solarised</span>
+      <div class="color-swatch" style="background-color:#FDF6E3;"></div>
+    </button>
+    <button class="color-btn" id="colorFT" title="Financial Times">
+      <span class="color-btn-label">Financial Times</span>
+      <div class="color-swatch" style="background-color:#FFF1E5;"></div>
+    </button>
+  </div>
+
+  <header class="topbar">
+    <form class="controls" id="controls" autocomplete="off">
+      <!-- Expression input fused with plot button -->
+      <div class="expr-group">
+        <label class="control control--expr">
+          <span class="control__label">y =</span>
+          <input id="expr" class="control__input" type="text" inputmode="text" spellcheck="false" value="sin(x)" />
+        </label>
+        <button id="plot" class="btn btn--plot" type="button">Plot</button>
+      </div>
+
+      <!-- Info button (hidden until first plot) -->
+      <button id="info-btn" class="btn btn--icon" type="button" title="Examples &amp; help"
+        style="display:none">?</button>
+
+      <!-- Info popup -->
+      <div id="info-popup" class="info-popup">
+        <div class="help__title">Examples</div>
+        <ul>
+          <li><code>sin(x)</code>, <code>cos(x)</code>, <code>tan(x)</code></li>
+          <li><code>x^2</code>, <code>(x+1)*(x-1)</code></li>
+          <li><code>x</code>, <code>x+1</code>, <code>2*x</code> (good for the new modes)</li>
+          <li><code>1/x</code> (discontinuity)</li>
+        </ul>
+        <div class="help__small">
+          Modes: <b>Cartesian</b> plots <code>y=f(x)</code>. <b>Δ from x</b> plots <code>f(x)-x</code> (so
+          <code>y=x</code>
+          becomes flat). <b>Parallel number lines</b> draws arrows mapping inputs to outputs.
+        </div>
+        <div class="help__title">Supported</div>
+        <div class="help__small">
+          Operators <code>+ - * / ^</code>, parentheses, constants <code>pi</code>, <code>e</code>, and functions
+          <code>sin</code>, <code>cos</code>, <code>tan</code>, <code>asin</code>, <code>acos</code>, <code>atan</code>,
+          <code>sqrt</code>, <code>abs</code>, <code>ln</code>, <code>log</code>, <code>exp</code>, <code>floor</code>,
+          <code>ceil</code>, <code>round</code>.
+        </div>
+        <div class="help__small">Tip: use <code>*</code> explicitly (e.g. <code>2*x</code>).</div>
+      </div>
+    </form>
+
+    <div class="step-toolbox-row">
+      <div id="step-rep" class="step-rep step-rep--empty" aria-label="Parsed expression steps"></div>
+      <div class="toolbox" id="toolbox">
+        <div class="toolbox__row">
+          <div class="toolbox__item" data-tool="add" data-cat="arith">+</div>
+          <div class="toolbox__item" data-tool="mul" data-cat="arith">×</div>
+          <div class="toolbox__item" data-tool="power" data-cat="exp">x^n</div>
+          <div class="toolbox__item" data-tool="basePow" data-cat="exp">b^x</div>
+          <div class="toolbox__item" data-tool="exp" data-cat="exp">eˣ</div>
+          <div class="toolbox__item" data-tool="sin" data-cat="trig">sin</div>
+          <div class="toolbox__item" data-tool="cos" data-cat="trig">cos</div>
+          <div class="toolbox__item" data-tool="tan" data-cat="trig">tan</div>
+          <div class="toolbox__item" data-tool="ceil" data-cat="misc">⌈x⌉</div>
+          <div class="toolbox__item" data-tool="abs" data-cat="misc">|x|</div>
+        </div>
+        <div class="toolbox__row">
+          <div class="toolbox__item" data-tool="sub" data-cat="arith">−</div>
+          <div class="toolbox__item" data-tool="div" data-cat="arith">/</div>
+          <div class="toolbox__item" data-tool="root" data-cat="exp">ⁿ√x</div>
+          <div class="toolbox__item" data-tool="log10" data-cat="exp">log</div>
+          <div class="toolbox__item" data-tool="ln" data-cat="exp">ln</div>
+          <div class="toolbox__item" data-tool="asin" data-cat="trig">asin</div>
+          <div class="toolbox__item" data-tool="acos" data-cat="trig">acos</div>
+          <div class="toolbox__item" data-tool="atan" data-cat="trig">atan</div>
+          <div class="toolbox__item" data-tool="floor" data-cat="misc">⌊x⌋</div>
+          <div class="toolbox__item" data-tool="round" data-cat="misc">rnd</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="status" id="status" aria-live="polite"></div>
+
+  <!-- Canvas fills entire viewport -->
+  <div class="canvas-wrap" id="canvas-wrap">
+    <!-- Mode toggle sits inside the graph, centred at top -->
+    <div class="mode-toggle-overlay" id="mode-toggle-overlay">
+      <div class="mode-toggle__buttons" id="mode-toggle" role="group" aria-label="Mode">
+        <button type="button" class="mode-btn mode-btn--active" data-mode="cartesian">Cartesian</button>
+        <button type="button" class="mode-btn" data-mode="delta">Δ from x</button>
+        <button type="button" class="mode-btn" data-mode="numberLines">Parallel</button>
+      </div>
+    </div>
+    <!-- Toggle bar sits at bottom of graph -->
+    <div class="graph-toggles" id="graph-toggles"></div>
+
+    <!-- Fullscreen button -->
+    <button class="fullscreen-btn" id="fullscreen-btn" title="Toggle fullscreen" aria-label="Toggle fullscreen">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+      </svg>
+    </button>
+  </div>
+
+  <script src="sketch.js"></script>
+</body>
+
+</html>
