@@ -47,12 +47,12 @@ const state = {
   viewDirty: false, // true after pan/zoom
   lightMode: false,
   theme: "auto", // "light", "dark", "auto"
-  toggles: { grid: true, xaxis: true, yaxis: true, arrows: true, intermediates: true, starbursts: true },
-  glowCurves: false, // when true, curves are 1px bright with coloured glow (continuous/discreteX only)
+  toggles: { xgrid: true, ygrid: true, xaxis: false, yaxis: false, arrows: true, intermediates: true, starbursts: true, xlabels: true, ylabels: true },
+  glowCurves: true, // when true, curves are 1px bright with coloured glow (continuous/discreteX only)
   hoveredToggle: null, // which toggle key is being hovered (for glow effect)
   toggleJustTurnedOff: {}, // tracks toggles recently clicked OFF (prevents immediate hover preview)
   tauMode: false, // when true, x-axis is in τ units (1 τ = 2π)
-  discreteMode: "discrete", // "continuous", "discreteX", or "discrete"
+  discreteMode: "discreteX", // "continuous", "discreteX", or "discrete"
   stepEyes: { x: true, ops: [], y: true }, // per-step visibility (eye toggles)
   hoveredStep: null, // "x" | "op-0" | "op-1" | ... | "y" (for glow)
   statusText: "",
@@ -61,7 +61,7 @@ const state = {
   tMin: 0,
   tMax: 10,
   tSpeed: 1,
-  tPlaying: false,
+  tPlaying: true,
   usesT: false,
 };
 
@@ -271,24 +271,28 @@ function drawGridLines() {
   const yGridMax = (dr && Number.isFinite(dr.rangeMax)) ? dr.rangeMax : maxY;
 
   // Vertical lines (x grid) — tau-aware
-  for (const lv of xLevels) {
-    const alpha = lv.alpha * 40;
-    stroke(red(xCol), green(xCol), blue(xCol), alpha);
-    for (let x = Math.floor((minX - 1) / lv.step) * lv.step; x <= maxX + 1; x += lv.step) {
-      const p1 = worldToScreen(x, -diagWorld);
-      const p2 = worldToScreen(x, diagWorld);
-      line(p1.x, p1.y, p2.x, p2.y);
+  if (state.toggles.xgrid) {
+    for (const lv of xLevels) {
+      const alpha = lv.alpha * 40;
+      stroke(red(xCol), green(xCol), blue(xCol), alpha);
+      for (let x = Math.floor((minX - 1) / lv.step) * lv.step; x <= maxX + 1; x += lv.step) {
+        const p1 = worldToScreen(x, -diagWorld);
+        const p2 = worldToScreen(x, diagWorld);
+        line(p1.x, p1.y, p2.x, p2.y);
+      }
     }
   }
 
   // Horizontal lines (y grid) — always decimal
-  for (const lv of yLevels) {
-    const alpha = lv.alpha * 40;
-    stroke(red(yCol), green(yCol), blue(yCol), alpha);
-    for (let y = Math.floor((yGridMin - 1) / lv.step) * lv.step; y <= yGridMax + 1; y += lv.step) {
-      const p1 = worldToScreen(-diagWorld, y);
-      const p2 = worldToScreen(diagWorld, y);
-      line(p1.x, p1.y, p2.x, p2.y);
+  if (state.toggles.ygrid) {
+    for (const lv of yLevels) {
+      const alpha = lv.alpha * 40;
+      stroke(red(yCol), green(yCol), blue(yCol), alpha);
+      for (let y = Math.floor((yGridMin - 1) / lv.step) * lv.step; y <= yGridMax + 1; y += lv.step) {
+        const p1 = worldToScreen(-diagWorld, y);
+        const p2 = worldToScreen(diagWorld, y);
+        line(p1.x, p1.y, p2.x, p2.y);
+      }
     }
   }
 }
@@ -323,12 +327,16 @@ function getGridStepAndFade() {
 function computeVisibleDomainRange() {
   if (!state.fn) return { domainMin: -Infinity, domainMax: Infinity, rangeMin: -Infinity, rangeMax: Infinity };
   const { minX, maxX } = getVisibleWorldBounds();
+  // Sample over a wide domain to capture the function's full range,
+  // not just the visible portion — ensures y-axis covers all reachable values.
+  const sampleMin = Math.min(-1000, minX);
+  const sampleMax = Math.max(1000, maxX);
   let domainMin = Infinity, domainMax = -Infinity;
   let rangeMin = Infinity, rangeMax = -Infinity;
-  const samples = 500;
-  const step = (maxX - minX) / samples;
+  const samples = 2000;
+  const step = (sampleMax - sampleMin) / samples;
   for (let i = 0; i <= samples; i++) {
-    const x = minX + i * step;
+    const x = sampleMin + i * step;
     let y;
     try { y = state.fn(x); } catch { continue; }
     if (!Number.isFinite(y)) continue;
@@ -361,7 +369,7 @@ function drawAxesAndLabels(majorStep) {
   if (!isDiscreteAny()) {
     // x-axis — draw along world x direction
     strokeWeight(2);
-    if (state.stepEyes.x) {
+    if (state.toggles.xaxis) {
       stroke(red(xAxisColor), green(xAxisColor), blue(xAxisColor), 220);
       if (dr && Number.isFinite(dr.domainMin) && Number.isFinite(dr.domainMax)) {
         const p1 = worldToScreen(dr.domainMin, 0);
@@ -391,88 +399,227 @@ function drawAxesAndLabels(majorStep) {
 
   // Tick marks and labels — use continuous grid levels for smooth fading
   const { minX, maxX, minY, maxY } = getVisibleWorldBounds();
-  const xLevels = getGridLevels();       // tau-aware for x-axis
-  const yLevels = getYGridLevels();      // always decimal for y-axis
+  // In discrete tau mode, use decimal grid levels for x so labels align with columns
+  const _discreteTau = isDiscreteAny() && state.tauMode;
+  let xLevels = _discreteTau ? getYGridLevels() : getGridLevels();
+  let yLevels = getYGridLevels();      // always decimal for y-axis
   const tickBaseCol = state.lightMode ? [0, 0, 0] : [255, 255, 255];
+  const _eSTauLabel = _discreteTau ? (2 * Math.PI) : 1; // scale factor for x-label formatting
 
-  // Skip tick marks in any discrete mode (pixels / bars replace ticks)
+  // In discrete modes, clamp grid levels to the discrete resolution
+  if (isDiscreteAny()) {
+    const { xStep, yStep } = getDiscreteStep();
+    xLevels = xLevels.filter(lv => lv.step >= xStep - 1e-9);
+    yLevels = yLevels.filter(lv => lv.step >= yStep - 1e-9);
+  }
+
+  // Tick marks only in continuous mode — colored to match axes, with glow
   if (!isDiscreteAny()) {
-    // Draw fading tick marks at all grid levels
-    strokeWeight(1);
+    const xTickCol = getStepColor("x");
+    const yTickCol = getStepColor("y");
 
     // x ticks (tau-aware)
-    for (const lv of xLevels) {
-      const tAlpha = lv.alpha * 120;
-      if (tAlpha < 1) continue;
-      stroke(...tickBaseCol, tAlpha);
-      for (let x = Math.floor(minX / lv.step) * lv.step; x <= maxX; x += lv.step) {
-        const s = worldToScreen(x, 0);
-        if (s.x < -50 || s.x > width + 50 || s.y < -50 || s.y > height + 50) continue;
-        line(s.x - xPerp.x * 4, s.y - xPerp.y * 4, s.x + xPerp.x * 4, s.y + xPerp.y * 4);
+    if (state.toggles.xaxis) {
+      for (const lv of xLevels) {
+        const tAlpha = lv.alpha * 160;
+        if (tAlpha < 1) continue;
+        push();
+        stroke(red(xTickCol), green(xTickCol), blue(xTickCol), tAlpha);
+        strokeWeight(1);
+        if (state.glowCurves) {
+          drawingContext.shadowColor = `rgba(${red(xTickCol)},${green(xTickCol)},${blue(xTickCol)},0.5)`;
+          drawingContext.shadowBlur = 6;
+        }
+        for (let x = Math.floor(minX / lv.step) * lv.step; x <= maxX; x += lv.step) {
+          const s = worldToScreen(x, 0);
+          if (s.x < -50 || s.x > width + 50 || s.y < -50 || s.y > height + 50) continue;
+          line(s.x - xPerp.x * 4, s.y - xPerp.y * 4, s.x + xPerp.x * 4, s.y + xPerp.y * 4);
+        }
+        pop();
       }
     }
 
     // y ticks (always decimal)
     if (showYAxis) {
       for (const lv of yLevels) {
-        const tAlpha = lv.alpha * 120;
+        const tAlpha = lv.alpha * 160;
         if (tAlpha < 1) continue;
-        stroke(...tickBaseCol, tAlpha);
+        push();
+        stroke(red(yTickCol), green(yTickCol), blue(yTickCol), tAlpha);
+        strokeWeight(1);
+        if (state.glowCurves) {
+          drawingContext.shadowColor = `rgba(${red(yTickCol)},${green(yTickCol)},${blue(yTickCol)},0.5)`;
+          drawingContext.shadowBlur = 6;
+        }
         for (let y = Math.floor(minY / lv.step) * lv.step; y <= maxY; y += lv.step) {
           const s = worldToScreen(0, y);
           if (s.x < -50 || s.x > width + 50 || s.y < -50 || s.y > height + 50) continue;
           line(s.x - yPerp.x * 4, s.y - yPerp.y * 4, s.x + yPerp.x * 4, s.y + yPerp.y * 4);
         }
+        pop();
       }
     }
   }
 
-  // Labels — fade in with grid levels
-  textFont("ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace");
-  textSize(12);
-  const labelBaseCol = state.lightMode ? [30, 35, 50] : [230, 240, 255];
+  // Labels — fade in with grid levels, using glass pill backgrounds
+  const xAxisCol = getStepColor("x");
+  const yAxisCol2 = getStepColor("y");
 
-  // x labels (tau-aware)
-  for (const lv of xLevels) {
-    const labelAlpha = lv.alpha * 190;
-    if (labelAlpha < 1) continue;
-    noStroke();
-    fill(...labelBaseCol, labelAlpha);
-    for (let x = Math.floor(minX / lv.step) * lv.step; x <= maxX; x += lv.step) {
-      const s = worldToScreen(x, 0);
-      if (s.x < -50 || s.x > width + 50 || s.y < -50 || s.y > height + 50) continue;
-      push();
-      textAlign(LEFT, TOP);
-      text(formatXLabel(x), s.x + xPerp.x * 8 + 2, s.y + xPerp.y * 8 + 2);
-      pop();
+  // x labels (tau-aware) — shown when x-axis AND xlabels are both on
+  if (state.toggles.xaxis && state.toggles.xlabels) {
+    for (const lv of xLevels) {
+      const labelAlpha = lv.alpha * 190;
+      if (labelAlpha < 1) continue;
+      for (let x = Math.floor(minX / lv.step) * lv.step; x <= maxX; x += lv.step) {
+        const s = worldToScreen(x, 0);
+        if (s.x < -50 || s.x > width + 50 || s.y < -50 || s.y > height + 50) continue;
+        drawGlassLabel(formatXLabel(x * _eSTauLabel), s.x + xPerp.x * 8, s.y + xPerp.y * 8 + 2,
+          { col: xAxisCol, alpha: labelAlpha, align: "center", baseline: "top", size: 11 });
+      }
     }
   }
 
-  // y labels (always decimal)
-  if (showYAxis) {
+  // y labels (always decimal) — shown when y-axis AND ylabels are both on
+  if (showYAxis && state.toggles.ylabels) {
     for (const lv of yLevels) {
       const labelAlpha = lv.alpha * 190;
       if (labelAlpha < 1) continue;
-      noStroke();
-      fill(...labelBaseCol, labelAlpha);
       for (let y = Math.floor(minY / lv.step) * lv.step; y <= maxY; y += lv.step) {
         const s = worldToScreen(0, y);
         if (s.x < -50 || s.x > width + 50 || s.y < -50 || s.y > height + 50) continue;
-        push();
-        textAlign(LEFT, BOTTOM);
-        text(formatNumber(y), s.x + yPerp.x * 8 + 2, s.y + yPerp.y * 8 - 2);
-        pop();
+        drawGlassLabel(formatNumber(y), s.x + yPerp.x * 8 - 2, s.y + yPerp.y * 8 - 2,
+          { col: yAxisCol2, alpha: labelAlpha, align: "right", baseline: "bottom", size: 11 });
       }
     }
   }
 }
 
+const MONO_FONT = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
+const SANS_FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+
+function getLabelFont() {
+  return MONO_FONT;
+}
+
+/**
+ * Draw a label with a rounded frosted-glass pill background.
+ * @param {string} txt - Label text
+ * @param {number} sx  - Screen x
+ * @param {number} sy  - Screen y
+ * @param {object} opts - { col, alpha, align, baseline, size, glow }
+ *   col: p5 color or [r,g,b]
+ *   alpha: 0-255 (default 220)
+ *   align: "left"|"center"|"right" (default "left")
+ *   baseline: "top"|"center"|"bottom" (default "bottom")
+ *   size: font size (default 12)
+ *   glow: boolean — add color glow behind label text (default: state.glowCurves)
+ */
+function drawGlassLabel(txt, sx, sy, opts = {}) {
+  const col = opts.col;
+  const a = opts.alpha !== undefined ? opts.alpha : 220;
+  const sz = opts.size || 12;
+  const halign = opts.align || "left";
+  const vbaseline = opts.baseline || "bottom";
+  const doGlow = opts.glow !== undefined ? opts.glow : state.glowCurves;
+
+  let r, g, b;
+  if (Array.isArray(col)) {
+    r = col[0]; g = col[1]; b = col[2];
+  } else if (col) {
+    r = red(col); g = green(col); b = blue(col);
+  } else {
+    const def = state.lightMode ? [30, 35, 50] : [230, 240, 255];
+    r = def[0]; g = def[1]; b = def[2];
+  }
+
+  // Blend text color toward white in glow mode for brighter appearance
+  const wt = doGlow ? (state.lightMode ? 0.0 : 0.25) : 0;
+  const tr = r + (255 - r) * wt;
+  const tg = g + (255 - g) * wt;
+  const tb = b + (255 - b) * wt;
+
+  // Use raw canvas API for reliable font control
+  const ctx = drawingContext;
+  ctx.save();
+
+  const fontStr = `${sz}px ${getLabelFont()}`;
+  ctx.font = fontStr;
+
+  const tw = ctx.measureText(txt).width;
+  const pad = 4;
+  const pillW = tw + pad * 2;
+  const pillH = sz + pad * 2;
+
+  // Compute pill origin based on alignment
+  let px, py;
+  if (halign === "center") px = sx - pillW / 2;
+  else if (halign === "right") px = sx - pillW;
+  else px = sx;
+  if (vbaseline === "bottom") py = sy - pillH;
+  else if (vbaseline === "center") py = sy - pillH / 2;
+  else py = sy;
+
+  // Glass background — higher alpha than CSS bars to compensate for no backdrop-filter blur
+  const alphaFrac = a / 255;
+  const bgBaseAlpha = state.lightMode ? 0.7 : 0.55;
+  const bgAlpha = bgBaseAlpha * alphaFrac;
+  const bgR = state.lightMode ? 255 : 0;
+  const bgG = state.lightMode ? 255 : 0;
+  const bgB = state.lightMode ? 255 : 0;
+
+  // Draw softened glass (blurred pass for frosted edges, then solid center)
+  ctx.fillStyle = `rgba(${bgR},${bgG},${bgB},${bgAlpha * 0.5})`;
+  ctx.filter = 'blur(4px)';
+  ctx.beginPath();
+  const rad = pillH / 2;
+  if (ctx.roundRect) {
+    ctx.roundRect(px, py, pillW, pillH, rad);
+  } else {
+    ctx.moveTo(px + rad, py);
+    ctx.arcTo(px + pillW, py, px + pillW, py + pillH, rad);
+    ctx.arcTo(px + pillW, py + pillH, px, py + pillH, rad);
+    ctx.arcTo(px, py + pillH, px, py, rad);
+    ctx.arcTo(px, py, px + pillW, py, rad);
+    ctx.closePath();
+  }
+  ctx.fill();
+  ctx.filter = 'none';
+
+  // Solid glass center
+  ctx.fillStyle = `rgba(${bgR},${bgG},${bgB},${bgAlpha})`;
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(px, py, pillW, pillH, rad);
+  } else {
+    ctx.moveTo(px + rad, py);
+    ctx.arcTo(px + pillW, py, px + pillW, py + pillH, rad);
+    ctx.arcTo(px + pillW, py + pillH, px, py + pillH, rad);
+    ctx.arcTo(px, py + pillH, px, py, rad);
+    ctx.arcTo(px, py, px + pillW, py, rad);
+    ctx.closePath();
+  }
+  ctx.fill();
+
+  // Draw text (glow on text only)
+  ctx.font = fontStr; // re-set after filter changes
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  if (doGlow) {
+    ctx.shadowColor = `rgba(${r},${g},${b},0.6)`;
+    ctx.shadowBlur = 10;
+  }
+  ctx.fillStyle = `rgba(${tr},${tg},${tb},${alphaFrac})`;
+  ctx.fillText(txt, px + pad, py + pad);
+
+  ctx.restore();
+}
+
 function formatNumber(v) {
-  // Keep labels compact.
+  // Keep labels compact — 1 decimal place.
   const av = Math.abs(v);
   if (av === 0) return "0";
   if (av >= 1000 || av < 0.001) return v.toExponential(1);
-  const s = v.toFixed(3);
+  const s = v.toFixed(1);
   return s.replace(/\.?0+$/, "");
 }
 
@@ -492,9 +639,9 @@ function formatTauNumber(v) {
   if (Math.abs(ratio) < 0.001) return '0';
   if (Math.abs(ratio - 1) < 0.001) return '\u03c4';
   if (Math.abs(ratio + 1) < 0.001) return '-\u03c4';
-  // Clean decimal: round to avoid float noise
-  const r = Math.round(ratio * 1000) / 1000;
-  const s = r.toFixed(3).replace(/\.?0+$/, '');
+  // Clean decimal: round to 1 d.p. to avoid float noise
+  const r = Math.round(ratio * 10) / 10;
+  const s = r.toFixed(1).replace(/\.?0+$/, '');
   return s + '\u03c4';
 }
 
@@ -591,6 +738,7 @@ function getOpCategory(op) {
   if (getExpBase(op) !== null) return "exp";
   if (getLogBase(op) !== null) return "exp";
   if (op.label === "10^x") return "exp";
+  if (getModOperand(op) !== null) return "mulDiv";
   return "misc";
 }
 
@@ -828,7 +976,7 @@ function precedence(op) {
 }
 
 const ALLOWED_IDS = new Set([
-  "x", "t", "pi", "e", "sin", "cos", "tan", "asin", "acos", "atan",
+  "x", "t", "pi", "e", "tau", "sin", "cos", "tan", "asin", "acos", "atan",
   "sqrt", "abs", "ln", "log", "exp", "floor", "ceil", "round", "mod",
 ]);
 
@@ -1038,6 +1186,7 @@ function replacePowWithSafe(s) {
 function compileNormalizedExpr(normalized) {
   let jsExpr = normalized
     .replace(/\bpi\b/g, "PI")
+    .replace(/\btau\b/g, "TAU")
     .replace(/\be\b/g, "E")
     .replace(/\blog\b/g, "log10")
     .replace(/\bln\b/g, "log")
@@ -1054,8 +1203,8 @@ function compileNormalizedExpr(normalized) {
     "const log=Math.log;" +
     "const log10=(Math.log10?Math.log10:(v)=>Math.log(v)/Math.LN10);" +
     "function _mod(a,b){return ((a%b)+b)%b;};" +
-    "const PI=Math.PI, E=Math.E;" +
-    "return (" + jsExpr + ");";;
+    "const PI=Math.PI, E=Math.E, TAU=2*Math.PI;" +
+    "return (" + jsExpr + ");";
   return new Function("x", body);
 }
 
@@ -1214,6 +1363,28 @@ function getSubintermediateFns(prevStepFn, op) {
     }
   }
 
+  // sin()/cos(): subintermediate showing ([input] % τ) / τ — reveals the periodic wrapping fraction
+  const fnName = getFunctionName(op);
+  if (fnName === "sin" || fnName === "cos") {
+    const TAU = 2 * Math.PI;
+    subs.push({
+      fn: (x) => { const v = prevStepFn(x); return (((v % TAU) + TAU) % TAU) / TAU; },
+      category: "trig"
+    });
+  }
+
+  // mod ops: subintermediate showing [operand] % [input]
+  const modVal = getModOperand(op);
+  if (modVal !== null) {
+    const modNum = parseFloat(modVal);
+    if (Number.isFinite(modNum)) {
+      subs.push({
+        fn: (x) => { const v = prevStepFn(x); return v !== 0 ? ((modNum % v) + v) % v : NaN; },
+        category: "mulDiv"
+      });
+    }
+  }
+
   return subs;
 }
 
@@ -1353,6 +1524,12 @@ function getLogBase(op) {
   return m ? m[1].trim() : null;
 }
 
+function getModOperand(op) {
+  if (op.type !== "other") return null;
+  const m = op.label.match(/^%\s*(.+)$/);
+  return m ? m[1].trim() : null;
+}
+
 function getInverseFunctionLabel(op) {
   if (op.label === "x²") return "sqrt()";
   const expBase = getExpBase(op);
@@ -1385,9 +1562,42 @@ function applyOpsChange() {
     syncInputFromOps();
     renderStepRepresentation();
     setStatusForCurrentMode();
+    // Resize the expression input to fit updated content
+    autoSizeInput();
   } catch (err) {
     setStatus(err?.message ?? String(err), "error");
   }
+}
+
+/**
+ * Delete preview: temporarily show the graph as if an op were removed.
+ * Saves real state so it can be restored on mouseleave.
+ */
+function enterDeletePreview(idx) {
+  if (state._deletePreviewSaved) return; // already in preview
+  // Save current state
+  state._deletePreviewSaved = {
+    fn: state.fn,
+    steps: state.steps,
+  };
+  // Build preview ops without the target
+  const previewOps = [...state.ops];
+  previewOps.splice(idx, 1);
+  try {
+    const previewSteps = rebuildStepsFromOps(previewOps);
+    state.steps = previewSteps;
+    state.fn = previewSteps.length > 0 ? previewSteps[previewSteps.length - 1].fn : null;
+  } catch {
+    // On error, just keep current state
+    state._deletePreviewSaved = null;
+  }
+}
+
+function clearDeletePreview() {
+  if (!state._deletePreviewSaved) return;
+  state.fn = state._deletePreviewSaved.fn;
+  state.steps = state._deletePreviewSaved.steps;
+  state._deletePreviewSaved = null;
 }
 
 /**
@@ -1475,6 +1685,15 @@ function buildDisplayExpr(ops) {
         spans.push({ text: rootN, color: colorHex, isBracket: false });
         spans.push({ text: ")", color: colorHex, isBracket: false });
         prevPrec = 3;
+      } else if (getModOperand(op) !== null) {
+        const modVal = op.operand || getModOperand(op);
+        if (prevPrec < 2) {
+          spans.splice(0, 0, { text: "(", color: colorHex, isBracket: true });
+          spans.push({ text: ")", color: colorHex, isBracket: true });
+        }
+        spans.push({ text: " % ", color: colorHex, isBracket: false });
+        spans.push({ text: modVal, color: colorHex, isBracket: false });
+        prevPrec = 2;
       } else {
         spans.push({ text: op.label, color: colorHex, isBracket: false });
         prevPrec = 0;
@@ -1561,7 +1780,8 @@ function colorizeRawExpr(text) {
       if (funcNames.has(word)) {
         const isTrig = TRIG_FNS.has(word);
         const isExp = EXP_FNS.has(word) || word === "sqrt";
-        const col = isTrig ? OP_COLORS.trig : isExp ? OP_COLORS.exp : OP_COLORS.misc;
+        const isMod = word === "mod";
+        const col = isMod ? OP_COLORS.mulDiv : isTrig ? OP_COLORS.trig : isExp ? OP_COLORS.exp : OP_COLORS.misc;
         spans.push({ text: word, color: col });
       } else if (word === "pi" || word === "e") {
         spans.push({ text: word, color: OP_COLORS.misc });
@@ -1577,7 +1797,7 @@ function colorizeRawExpr(text) {
     } else if (text[i] === '+' || text[i] === '-') {
       spans.push({ text: text[i], color: OP_COLORS.addSub });
       i++;
-    } else if (text[i] === '*' || text[i] === '/') {
+    } else if (text[i] === '*' || text[i] === '/' || text[i] === '%') {
       spans.push({ text: text[i], color: OP_COLORS.mulDiv });
       i++;
     } else if (text[i] === '^') {
@@ -1826,6 +2046,13 @@ function renderStepRepresentation() {
           operand: newOperand,
           applyToExpr: (prev) => "ln(" + prev + ")/ln(" + newOperand + ")",
         };
+      } else if (getModOperand(op) !== null) {
+        state.ops[opIdx] = {
+          type: "other",
+          label: "% " + newOperand,
+          operand: newOperand,
+          applyToExpr: (prev) => "mod(" + prev + "," + newOperand + ")",
+        };
       } else {
         return; // can't slide this type
       }
@@ -1871,10 +2098,49 @@ function renderStepRepresentation() {
     deleteBtn.title = "Remove";
     deleteBtn.addEventListener("click", (e) => {
       e.stopPropagation();
+      // Clear any active delete preview first
+      clearDeletePreview();
       const idx = parseInt(opBlock.dataset.idx);
+      const cx = e.clientX, cy = e.clientY;
+
       state.ops.splice(idx, 1);
       state.stepEyes.ops.splice(idx, 1);
       applyOpsChange();
+
+      // Cursor-based approach: after DOM rebuild, find whatever op-block
+      // is now under the cursor and activate its delete-preview state
+      requestAnimationFrame(() => {
+        const el = document.elementFromPoint(cx, cy);
+        if (!el) return;
+        const ob = el.closest('.op-block');
+        if (ob) {
+          const newIdx = parseInt(ob.dataset.idx);
+          const delBtn = ob.querySelector('.op-block__delete');
+          // Force-show the delete button (CSS :hover may not re-fire)
+          if (delBtn) delBtn.style.display = 'flex';
+          // Activate delete preview for the op now under cursor
+          enterDeletePreview(newIdx);
+          ob.classList.add('op-block--delete-preview');
+          // Clean up when mouse actually leaves this op-block
+          const cleanup = () => {
+            clearDeletePreview();
+            ob.classList.remove('op-block--delete-preview');
+            if (delBtn) delBtn.style.display = '';
+            ob.removeEventListener('mouseleave', cleanup);
+          };
+          ob.addEventListener('mouseleave', cleanup);
+        }
+      });
+    });
+    // Delete preview on hover
+    deleteBtn.addEventListener("mouseenter", () => {
+      const idx = parseInt(opBlock.dataset.idx);
+      enterDeletePreview(idx);
+      opBlock.classList.add("op-block--delete-preview");
+    });
+    deleteBtn.addEventListener("mouseleave", () => {
+      clearDeletePreview();
+      opBlock.classList.remove("op-block--delete-preview");
     });
     opBlock.appendChild(deleteBtn);
 
@@ -1899,8 +2165,9 @@ function renderStepRepresentation() {
     if (isSimple) {
       const fwdRow = document.createElement("div");
       fwdRow.className = "op-block__fwd";
-      fwdRow.textContent = val ? val + " " + fwdSym : fwdSym;
+      fwdRow.textContent = val ? fwdSym + "\u00A0" + val : fwdSym;
       fwdRow.dataset.liveSym = fwdSym;
+      if (val) fwdRow.dataset.liveOperand = val;
       opBlock.appendChild(fwdRow);
 
       if (val) {
@@ -1917,8 +2184,9 @@ function renderStepRepresentation() {
 
       const invRow = document.createElement("div");
       invRow.className = "op-block__inv";
-      invRow.textContent = val ? val + " " + invSym : invSym;
+      invRow.textContent = val ? invSym + "\u00A0" + val : invSym;
       invRow.dataset.liveSym = invSym;
+      if (val) invRow.dataset.liveOperand = val;
       opBlock.appendChild(invRow);
       addSwapBtn();
     } else {
@@ -1934,8 +2202,11 @@ function renderStepRepresentation() {
         const isRoot = rootN !== null;
         const fwdRow = document.createElement("div");
         fwdRow.className = "op-block__fwd";
-        fwdRow.textContent = isRoot ? "ⁿ√" : (valStr + " ^");
+        // Power: [sym] [operand]; Root exception: [operand] [sym]
+        fwdRow.textContent = isRoot ? (valStr + "\u00A0ⁿ√") : ("^" + "\u00A0" + valStr);
         fwdRow.dataset.liveSym = isRoot ? "ⁿ√" : "^";
+        fwdRow.dataset.liveOperand = valStr;
+        if (isRoot) fwdRow.dataset.liveOrder = "root";
         opBlock.appendChild(fwdRow);
 
         const valRow = document.createElement("div");
@@ -1946,8 +2217,11 @@ function renderStepRepresentation() {
 
         const invRow = document.createElement("div");
         invRow.className = "op-block__inv";
-        invRow.textContent = isRoot ? "^" : (valStr + " ⁿ√");
+        // Power inv is root (exception); Root inv is power (normal)
+        invRow.textContent = isRoot ? ("^" + "\u00A0" + valStr) : (valStr + "\u00A0ⁿ√");
         invRow.dataset.liveSym = isRoot ? "^" : "ⁿ√";
+        invRow.dataset.liveOperand = valStr;
+        if (!isRoot) invRow.dataset.liveOrder = "root";
         opBlock.appendChild(invRow);
         addSwapBtn();
       } else if (expBaseVal !== null) {
@@ -1986,6 +2260,26 @@ function renderStepRepresentation() {
         invRow.textContent = invLabel || "b^x";
         opBlock.appendChild(invRow);
         addSwapBtn();
+      } else if (getModOperand(op) !== null) {
+        // mod op: show fwd=% val, draggable val, no inverse
+        const modVal = getModOperand(op);
+        const fwdRow = document.createElement("div");
+        fwdRow.className = "op-block__fwd";
+        fwdRow.textContent = "%\u00A0" + modVal;
+        fwdRow.dataset.liveSym = "%";
+        fwdRow.dataset.liveOperand = modVal;
+        opBlock.appendChild(fwdRow);
+
+        const valRow = document.createElement("div");
+        valRow.className = "op-block__val";
+        valRow.textContent = modVal;
+        attachValDragHandler(valRow, i);
+        opBlock.appendChild(valRow);
+
+        const spacer = document.createElement("div");
+        spacer.className = "op-block__inv";
+        spacer.textContent = "mod";
+        opBlock.appendChild(spacer);
       } else if (invLabel) {
         const fwdRow = document.createElement("div");
         fwdRow.className = "op-block__fwd";
@@ -2259,15 +2553,21 @@ function updateLiveOpValues(xVal) {
     if (fwd) {
       const def = fwd.dataset.liveDefault || '';
       const sym = fwd.dataset.liveSym || def;
+      const operand = fwd.dataset.liveOperand || '';
+      const isRootOrder = fwd.dataset.liveOrder === 'root';
       if (Number.isFinite(inputVal)) {
         const v = formatLiveNumber(inputVal);
         if (sym.endsWith('()')) {
-          // Function: put value inside existing parens — sin(3.0)
           const fn = sym.slice(0, -2);
           fwd.innerHTML = fn + '(<span style="color:' + prevHex + '">' + v + '</span>)';
+        } else if (isRootOrder) {
+          // Root exception: [operand] [sym] [input]
+          fwd.innerHTML = operand + '&nbsp;' + sym + '&nbsp;<span style="color:' + prevHex + '">' + v + '</span>';
+        } else if (operand) {
+          // Normal: [input] [sym] [operand]
+          fwd.innerHTML = '<span style="color:' + prevHex + '">' + v + '</span>&nbsp;' + sym + '&nbsp;' + operand;
         } else {
-          // Simple op (+, -, ×, /): show value then symbol — "3.0 +"
-          fwd.innerHTML = '<span style="color:' + prevHex + '">' + v + '</span> ' + sym;
+          fwd.innerHTML = '<span style="color:' + prevHex + '">' + v + '</span>&nbsp;' + sym;
         }
       } else {
         fwd.textContent = def;
@@ -2277,13 +2577,19 @@ function updateLiveOpValues(xVal) {
     if (inv) {
       const def = inv.dataset.liveDefault || '';
       const sym = inv.dataset.liveSym || def;
+      const operand = inv.dataset.liveOperand || '';
+      const isRootOrder = inv.dataset.liveOrder === 'root';
       if (Number.isFinite(outputVal)) {
         const v = formatLiveNumber(outputVal);
         if (sym.endsWith('()')) {
           const fn = sym.slice(0, -2);
           inv.innerHTML = fn + '(<span style="color:' + nextHex + '">' + v + '</span>)';
+        } else if (isRootOrder) {
+          inv.innerHTML = operand + '&nbsp;' + sym + '&nbsp;<span style="color:' + nextHex + '">' + v + '</span>';
+        } else if (operand) {
+          inv.innerHTML = '<span style="color:' + nextHex + '">' + v + '</span>&nbsp;' + sym + '&nbsp;' + operand;
         } else {
-          inv.innerHTML = '<span style="color:' + nextHex + '">' + v + '</span> ' + sym;
+          inv.innerHTML = '<span style="color:' + nextHex + '">' + v + '</span>&nbsp;' + sym;
         }
       } else {
         inv.textContent = def;
@@ -2347,6 +2653,7 @@ function compileExpression(exprRaw) {
     "t",
     "pi",
     "e",
+    "tau",
     "sin",
     "cos",
     "tan",
@@ -2376,6 +2683,7 @@ function compileExpression(exprRaw) {
   // We avoid "Math." in the user expression entirely and provide a local scope instead.
   let jsExpr = normalized
     .replace(/\bpi\b/g, "PI")
+    .replace(/\btau\b/g, "TAU")
     .replace(/\be\b/g, "E")
     .replace(/\blog\b/g, "log10")
     .replace(/\bln\b/g, "log")
@@ -2393,7 +2701,7 @@ function compileExpression(exprRaw) {
     "const log=Math.log;" +
     "const log10=(Math.log10 ? Math.log10 : (v)=>Math.log(v)/Math.LN10);" +
     "function _mod(a,b){return ((a%b)+b)%b;};" +
-    "const PI=Math.PI, E=Math.E;" +
+    "const PI=Math.PI, E=Math.E, TAU=2*Math.PI;" +
     "return (" +
     jsExpr +
     ");";
@@ -2413,17 +2721,12 @@ function compileExpression(exprRaw) {
 function autoSizeInput() {
   const el = ui.exprEl;
   if (!el) return;
-  // Use a hidden span to measure the text width
-  if (!window._inputSizer) {
-    const sizer = document.createElement('span');
-    sizer.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;' +
-      'font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;' +
-      'font-size:0.98rem;font-weight:400;padding:0;border:0;';
-    document.body.appendChild(sizer);
-    window._inputSizer = sizer;
-  }
-  window._inputSizer.textContent = el.value || el.placeholder || 'x';
-  el.style.width = Math.max(60, window._inputSizer.offsetWidth + 12) + 'px';
+  // Temporarily shrink to measure scrollWidth (the content width)
+  const saved = el.style.width;
+  el.style.width = '0';
+  const needed = el.scrollWidth;
+  el.style.width = saved;
+  el.style.width = Math.max(180, needed + 32) + 'px';
 }
 
 function liveParse() {
@@ -2660,6 +2963,8 @@ function setup() {
   // ---- Glow curves toggle ----
   const glowBtn = document.getElementById('glow-toggle');
   if (glowBtn) {
+    // Set initial active state
+    glowBtn.classList.toggle('mode-btn--active', state.glowCurves);
     glowBtn.addEventListener('click', () => {
       state.glowCurves = !state.glowCurves;
       glowBtn.classList.toggle('mode-btn--active', state.glowCurves);
@@ -2697,6 +3002,22 @@ function setup() {
 
   // First plot
   plotFunction();
+
+  // Set initial rotation to vertical (90°)
+  view.rotation = -Math.PI / 2;
+  if (ui.rotBtns) ui.rotBtns.forEach(b => {
+    b.classList.toggle("mode-btn--active", Math.abs(parseFloat(b.dataset.rot) - (-Math.PI / 2)) < 0.01);
+  });
+
+  // Auto-start t playback
+  if (state.usesT) {
+    state.tPlaying = true;
+    const playBtn = document.getElementById('timeline-play');
+    if (playBtn) {
+      playBtn.textContent = '⏸';
+      playBtn.classList.add('timeline-play-btn--active');
+    }
+  }
 }
 
 /* ========== Toolbox: drag-and-drop function/operator palette ========== */
@@ -2722,6 +3043,7 @@ const TOOLBOX_ITEMS = {
   floor: { type: "function", fn: "floor" },
   ceil: { type: "function", fn: "ceil" },
   round: { type: "function", fn: "round" },
+  mod: { type: "mod", operand: "2" },
 };
 
 function createOpFromToolboxItem(item) {
@@ -2772,6 +3094,15 @@ function createOpFromToolboxItem(item) {
       applyToExpr: (prev) => item.fn + "(" + prev + ")",
     };
   }
+  if (item.type === "mod") {
+    const operand = item.operand;
+    return {
+      type: "other",
+      label: "% " + operand,
+      operand: operand,
+      applyToExpr: (prev) => "mod(" + prev + "," + operand + ")",
+    };
+  }
   return null;
 }
 
@@ -2795,7 +3126,7 @@ function buildToolbox() {
     let c;
     if (cat === "arith") {
       if (key === "add" || key === "sub") c = OP_COLORS.addSub;
-      else if (key === "mul" || key === "div") c = OP_COLORS.mulDiv;
+      else if (key === "mul" || key === "div" || key === "mod") c = OP_COLORS.mulDiv;
       else c = OP_COLORS.misc;
     } else {
       c = OP_COLORS[catToKey[cat]] || OP_COLORS.misc;
@@ -2831,9 +3162,9 @@ function attachToolboxDrag(el, itemDef) {
     const invSym = getInverseOpSymbol(op);
     const val = getOpValue(op);
     if (fwdSym !== null) {
-      const fwd = document.createElement("div"); fwd.className = "op-block__fwd"; fwd.textContent = val ? val + " " + fwdSym : fwdSym; ghost.appendChild(fwd);
+      const fwd = document.createElement("div"); fwd.className = "op-block__fwd"; fwd.textContent = val ? fwdSym + "\u00A0" + val : fwdSym; ghost.appendChild(fwd);
       if (val) { const v = document.createElement("div"); v.className = "op-block__val"; v.textContent = val; ghost.appendChild(v); }
-      const inv = document.createElement("div"); inv.className = "op-block__inv"; inv.textContent = val ? val + " " + invSym : invSym; ghost.appendChild(inv);
+      const inv = document.createElement("div"); inv.className = "op-block__inv"; inv.textContent = val ? invSym + "\u00A0" + val : invSym; ghost.appendChild(inv);
     } else {
       const invLabel = getInverseFunctionLabel(op);
       const fwd = document.createElement("div"); fwd.className = "op-block__fwd"; fwd.textContent = op.label; ghost.appendChild(fwd);
@@ -3067,45 +3398,160 @@ function setupSettingsGear() {
 /* ========== Toggle bar (bottom of graph) ========== */
 
 const toggleDefs = [
-  { key: "grid", label: "Grid", colorKey: "x" },
-  { key: "xaxis", label: "X-Axis", colorKey: "x" },
-  { key: "yaxis", label: "Y-Axis", colorKey: "y" },
+  {
+    type: 'group', label: 'Axis',
+    keys: ['xaxis', 'yaxis'],
+    children: [
+      { key: 'xaxis', label: 'x', colorKey: 'x' },
+      { key: 'yaxis', label: 'y', colorKey: 'y' },
+    ]
+  },
+  {
+    type: 'group', label: 'Gridlines',
+    keys: ['xgrid', 'ygrid'],
+    children: [
+      { key: 'xgrid', label: 'x', colorKey: 'x' },
+      { key: 'ygrid', label: 'y', colorKey: 'y' },
+    ]
+  },
+  {
+    type: 'group', label: 'Labels',
+    keys: ['xlabels', 'ylabels'],
+    children: [
+      { key: 'xlabels', label: 'x', colorKey: 'x' },
+      { key: 'ylabels', label: 'y', colorKey: 'y' },
+    ]
+  },
   { key: "arrows", label: "Transforms", colorKey: "curve" },
   { key: "intermediates", label: "Intermediates", colorKey: "other" },
   { key: "starbursts", label: "Starbursts", colorKey: "other" },
 ];
+
+function updateToggleGroupUI(group, def) {
+  const allOn = def.keys.every(k => state.toggles[k]);
+  const anyOn = def.keys.some(k => state.toggles[k]);
+  const parentBtn = group.querySelector('.toggle-group__parent');
+  parentBtn.classList.toggle("graph-toggle-btn--on", allOn);
+  parentBtn.classList.toggle("graph-toggle-btn--partial", anyOn && !allOn);
+  def.children.forEach(child => {
+    const subBtn = group.querySelector(`[data-toggle-key="${child.key}"]`);
+    if (subBtn) subBtn.classList.toggle("graph-toggle-btn--on", state.toggles[child.key]);
+  });
+}
 
 function buildToggleBar() {
   const bar = ui.graphTogglesEl;
   if (!bar) return;
   bar.innerHTML = "";
 
+  // "Visibility toggles:" label
+  const labelSpan = document.createElement("span");
+  labelSpan.className = "graph-toggles-label";
+  labelSpan.textContent = "Visibility toggles:";
+  bar.appendChild(labelSpan);
+
   toggleDefs.forEach((def) => {
-    const btn = document.createElement("button");
-    btn.className = "graph-toggle-btn" + (state.toggles[def.key] ? " graph-toggle-btn--on" : "");
-    btn.type = "button";
-    btn.dataset.toggleKey = def.key;
+    if (def.type === 'group') {
+      const group = document.createElement("div");
+      group.className = "toggle-group";
 
-    // Label
-    const span = document.createElement("span");
-    span.textContent = def.label;
-    btn.appendChild(span);
+      // Parent button
+      const parentBtn = document.createElement("button");
+      parentBtn.className = "graph-toggle-btn toggle-group__parent";
+      parentBtn.type = "button";
+      const allOn = def.keys.every(k => state.toggles[k]);
+      const anyOn = def.keys.some(k => state.toggles[k]);
+      if (allOn) parentBtn.classList.add("graph-toggle-btn--on");
+      else if (anyOn) parentBtn.classList.add("graph-toggle-btn--partial");
 
-    btn.addEventListener("click", () => {
-      state.toggles[def.key] = !state.toggles[def.key];
-      const isOn = state.toggles[def.key];
-      btn.classList.toggle("graph-toggle-btn--on", isOn);
-      if (!isOn) state.toggleJustTurnedOff[def.key] = true;
-    });
+      const parentSpan = document.createElement("span");
+      parentSpan.textContent = def.label;
+      parentBtn.appendChild(parentSpan);
 
-    // Hover: set state so draw() can add glow AND preview hidden elements
-    btn.addEventListener("mouseenter", () => { state.hoveredToggle = def.key; });
-    btn.addEventListener("mouseleave", () => {
-      if (state.hoveredToggle === def.key) state.hoveredToggle = null;
-      delete state.toggleJustTurnedOff[def.key];
-    });
+      parentBtn.addEventListener("click", () => {
+        const allCurrentlyOn = def.keys.every(k => state.toggles[k]);
+        const newVal = !allCurrentlyOn;
+        def.keys.forEach(k => {
+          state.toggles[k] = newVal;
+          if (!newVal) state.toggleJustTurnedOff[k] = true;
+        });
+        updateToggleGroupUI(group, def);
+      });
+      parentBtn.addEventListener("mouseenter", () => { state.hoveredToggle = [...def.keys]; });
+      parentBtn.addEventListener("mouseleave", () => {
+        if (Array.isArray(state.hoveredToggle)) state.hoveredToggle = null;
+        def.keys.forEach(k => delete state.toggleJustTurnedOff[k]);
+      });
 
-    bar.appendChild(btn);
+      group.appendChild(parentBtn);
+
+      // Sub-buttons
+      def.children.forEach((child) => {
+        const subBtn = document.createElement("button");
+        subBtn.className = "graph-toggle-btn toggle-group__sub" + (state.toggles[child.key] ? " graph-toggle-btn--on" : "");
+        subBtn.type = "button";
+        subBtn.dataset.toggleKey = child.key;
+
+        // Apply color from colorKey
+        if (child.colorKey && userColors[child.colorKey]) {
+          const c = userColors[child.colorKey];
+          subBtn.style.setProperty('--sub-toggle-color', c);
+          subBtn.style.setProperty('--sub-toggle-bg', c.replace(')', ', 0.15)').replace('rgb(', 'rgba('));
+          subBtn.style.setProperty('--sub-toggle-bg-light', c.replace(')', ', 0.12)').replace('rgb(', 'rgba('));
+          // Hex to rgba for the bg
+          const hex = c;
+          const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+          subBtn.style.setProperty('--sub-toggle-color', hex);
+          subBtn.style.setProperty('--sub-toggle-bg', `rgba(${r},${g},${b},0.15)`);
+          subBtn.style.setProperty('--sub-toggle-bg-light', `rgba(${r},${g},${b},0.12)`);
+        }
+
+        const subSpan = document.createElement("span");
+        subSpan.textContent = child.label;
+        subBtn.appendChild(subSpan);
+
+        subBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          state.toggles[child.key] = !state.toggles[child.key];
+          if (!state.toggles[child.key]) state.toggleJustTurnedOff[child.key] = true;
+          subBtn.classList.toggle("graph-toggle-btn--on", state.toggles[child.key]);
+          updateToggleGroupUI(group, def);
+        });
+        subBtn.addEventListener("mouseenter", () => { state.hoveredToggle = child.key; });
+        subBtn.addEventListener("mouseleave", () => {
+          if (state.hoveredToggle === child.key) state.hoveredToggle = null;
+          delete state.toggleJustTurnedOff[child.key];
+        });
+
+        group.appendChild(subBtn);
+      });
+
+      bar.appendChild(group);
+    } else {
+      // Regular toggle button
+      const btn = document.createElement("button");
+      btn.className = "graph-toggle-btn" + (state.toggles[def.key] ? " graph-toggle-btn--on" : "");
+      btn.type = "button";
+      btn.dataset.toggleKey = def.key;
+
+      const span = document.createElement("span");
+      span.textContent = def.label;
+      btn.appendChild(span);
+
+      btn.addEventListener("click", () => {
+        state.toggles[def.key] = !state.toggles[def.key];
+        const isOn = state.toggles[def.key];
+        btn.classList.toggle("graph-toggle-btn--on", isOn);
+        if (!isOn) state.toggleJustTurnedOff[def.key] = true;
+      });
+      btn.addEventListener("mouseenter", () => { state.hoveredToggle = def.key; });
+      btn.addEventListener("mouseleave", () => {
+        if (state.hoveredToggle === def.key) state.hoveredToggle = null;
+        delete state.toggleJustTurnedOff[def.key];
+      });
+
+      bar.appendChild(btn);
+    }
   });
 
   // Reset button inside bar (positioned absolutely via CSS)
@@ -3364,24 +3810,18 @@ function drawCursorStarburst() {
 
   drawingContext.shadowBlur = 0;
 
-  // Coordinate labels
-  textFont("ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace");
-  textSize(12);
-  noStroke();
-
+  // Coordinate labels with glass backgrounds
   const xLabel = formatLiveX(world.x);
   const yLabel = formatLiveNumber(world.y);
   const labelOff = outerR + 8;
 
   // x-coordinate label: above in x-color (blue)
-  fill(red(xCol), green(xCol), blue(xCol), 220);
-  textAlign(CENTER, BOTTOM);
-  text(xLabel, cx, cy - labelOff);
+  drawGlassLabel(xLabel, cx, cy - labelOff,
+    { col: xCol, alpha: 220, align: "center", baseline: "bottom", size: 12 });
 
   // y-coordinate label: to the right in y-color (green)
-  fill(red(yCol), green(yCol), blue(yCol), 220);
-  textAlign(LEFT, CENTER);
-  text(yLabel, cx + labelOff, cy + 1);
+  drawGlassLabel(yLabel, cx + labelOff, cy,
+    { col: yCol, alpha: 220, align: "left", baseline: "center", size: 12 });
 
   pop();
 }
@@ -3428,17 +3868,15 @@ function drawCursorToYCurve() {
     state.toggles.starbursts = saved;
   }
 
-  // y-value label next to the curve point
-  push();
-  textFont("ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace");
-  textSize(12);
-  noStroke();
-  fill(red(yCol), green(yCol), blue(yCol), 220);
+  // y-value label next to the curve point with glass background
   const label = formatLiveNumber(yW);
-  // Place label to the right of the curve point
-  textAlign(LEFT, CENTER);
-  text(label, curveScreen.x + 10, curveScreen.y);
-  pop();
+  // Place label to the right of the curve point, or left if near right edge
+  const lx = curveScreen.x + 10;
+  const side = lx + 60 < width ? "left" : "right";
+  drawGlassLabel(label,
+    side === "left" ? curveScreen.x + 10 : curveScreen.x - 10,
+    curveScreen.y,
+    { col: yCol, alpha: 220, align: side === "left" ? "left" : "right", baseline: "center", size: 12 });
 }
 
 /** Helper: set dashed line pattern via canvas context */
@@ -3590,20 +4028,18 @@ function drawCurve(yAtX, curveCol, curveWeight) {
  * x-step is 0.1τ in tau mode, 0.1 otherwise; y-step is always 0.1.
  */
 function getDiscreteStep() {
-  const TAU = 2 * Math.PI;
   return {
-    xStep: state.tauMode ? 0.1 * TAU : 0.1,
+    xStep: 0.1,
     yStep: 0.1
   };
 }
 
-/** Compute the rendered cell width & margin so pixels always have the same
- *  visual width regardless of tau mode (based on the 0.1 base step).
- *  Gutters also stay constant: same absolute world-space margin as 0.1 step. */
+/** Compute the rendered cell width & margin for a discrete cell.
+ *  xStep is always 0.1 (visual grid never changes); tau mode only affects
+ *  which x-values those cells represent via the evaluation scale. */
 function getDiscreteCellMetrics(xStep) {
-  const baseMx = 0.1 * DISCRETE_MODE_PIXEL_X_MARGIN; // gutter half-width from base step
-  const cellW = 0.1 - 2 * baseMx;  // same rendered width always
-  const mx = (xStep - cellW) / 2;   // centre the pixel inside the cell
+  const mx = xStep * DISCRETE_MODE_PIXEL_X_MARGIN;
+  const cellW = xStep - 2 * mx;
   return { cellW, mx };
 }
 
@@ -3629,6 +4065,7 @@ function drawDiscreteScene() {
   const isDelta = state.mode === "delta";
   const showYAxis = state.toggles.yaxis;
   const showIntermediates = state.toggles.intermediates;
+  const eS = state.tauMode ? 2 * Math.PI : 1; // evaluation scale: tau mode scales x-values
 
   // --- Build pixel map: key → { r, g, b, count, hasY } ---
   const pixels = new Map();
@@ -3651,7 +4088,7 @@ function drawDiscreteScene() {
   const xR = red(xAxisCol), xG = green(xAxisCol), xB = blue(xAxisCol);
   const yR = red(yAxisCol), yG = green(yAxisCol), yB = blue(yAxisCol);
 
-  if (state.stepEyes.x) {
+  if (state.toggles.xaxis) {
     for (let ix = ix0; ix <= ix1; ix++) addColor(ix, 0, xR, xG, xB, false);
   }
   if (showYAxis) {
@@ -3668,7 +4105,7 @@ function drawDiscreteScene() {
       const col = getStepColor(step);
       const cr = red(col), cg = green(col), cb = blue(col);
       for (let ix = ix0; ix <= ix1; ix++) {
-        const cx = ix * xStep;
+        const cx = ix * xStep * eS;
         let fy;
         try { fy = step.fn(cx); } catch { continue; }
         if (!Number.isFinite(fy)) continue;
@@ -3687,7 +4124,7 @@ function drawDiscreteScene() {
           const sg = Math.round(green(subCol) * 0.5);
           const sb = Math.round(blue(subCol) * 0.5);
           for (let ix = ix0; ix <= ix1; ix++) {
-            const cx = ix * xStep;
+            const cx = ix * xStep * eS;
             let fy;
             try { fy = sub.fn(cx); } catch { continue; }
             if (!Number.isFinite(fy)) continue;
@@ -3705,7 +4142,7 @@ function drawDiscreteScene() {
   const pR = red(plotCol), pG = green(plotCol), pB = blue(plotCol);
   if (state.stepEyes.y) {
     for (let ix = ix0; ix <= ix1; ix++) {
-      const cx = ix * xStep;
+      const cx = ix * xStep * eS;
       let fy;
       try { fy = state.fn(cx); } catch { continue; }
       if (!Number.isFinite(fy)) continue;
@@ -3762,6 +4199,24 @@ function drawDiscreteScene() {
     }
   }
 
+  // Pre-compute per-column grid boost factor (0 = no grid tick, up to 1 = major tick)
+  const gridBoostMap = new Map();
+  if (state.toggles.xgrid) {
+    const xGL = getGridLevels();
+    const cellSpan = xStep * eS; // world-space width of one discrete cell
+    for (const lv of xGL) {
+      if (lv.alpha < 0.01) continue;
+      // Skip grid levels that match every column (not meaningful ticks)
+      if (lv.step <= cellSpan * (1 + 1e-6)) continue;
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const cx = ix * xStep * eS;
+        if (Math.abs(cx / lv.step - Math.round(cx / lv.step)) > 1e-6) continue;
+        const prev = gridBoostMap.get(ix) || 0;
+        if (lv.alpha > prev) gridBoostMap.set(ix, lv.alpha);
+      }
+    }
+  }
+
   // 4b. Transformation band fills (alternating sub-bands)
   if (showIntermediates) {
     const steps = state.steps;
@@ -3787,8 +4242,8 @@ function drawDiscreteScene() {
         const bandAlphaB = state.lightMode ? 0.05 : 0.07;
 
         for (let ix = ix0; ix <= ix1; ix++) {
-          const cx = ix * xStep;
-          const left = cx * 1 - xStep / 2 + mx; // consistent with pixel placement
+          const cx = ix * xStep * eS;
+          const gBoost = gridBoostMap.get(ix) || 0;
 
           // Evaluate band boundaries (snap to grid), skip NaN subs
           const vals = [];
@@ -3820,14 +4275,15 @@ function drawDiscreteScene() {
 
           if (vals.length < 2) continue;
 
-          // Draw alternating sub-bands as single rects per band (not per-cell)
+          // Draw alternating sub-bands — brighter at grid ticks
           for (let b = 0; b < vals.length - 1; b++) {
             const bv0 = vals[b], bv1 = vals[b + 1];
             const lo = Math.min(bv0, bv1);
             const hi = Math.max(bv0, bv1);
             if (hi - lo < 1e-9) continue;
-            const ba = (b % 2 === 0) ? bandAlphaA : bandAlphaB;
-            ctx.fillStyle = `rgba(${cr},${cg},${cb},${ba})`;
+            const baBase = (b % 2 === 0) ? bandAlphaA : bandAlphaB;
+            const ba = Math.min(1, baBase * (1 + gBoost * 0.75));
+            ctx.fillStyle = `rgba(${cr},${cg},${cb},${ba.toFixed(4)})`;
             ctx.fillRect(
               ix * xStep - xStep / 2 + mx,
               lo, cellW, hi - lo
@@ -3873,8 +4329,12 @@ function drawDiscreteScene() {
       const cr = red(colObj), cg = green(colObj), cb = blue(colObj);
       const peakAlpha = 0.50 * alphaS;
       const gc = makeGlowCol(cr, cg, cb, peakAlpha);
+      // Pre-build boosted glow variant for grid ticks
+      const boostedPeak = Math.min(1, peakAlpha * 2.0);
+      const gcBoosted = makeGlowCol(cr, cg, cb, boostedPeak);
+      const boostedGlowWR = glowWR * 1.5;
       for (let ix = ix0; ix <= ix1; ix++) {
-        const cx = ix * xStep;
+        const cx = ix * xStep * eS;
         let fy;
         try { fy = evalFn(cx); } catch { continue; }
         if (!Number.isFinite(fy)) continue;
@@ -3882,25 +4342,49 @@ function drawDiscreteScene() {
         if (!Number.isFinite(fy)) continue;
         const iy = Math.round(fy / yStep);
         const worldY = iy * yStep;
-        ctx.drawImage(gc, 0, 0, 1, glowCanvasH,
-          ix * xStep - xStep / 2 + mx,
-          worldY - glowWR,
-          cellW, 2 * glowWR
-        );
+        const gBoost = gridBoostMap.get(ix) || 0;
+        if (gBoost > 0.01) {
+          // Extended + brighter glow at grid ticks
+          const r = glowWR + (boostedGlowWR - glowWR) * gBoost;
+          ctx.drawImage(gcBoosted, 0, 0, 1, glowCanvasH,
+            ix * xStep - xStep / 2 + mx,
+            worldY - r,
+            cellW, 2 * r
+          );
+        } else {
+          ctx.drawImage(gc, 0, 0, 1, glowCanvasH,
+            ix * xStep - xStep / 2 + mx,
+            worldY - glowWR,
+            cellW, 2 * glowWR
+          );
+        }
       }
     }
 
-    // x-axis glow
-    if (state.stepEyes.x) {
+    // x-axis glow (also boosted at grid ticks)
+    if (state.toggles.xaxis) {
       const xCol = getStepColor("x");
       const peakAlpha = 0.50 * (130 / 255);
       const gc = makeGlowCol(red(xCol), green(xCol), blue(xCol), peakAlpha);
+      const boostedPeakX = Math.min(1, peakAlpha * 2.0);
+      const gcBoostedX = makeGlowCol(red(xCol), green(xCol), blue(xCol), boostedPeakX);
+      const boostedGlowWRx = glowWR * 1.5;
       for (let ix = ix0; ix <= ix1; ix++) {
-        ctx.drawImage(gc, 0, 0, 1, glowCanvasH,
-          ix * xStep - xStep / 2 + mx,
-          -glowWR,
-          cellW, 2 * glowWR
-        );
+        const gBoost = gridBoostMap.get(ix) || 0;
+        if (gBoost > 0.01) {
+          const r = glowWR + (boostedGlowWRx - glowWR) * gBoost;
+          ctx.drawImage(gcBoostedX, 0, 0, 1, glowCanvasH,
+            ix * xStep - xStep / 2 + mx,
+            -r,
+            cellW, 2 * r
+          );
+        } else {
+          ctx.drawImage(gc, 0, 0, 1, glowCanvasH,
+            ix * xStep - xStep / 2 + mx,
+            -glowWR,
+            cellW, 2 * glowWR
+          );
+        }
       }
     }
 
@@ -3929,7 +4413,7 @@ function drawDiscreteScene() {
     }
   }
 
-  // 4c. Overdraw active pixels with resolved colors
+  // 4c. Overdraw active pixels with resolved colors (brighter at grid ticks)
   const glowTint = state.glowCurves;
   for (const [, px] of pixels) {
     let fr, fg, fb;
@@ -3941,10 +4425,17 @@ function drawDiscreteScene() {
       fb = px.b / px.count;
     }
     if (glowTint) {
-      // Brighten core pixels toward white (proportional to their luminance)
       fr = fr * 0.7 + 255 * 0.3;
       fg = fg * 0.7 + 255 * 0.3;
       fb = fb * 0.7 + 255 * 0.3;
+    }
+    // Brighten at grid ticks (lerp toward white, preserving hue)
+    const gBoost = gridBoostMap.get(px.ix) || 0;
+    if (gBoost > 0) {
+      const t = gBoost * 0.5;
+      fr = fr + (255 - fr) * t;
+      fg = fg + (255 - fg) * t;
+      fb = fb + (255 - fb) * t;
     }
     ctx.fillStyle = `rgb(${Math.round(fr)},${Math.round(fg)},${Math.round(fb)})`;
     ctx.fillRect(
@@ -3976,6 +4467,7 @@ function drawDiscreteXScene() {
   const isDelta = state.mode === "delta";
   const showYAxis = state.toggles.yaxis;
   const showIntermediates = state.toggles.intermediates;
+  const eS = state.tauMode ? 2 * Math.PI : 1; // evaluation scale
 
   // --- Render using raw canvas for performance ---
   const ctx = drawingContext;
@@ -4002,8 +4494,38 @@ function drawDiscreteXScene() {
     ctx.fillRect(ix * xStep - xStep / 2 + mx, minY, cellW, maxY - minY);
   }
 
-  // Draw x-axis as a continuous line within x-cells
-  if (state.stepEyes.x) {
+  // Draw y-axis as a thin vertical line through x=0 cell if visible
+  if (showYAxis) {
+    const yAxisCol = getStepColor("y");
+    ctx.strokeStyle = `rgb(${red(yAxisCol)},${green(yAxisCol)},${blue(yAxisCol)})`;
+    ctx.lineWidth = 2 / view.scale;
+    ctx.beginPath();
+    ctx.moveTo(0, minY);
+    ctx.lineTo(0, maxY);
+    ctx.stroke();
+  }
+
+  // Y-step horizontal grid lines — use same multi-level fading as regular grid
+  if (state.toggles.ygrid) {
+    const yGridLevels = getYGridLevels();
+    const gridLineW = 1 / view.scale; // ~1 screen pixel
+    for (const lv of yGridLevels) {
+      const a = state.lightMode ? lv.alpha * 0.12 : lv.alpha * 0.6;
+      ctx.fillStyle = `rgba(0,0,0,${a.toFixed(4)})`;
+      const iy0g = Math.floor(minY / lv.step);
+      const iy1g = Math.ceil(maxY / lv.step);
+      for (let iy = iy0g; iy <= iy1g; iy++) {
+        const wy = iy * lv.step;
+        for (let ix = ix0; ix <= ix1; ix++) {
+          const left = ix * xStep - xStep / 2 + mx;
+          ctx.fillRect(left, wy - gridLineW / 2, cellW, gridLineW);
+        }
+      }
+    }
+  }
+
+  // Draw x-axis as a continuous line within x-cells (drawn AFTER grid so it sits on top)
+  if (state.toggles.xaxis) {
     const xAxisCol = getStepColor("x");
     ctx.strokeStyle = `rgb(${red(xAxisCol)},${green(xAxisCol)},${blue(xAxisCol)})`;
     ctx.lineWidth = 2 / view.scale;
@@ -4017,29 +4539,45 @@ function drawDiscreteXScene() {
     ctx.stroke();
   }
 
-  // Draw y-axis as a thin vertical line through x=0 cell if visible
-  if (showYAxis) {
-    const yAxisCol = getStepColor("y");
-    ctx.strokeStyle = `rgb(${red(yAxisCol)},${green(yAxisCol)},${blue(yAxisCol)})`;
-    ctx.lineWidth = 2 / view.scale;
-    ctx.beginPath();
-    ctx.moveTo(0, minY);
-    ctx.lineTo(0, maxY);
-    ctx.stroke();
+  // Pre-compute per-column grid boost factor (0 = no grid tick, up to 1 = major tick)
+  const gridBoostMap = new Map();
+  if (state.toggles.xgrid) {
+    const xGL = getGridLevels();
+    const cellSpan = xStep * eS; // world-space width of one discrete cell
+    for (const lv of xGL) {
+      if (lv.alpha < 0.01) continue;
+      // Skip grid levels that match every column (not meaningful ticks)
+      if (lv.step <= cellSpan * (1 + 1e-6)) continue;
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const cx = ix * xStep * eS;
+        if (Math.abs(cx / lv.step - Math.round(cx / lv.step)) > 1e-6) continue;
+        const prev = gridBoostMap.get(ix) || 0;
+        if (lv.alpha > prev) gridBoostMap.set(ix, lv.alpha);
+      }
+    }
   }
 
-  // Helper: draw horizontal bars for a function
+  // Helper: draw horizontal bars for a function (brighter at grid ticks)
   function drawBars(evalFn, colR, colG, colB, thickness) {
-    ctx.fillStyle = `rgb(${colR},${colG},${colB})`;
+    const baseStyle = `rgb(${colR},${colG},${colB})`;
     for (let ix = ix0; ix <= ix1; ix++) {
-      const cx = ix * xStep;
+      const cx = ix * xStep * eS;
       let fy;
       try { fy = evalFn(cx); } catch { continue; }
       if (!Number.isFinite(fy)) continue;
       if (isDelta) fy = fy - cx;
       if (!Number.isFinite(fy)) continue;
-      const left = cx - xStep / 2 + mx;
-      // Draw bar centred at exact y position
+      const left = ix * xStep - xStep / 2 + mx;
+      const gBoost = gridBoostMap.get(ix) || 0;
+      if (gBoost > 0) {
+        const t = gBoost * 0.5;
+        const br = Math.round(colR + (255 - colR) * t);
+        const bg = Math.round(colG + (255 - colG) * t);
+        const bb = Math.round(colB + (255 - colB) * t);
+        ctx.fillStyle = `rgb(${br},${bg},${bb})`;
+      } else {
+        ctx.fillStyle = baseStyle;
+      }
       ctx.fillRect(left, fy - thickness / 2, cellW, thickness);
     }
   }
@@ -4072,10 +4610,11 @@ function drawDiscreteXScene() {
         const bandAlphaB = state.lightMode ? 0.05 : 0.07;
 
         for (let ix = ix0; ix <= ix1; ix++) {
-          const cx = ix * xStep;
-          const left = cx - xStep / 2 + mx;
+          const cx = ix * xStep * eS;
+          const left = ix * xStep - xStep / 2 + mx;
 
           // Evaluate band boundary values (skip NaN subs, but prev & target are required)
+          const gBoost = gridBoostMap.get(ix) || 0;
           const vals = [];
           let prevBad = false;
           // First: evaluate prev (required)
@@ -4104,14 +4643,15 @@ function drawDiscreteXScene() {
           vals.push(v1);
           if (vals.length < 2) continue;
 
-          // Draw alternating sub-bands between consecutive boundary values
+          // Draw alternating sub-bands — brighter at grid ticks
           for (let b = 0; b < vals.length - 1; b++) {
             const v0 = vals[b], v1 = vals[b + 1];
             const lo = Math.min(v0, v1);
             const hi = Math.max(v0, v1);
             if (hi - lo < 1e-9) continue;
-            const ba = (b % 2 === 0) ? bandAlphaA : bandAlphaB;
-            ctx.fillStyle = `rgba(${cr},${cg},${cb},${ba})`;
+            const baBase = (b % 2 === 0) ? bandAlphaA : bandAlphaB;
+            const ba = Math.min(1, baBase * (1 + gBoost * 0.75));
+            ctx.fillStyle = `rgba(${cr},${cg},${cb},${ba.toFixed(4)})`;
             ctx.fillRect(left, lo, cellW, hi - lo);
           }
         }
@@ -4132,15 +4672,24 @@ function drawDiscreteXScene() {
         for (const sub of subItems) {
           const subBarCol = getStepColor(sub.category);
           const sr = red(subBarCol), sg = green(subBarCol), sb = blue(subBarCol);
-          ctx.fillStyle = `rgba(${sr},${sg},${sb},0.55)`;
           for (let ix = ix0; ix <= ix1; ix++) {
-            const cx = ix * xStep;
+            const cx = ix * xStep * eS;
             let fy;
             try { fy = sub.fn(cx); } catch { continue; }
             if (!Number.isFinite(fy)) continue;
             if (isDelta) fy = fy - cx;
             if (!Number.isFinite(fy)) continue;
-            const left = cx - xStep / 2 + mx;
+            const left = ix * xStep - xStep / 2 + mx;
+            const gBoost = gridBoostMap.get(ix) || 0;
+            if (gBoost > 0) {
+              const t = gBoost * 0.5;
+              const bsr = Math.round(sr + (255 - sr) * t);
+              const bsg = Math.round(sg + (255 - sg) * t);
+              const bsb = Math.round(sb + (255 - sb) * t);
+              ctx.fillStyle = `rgba(${bsr},${bsg},${bsb},0.55)`;
+            } else {
+              ctx.fillStyle = `rgba(${sr},${sg},${sb},0.55)`;
+            }
             ctx.fillRect(left, fy - barThickness * 0.35, cellW, barThickness * 0.5);
           }
         }
@@ -4185,29 +4734,40 @@ function drawDiscreteXScene() {
     function stampGlowW(evalFn, colObj, alphaS) {
       const cr = red(colObj), cg = green(colObj), cb = blue(colObj);
       const gc = makeGlowColumnW(cr, cg, cb, alphaS);
+      // Pre-build boosted glow for grid ticks
+      const boostedAlphaS = Math.min(1, alphaS * 2.0);
+      const gcBoosted = makeGlowColumnW(cr, cg, cb, boostedAlphaS);
+      const boostedGlowWR = glowWR * 1.5;
       for (let ix = ix0; ix <= ix1; ix++) {
-        const cx = ix * xStep;
+        const cx = ix * xStep * eS;
         let fy;
         try { fy = evalFn(cx); } catch { continue; }
         if (!Number.isFinite(fy)) continue;
         if (isDelta) fy = fy - cx;
         if (!Number.isFinite(fy)) continue;
-        const left = cx - xStep / 2 + mx;
-        // Draw gradient in world space: image top → fy-glowWR (lower Y), bottom → fy+glowWR (upper Y)
-        ctx.drawImage(gc, 0, 0, 1, glowCanvasH, left, fy - glowWR, cellW, 2 * glowWR);
+        const left = ix * xStep - xStep / 2 + mx;
+        const gBoost = gridBoostMap.get(ix) || 0;
+        if (gBoost > 0.01) {
+          const r = glowWR + (boostedGlowWR - glowWR) * gBoost;
+          ctx.drawImage(gcBoosted, 0, 0, 1, glowCanvasH, left, fy - r, cellW, 2 * r);
+        } else {
+          ctx.drawImage(gc, 0, 0, 1, glowCanvasH, left, fy - glowWR, cellW, 2 * glowWR);
+        }
       }
-      // Hairline (near-white with chroma hint)
+      // Hairline (near-white with chroma hint) — brighter at grid ticks
       const hr = 255 * 0.8 + cr * 0.2, hg = 255 * 0.8 + cg * 0.2, hb = 255 * 0.8 + cb * 0.2;
-      ctx.fillStyle = `rgba(${hr | 0},${hg | 0},${hb | 0},${alphaS})`;
-      const hlThick = 1.5 / view.scale; // ~1.5 screen pixel
+      const hlThick = 1.5 / view.scale;
       for (let ix = ix0; ix <= ix1; ix++) {
-        const cx = ix * xStep;
+        const cx = ix * xStep * eS;
         let fy;
         try { fy = evalFn(cx); } catch { continue; }
         if (!Number.isFinite(fy)) continue;
         if (isDelta) fy = fy - cx;
         if (!Number.isFinite(fy)) continue;
-        const left = cx - xStep / 2 + mx;
+        const left = ix * xStep - xStep / 2 + mx;
+        const gBoost = gridBoostMap.get(ix) || 0;
+        const hlAlpha = Math.min(1, alphaS * (1 + gBoost * 0.5));
+        ctx.fillStyle = `rgba(${hr | 0},${hg | 0},${hb | 0},${hlAlpha.toFixed(4)})`;
         ctx.fillRect(left, fy - hlThick / 2, cellW, hlThick);
       }
     }
@@ -4276,49 +4836,54 @@ function drawDiscreteCursor(cx, cy, world, xCol, yCol) {
   const cellH = isDiscreteX ? 0.025 : yStep - 2 * my; // thin bar in discreteX
 
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
+
+  // Glow effect for cursor pixel when glow mode is on
+  if (state.glowCurves) {
+    ctx.shadowColor = 'rgba(255,255,255,0.6)';
+    ctx.shadowBlur = 15;
+  }
+
   ctx.fillRect(
     cellX - xStep / 2 + mx,
     isDiscreteX ? cellY - cellH / 2 : cellY - yStep / 2 + my,
     cellW, cellH
   );
 
+  ctx.shadowBlur = 0;
   ctx.restore();
 
-  // Labels in screen space
+  // Labels in screen space with glass backgrounds
   const screenCenter = worldToScreen(cellX, cellY);
   const pixelScreenSize = cellW * view.scale;
   const labelOff = pixelScreenSize / 2 + 10;
 
-  push();
-  textFont("ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace");
-  textSize(12);
-  noStroke();
-
-  const xLabel = formatLiveX(cellX);
+  // In tau mode, show the tau-scaled eval x, not the visual position
+  const evalCellX = state.tauMode ? cellX * (2 * Math.PI) : cellX;
+  const xLabel = formatLiveX(evalCellX);
   const yLabel = isDiscreteX ? formatLiveNumber(cellY) : formatLiveNumber(Math.round(world.y / yStep) * yStep);
 
-  fill(red(xCol), green(xCol), blue(xCol), 220);
-  textAlign(CENTER, BOTTOM);
-  text(xLabel, screenCenter.x, screenCenter.y - labelOff);
+  // x-coordinate label: above in x-color
+  drawGlassLabel(xLabel, screenCenter.x, screenCenter.y - labelOff,
+    { col: xCol, alpha: 220, align: "center", baseline: "bottom", size: 12 });
 
-  fill(red(yCol), green(yCol), blue(yCol), 220);
-  textAlign(LEFT, CENTER);
-  text(yLabel, screenCenter.x + labelOff, screenCenter.y + 1);
-  pop();
+  // y-coordinate label: to the right in y-color
+  drawGlassLabel(yLabel, screenCenter.x + labelOff, screenCenter.y,
+    { col: yCol, alpha: 220, align: "left", baseline: "center", size: 12 });
 }
 
 function drawYLabelsOnCurve(yAtX) {
   if (!state.fn) return;
   const { minX, maxX } = getVisibleWorldBounds();
-  const levels = getGridLevels();
+  // In discrete modes, always use decimal grid levels (pixels are at decimal positions)
+  let levels = isDiscreteAny() ? getYGridLevels() : getGridLevels();
+  if (isDiscreteAny()) {
+    const { xStep } = getDiscreteStep();
+    levels = levels.filter(lv => lv.step >= xStep - 1e-9);
+  }
+  const yCol = getStepColor("y");
+  const tickBaseCol = state.lightMode ? [30, 35, 50] : [230, 240, 255];
 
   push();
-  textFont("ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace");
-  textSize(11);
-
-  const tickBaseCol = state.lightMode ? [30, 35, 50] : [230, 240, 255];
-  const labelBaseCol = state.lightMode ? [30, 35, 50] : [230, 240, 255];
-
   for (const lv of levels) {
     const tickAlpha = lv.alpha * 160;
     const labelAlpha = lv.alpha * 200;
@@ -4332,60 +4897,49 @@ function drawYLabelsOnCurve(yAtX) {
       const s = worldToScreen(x, y);
       if (s.x < -20 || s.x > width + 20 || s.y < -20 || s.y > height + 20) continue;
 
-      // Small horizontal tick through the curve point
-      stroke(...tickBaseCol, tickAlpha);
-      strokeWeight(1);
-      line(s.x - 5, s.y, s.x + 5, s.y);
-
-      // Label
-      noStroke();
-      fill(...labelBaseCol, labelAlpha);
-      textAlign(LEFT, BOTTOM);
-      text(formatNumber(y), s.x + 7, s.y - 3);
+      // Smart placement: nudge label away from curve (above if curve going up-right, else below)
+      const aboveY = s.y - 5;
+      const belowY = s.y + 16;
+      const useAbove = aboveY > 10;
+      drawGlassLabel(formatNumber(y),
+        s.x, useAbove ? aboveY : belowY,
+        { col: yCol, alpha: labelAlpha, align: "center", baseline: useAbove ? "bottom" : "top", size: 11 });
     }
   }
   pop();
 }
 
 /**
- * When x-axis is hidden, show x-value labels at each grid point along the curve.
- * Analogous to drawYLabelsOnCurve but shows x values instead of y values.
+ * When x-axis is hidden, show x-value labels along the y=x identity line.
+ * For each x grid point, places the x-value label at (x, x) on the y=x diagonal.
  */
-function drawXLabelsOnCurve(yAtX) {
+function drawXLabelsOnCurve() {
   if (!state.fn) return;
   const { minX, maxX } = getVisibleWorldBounds();
-  const levels = getGridLevels();
+  // In discrete modes, always use decimal grid levels (pixels are at decimal positions)
+  let levels = isDiscreteAny() ? getYGridLevels() : getGridLevels();
+  if (isDiscreteAny()) {
+    const { xStep } = getDiscreteStep();
+    levels = levels.filter(lv => lv.step >= xStep - 1e-9);
+  }
+  const xCol = getStepColor("x");
+  const eS = (isDiscreteAny() && state.tauMode) ? 2 * Math.PI : 1;
 
   push();
-  textFont("ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace");
-  textSize(11);
-
-  const tickBaseCol = state.lightMode ? [30, 35, 50] : [230, 240, 255];
-  const labelBaseCol = state.lightMode ? [30, 35, 50] : [230, 240, 255];
-
   for (const lv of levels) {
     const tickAlpha = lv.alpha * 160;
     const labelAlpha = lv.alpha * 200;
     if (tickAlpha < 1) continue;
 
     for (let x = Math.floor(minX / lv.step) * lv.step; x <= maxX; x += lv.step) {
-      let y;
-      try { y = yAtX(x); } catch { continue; }
-      if (!Number.isFinite(y)) continue;
+      // Plot on the y=x identity line at (x, x*eS) — eS adjusts for tau eval scaling
+      const s = worldToScreen(x, x * eS);
+      if (s.x < -40 || s.x > width + 40 || s.y < -20 || s.y > height + 20) continue;
 
-      const s = worldToScreen(x, y);
-      if (s.x < -20 || s.x > width + 20 || s.y < -20 || s.y > height + 20) continue;
-
-      // Small vertical tick through the curve point
-      stroke(...tickBaseCol, tickAlpha);
-      strokeWeight(1);
-      line(s.x, s.y - 5, s.x, s.y + 5);
-
-      // x-value label
-      noStroke();
-      fill(...labelBaseCol, labelAlpha);
-      textAlign(LEFT, TOP);
-      text(formatXLabel(x), s.x + 5, s.y + 5);
+      // Place x-value label below the identity line
+      drawGlassLabel(formatXLabel(x * eS),
+        s.x, s.y + 5,
+        { col: xCol, alpha: labelAlpha, align: "center", baseline: "top", size: 11 });
     }
   }
   pop();
@@ -4551,7 +5105,7 @@ function drawDeltaCurveAndArrows() {
 }
 
 function drawNumberLinesAndArrows() {
-  const showTicks = state.toggles.grid;
+  const showTicks = state.toggles.xgrid;
   const { minX, maxX } = getVisibleWorldBounds();
   const majorStep = getMajorStepWorld();
   const steps = state.steps;
@@ -4668,28 +5222,22 @@ function drawNumberLinesAndArrows() {
     }
   }
 
-  // Draw tick labels
-  if (showTicks) {
-    textFont("ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace");
-    textSize(12);
-    noStroke();
-
-    const labelBaseCol = state.lightMode ? [30, 35, 50] : [230, 240, 255];
+  // Draw tick labels with glass backgrounds
+  if (showTicks && state.toggles.xlabels) {
     const levels = getGridLevels();
+    const xColNL = getStepColor("x");
 
     for (const lv of levels) {
       const labelAlpha = lv.alpha * 190;
       if (labelAlpha < 1) continue;
-      fill(...labelBaseCol, labelAlpha);
 
       for (let x = Math.floor(minX / lv.step) * lv.step; x <= maxX; x += lv.step) {
         for (let j = 0; j < opNumLines; j++) {
           const p = xOnLine(x, j);
           if (p.x < -60 || p.x > width + 60 || p.y < -60 || p.y > height + 60) continue;
-          push();
-          textAlign(LEFT, j === 0 ? TOP : BOTTOM);
-          text(formatXLabel(x), p.x + perp.x * 8 + 2, p.y + perp.y * 8 + (j === 0 ? 2 : -2));
-          pop();
+          drawGlassLabel(formatXLabel(x),
+            p.x + perp.x * 8, p.y + perp.y * 8 + (j === 0 ? 2 : -2),
+            { col: xColNL, alpha: labelAlpha, align: "center", baseline: j === 0 ? "top" : "bottom", size: 11 });
         }
       }
     }
@@ -4795,9 +5343,11 @@ function draw() {
   // Determine effective visibility: ON if toggle is on, OR hovering an OFF toggle (preview)
   // But only preview if the toggle was already OFF (not just turned off by clicking)
   function shouldPreview(key) {
-    return hov === key && !state.toggles[key] && !state.toggleJustTurnedOff[key];
+    const hovSet = Array.isArray(hov) ? hov : (hov ? [hov] : []);
+    return hovSet.includes(key) && !state.toggles[key] && !state.toggleJustTurnedOff[key];
   }
-  const showGrid = state.toggles.grid || shouldPreview("grid");
+  const showXGrid = state.toggles.xgrid || shouldPreview("xgrid");
+  const showYGrid = state.toggles.ygrid || shouldPreview("ygrid");
   const showXAxis = state.toggles.xaxis || shouldPreview("xaxis");
   const showYAxis = state.toggles.yaxis || shouldPreview("yaxis");
   const showArrows = state.toggles.arrows || shouldPreview("arrows");
@@ -4806,15 +5356,20 @@ function draw() {
 
   // Temporarily override toggles so all drawing functions respect hover previews
   const savedToggles = { ...state.toggles };
-  state.toggles.grid = showGrid;
+  state.toggles.xgrid = showXGrid;
+  state.toggles.ygrid = showYGrid;
   state.toggles.xaxis = showXAxis;
   state.toggles.yaxis = showYAxis;
   state.toggles.arrows = showArrows;
   state.toggles.intermediates = showIntermediates;
   state.toggles.starbursts = showStarbursts;
+  // Label toggle previews
+  if (shouldPreview("xlabels")) state.toggles.xlabels = true;
+  if (shouldPreview("ylabels")) state.toggles.ylabels = true;
 
-  // Sync x-axis toggle with stepEyes.x so all renderers respect it
-  state.stepEyes.x = showXAxis;
+  // Note: state.stepEyes.x is NOT synced with the x-axis toggle.
+  // The x-axis toggle controls only the axis line and its labels.
+  // The y=x identity curve is controlled separately by stepEyes.x (via the eye button).
 
   if (state.mode === "numberLines") {
     // Number lines mode uses its own horizontal layout but respects rotation for worldToScreen
@@ -4824,16 +5379,24 @@ function draw() {
     drawDiscreteScene();
     // Still draw axis labels (but not lines/ticks — handled by drawAxesAndLabels guards)
     drawAxesAndLabels(getMajorStepWorld());
+    // Curve labels when axes are hidden
+    const _eS1 = state.tauMode ? 2 * Math.PI : 1;
+    const yFnDisc = state.mode === "delta" ? (x) => { const ex = x * _eS1; return state.fn(ex) - ex; } : (x) => state.fn(x * _eS1);
+    if (state.toggles.ylabels && state.fn) drawYLabelsOnCurve(yFnDisc);
+    if (state.toggles.xlabels && state.fn) drawXLabelsOnCurve();
   } else if (state.discreteMode === "discreteX") {
     // Discrete X mode: x is discretized, y is continuous (horizontal bars)
     drawDiscreteXScene();
     drawAxesAndLabels(getMajorStepWorld());
+    // Curve labels
+    const _eS2 = state.tauMode ? 2 * Math.PI : 1;
+    const yFnDiscX = state.mode === "delta" ? (x) => { const ex = x * _eS2; return state.fn(ex) - ex; } : (x) => state.fn(x * _eS2);
+    if (state.toggles.ylabels && state.fn) drawYLabelsOnCurve(yFnDiscX);
+    if (state.toggles.xlabels && state.fn) drawXLabelsOnCurve();
   } else {
     // Grid lines glow on grid hover; axes drawn separately (y-axis has own glow)
-    if (showGrid) {
-      glowOn("grid");
+    if (showXGrid || showYGrid) {
       drawGridLines();
-      glowOff();
     }
     drawAxesAndLabels(getMajorStepWorld());
 
@@ -4850,10 +5413,10 @@ function draw() {
       glowOff();
 
       glowOn("yaxis");
-      if (!showYAxis) drawYLabelsOnCurve((x) => state.fn(x) - x);
+      if (state.toggles.ylabels) drawYLabelsOnCurve((x) => state.fn(x) - x);
       glowOff();
 
-      if (!showXAxis) drawXLabelsOnCurve((x) => state.fn(x) - x);
+      if (state.toggles.xlabels) drawXLabelsOnCurve();
     } else {
       glowOn("intermediates");
       if (showIntermediates) {
@@ -4871,10 +5434,10 @@ function draw() {
       glowOff();
 
       glowOn("yaxis");
-      if (!showYAxis) drawYLabelsOnCurve((x) => state.fn(x));
+      if (state.toggles.ylabels) drawYLabelsOnCurve((x) => state.fn(x));
       glowOff();
 
-      if (!showXAxis) drawXLabelsOnCurve((x) => state.fn(x));
+      if (state.toggles.xlabels) drawXLabelsOnCurve();
     }
   }
 
@@ -4891,6 +5454,8 @@ function draw() {
     if (isDiscreteAny()) {
       const { xStep } = getDiscreteStep();
       liveX = Math.round(liveX / xStep) * xStep;
+      // In tau mode, scale visual position → eval x for function evaluation & display
+      if (state.tauMode) liveX = liveX * (2 * Math.PI);
     }
     updateLiveOpValues(liveX);
   } else {

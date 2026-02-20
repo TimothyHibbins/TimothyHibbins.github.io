@@ -77,12 +77,17 @@
   </div>
 
   <header class="topbar">
+    <div class="brand-logo">
+      <div class="brand-logo__main">EARTH<br>INSTRUMENTS</div>
+      <div class="brand-logo__sub">EI-<em>q</em>riosity CXI</div>
+    </div>
     <form class="controls" id="controls" autocomplete="off">
       <!-- Expression input fused with plot button -->
       <div class="expr-group">
         <label class="control control--expr">
           <span class="control__label"><span class="control__label-y">y</span> = </span>
-          <input id="expr" class="control__input" type="text" inputmode="text" spellcheck="false" value="sin(x)" />
+          <input id="expr" class="control__input" type="text" inputmode="text" spellcheck="false"
+            value="sin(x - t) * 5" />
         </label>
       </div>
 
@@ -121,33 +126,38 @@
         <div class="section-label" id="step-rep-label">Sequence of Operations</div>
         <div id="step-rep" class="step-rep step-rep--empty" aria-label="Parsed expression steps"></div>
       </div>
-      <div class="toolbox-wrapper">
-        <div class="section-label">Operator Toolbox</div>
-        <div class="toolbox" id="toolbox">
-          <div class="toolbox__row">
-            <div class="toolbox__item" data-tool="add" data-cat="arith">+</div>
-            <div class="toolbox__item" data-tool="mul" data-cat="arith">×</div>
-            <div class="toolbox__item" data-tool="power" data-cat="exp">x^n</div>
-            <div class="toolbox__item" data-tool="basePow" data-cat="exp">b^x</div>
-            <div class="toolbox__item" data-tool="exp" data-cat="exp">eˣ</div>
-            <div class="toolbox__item" data-tool="sin" data-cat="trig">sin</div>
-            <div class="toolbox__item" data-tool="cos" data-cat="trig">cos</div>
-            <div class="toolbox__item" data-tool="tan" data-cat="trig">tan</div>
-            <div class="toolbox__item" data-tool="ceil" data-cat="misc">⌈x⌉</div>
-            <div class="toolbox__item" data-tool="abs" data-cat="misc">|x|</div>
-          </div>
-          <div class="toolbox__row">
-            <div class="toolbox__item" data-tool="sub" data-cat="arith">−</div>
-            <div class="toolbox__item" data-tool="div" data-cat="arith">/</div>
-            <div class="toolbox__item" data-tool="root" data-cat="exp">ⁿ√x</div>
-            <div class="toolbox__item" data-tool="log10" data-cat="exp">log</div>
-            <div class="toolbox__item" data-tool="ln" data-cat="exp">ln</div>
-            <div class="toolbox__item" data-tool="asin" data-cat="trig">asin</div>
-            <div class="toolbox__item" data-tool="acos" data-cat="trig">acos</div>
-            <div class="toolbox__item" data-tool="atan" data-cat="trig">atan</div>
-            <div class="toolbox__item" data-tool="floor" data-cat="misc">⌊x⌋</div>
-            <div class="toolbox__item" data-tool="round" data-cat="misc">rnd</div>
-          </div>
+    </div>
+    <div class="toolbox-wrapper">
+      <div class="section-label">Operator Toolbox</div>
+      <div class="toolbox" id="toolbox">
+        <div class="toolbox__row">
+          <div class="toolbox__item" data-tool="sin" data-cat="trig">sin</div>
+          <div class="toolbox__item" data-tool="cos" data-cat="trig">cos</div>
+          <div class="toolbox__item" data-tool="tan" data-cat="trig">tan</div>
+          <div class="toolbox__item" data-tool="ceil" data-cat="misc">⌈x⌉</div>
+          <div class="toolbox__item" data-tool="abs" data-cat="misc">|x|</div>
+        </div>
+        <div class="toolbox__row">
+          <div class="toolbox__item" data-tool="asin" data-cat="trig">asin</div>
+          <div class="toolbox__item" data-tool="acos" data-cat="trig">acos</div>
+          <div class="toolbox__item" data-tool="atan" data-cat="trig">atan</div>
+          <div class="toolbox__item" data-tool="floor" data-cat="misc">⌊x⌋</div>
+          <div class="toolbox__item" data-tool="round" data-cat="misc">rnd</div>
+        </div>
+        <div class="toolbox__row">
+          <div class="toolbox__item" data-tool="add" data-cat="arith">+</div>
+          <div class="toolbox__item" data-tool="mul" data-cat="arith">×</div>
+          <div class="toolbox__item" data-tool="power" data-cat="exp">x^n</div>
+          <div class="toolbox__item" data-tool="basePow" data-cat="exp">b^x</div>
+          <div class="toolbox__item" data-tool="exp" data-cat="exp">eˣ</div>
+        </div>
+        <div class="toolbox__row">
+          <div class="toolbox__item" data-tool="sub" data-cat="arith">−</div>
+          <div class="toolbox__item" data-tool="div" data-cat="arith">/</div>
+          <div class="toolbox__item" data-tool="root" data-cat="exp">ⁿ√x</div>
+          <div class="toolbox__item" data-tool="log10" data-cat="exp">log</div>
+          <div class="toolbox__item" data-tool="ln" data-cat="exp">ln</div>
+          <div class="toolbox__item" data-tool="mod" data-cat="arith">mod</div>
         </div>
       </div>
     </div>
@@ -165,8 +175,9 @@
         <button type="button" class="mode-btn" data-mode="numberLines">Parallel</button>
       </div>
       <div class="mode-toggle__buttons rot-toggle" id="rot-toggle" role="group" aria-label="Axis rotation">
-        <button type="button" class="mode-btn mode-btn--active" data-rot="0" title="Horizontal x-axis (0°)">—</button>
-        <button type="button" class="mode-btn" data-rot="-1.5707963267948966" title="Vertical x-axis (90°)">|</button>
+        <button type="button" class="mode-btn" data-rot="0" title="Horizontal x-axis (0°)">—</button>
+        <button type="button" class="mode-btn mode-btn--active" data-rot="-1.5707963267948966"
+          title="Vertical x-axis (90°)">|</button>
         <button type="button" class="mode-btn" data-rot="0.7853981633974483" title="Diagonal x-axis (45°)">⟋</button>
       </div>
       <div class="mode-toggle__buttons" role="group" aria-label="Tau mode">
@@ -175,13 +186,14 @@
       <div class="mode-toggle__buttons" role="group" aria-label="Discrete mode">
         <button type="button" class="mode-btn discrete-btn" data-discrete="continuous"
           title="Continuous (smooth curves)">∿</button>
-        <button type="button" class="mode-btn discrete-btn" data-discrete="discreteX"
+        <button type="button" class="mode-btn discrete-btn mode-btn--active" data-discrete="discreteX"
           title="Discrete X (horizontal bars at continuous Y)">⫞</button>
-        <button type="button" class="mode-btn discrete-btn mode-btn--active" data-discrete="discrete"
+        <button type="button" class="mode-btn discrete-btn" data-discrete="discrete"
           title="Fully discrete (pixelated)">▦</button>
       </div>
       <div class="mode-toggle__buttons" role="group" aria-label="Glow curves">
-        <button type="button" class="mode-btn" id="glow-toggle" title="Toggle glowing thin curves">✦</button>
+        <button type="button" class="mode-btn mode-btn--active" id="glow-toggle"
+          title="Toggle glowing thin curves">glow</button>
       </div>
     </div>
     <!-- Toggle bar sits at bottom of graph -->
