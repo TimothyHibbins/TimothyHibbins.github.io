@@ -2316,11 +2316,11 @@ function initColorPicker() {
     if (_labHoverCurve) {
       let labelText = _labHoverCurve === 'frontier' ? 'Chromaticity frontier'
         : _labHoverCurve === 'dark' ? 'Dark frontier'
-        : _labHoverCurve === 'ideal' ? 'Ideal (out-of-gamut)'
-        : _labHoverCurve === 'closest' ? 'Closest to ideal'
-        : _labHoverCurve === 'maxchroma' ? 'Max chroma ring'
-        : _labHoverCurve === 'constchroma' ? 'Constant chroma ring'
-        : _labHoverCurve;
+          : _labHoverCurve === 'ideal' ? 'Ideal (out-of-gamut)'
+            : _labHoverCurve === 'closest' ? 'Closest to ideal'
+              : _labHoverCurve === 'maxchroma' ? 'Max chroma ring'
+                : _labHoverCurve === 'constchroma' ? 'Constant chroma ring'
+                  : _labHoverCurve;
       ctx.font = 'bold 13px -apple-system, sans-serif';
       ctx.fillStyle = 'rgba(255,255,255,0.95)';
       ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
@@ -5416,7 +5416,7 @@ class ScoresnakeChart {
 
           // console.log(`Drawing arrow from (${fromX}, ${fromY}) to (${toX}, ${toY})`);
 
-          drawArrow(fromX, fromY, toX, toY, 3);
+          // drawArrow(fromX, fromY, toX, toY, 3);
 
         }
 

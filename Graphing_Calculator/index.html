@@ -81,10 +81,9 @@
       <!-- Expression input fused with plot button -->
       <div class="expr-group">
         <label class="control control--expr">
-          <span class="control__label">y =</span>
+          <span class="control__label"><span class="control__label-y">y</span> = </span>
           <input id="expr" class="control__input" type="text" inputmode="text" spellcheck="false" value="sin(x)" />
         </label>
-        <button id="plot" class="btn btn--plot" type="button">Plot</button>
       </div>
 
       <!-- Info button (hidden until first plot) -->
@@ -107,41 +106,48 @@
         </div>
         <div class="help__title">Supported</div>
         <div class="help__small">
-          Operators <code>+ - * / ^</code>, parentheses, constants <code>pi</code>, <code>e</code>, and functions
+          Operators <code>+ - * / ^ %</code>, parentheses, constants <code>pi</code>, <code>e</code>,
+          parameter <code>t</code> (animatable), and functions
           <code>sin</code>, <code>cos</code>, <code>tan</code>, <code>asin</code>, <code>acos</code>, <code>atan</code>,
           <code>sqrt</code>, <code>abs</code>, <code>ln</code>, <code>log</code>, <code>exp</code>, <code>floor</code>,
-          <code>ceil</code>, <code>round</code>.
+          <code>ceil</code>, <code>round</code>, <code>mod</code>.
         </div>
         <div class="help__small">Tip: use <code>*</code> explicitly (e.g. <code>2*x</code>).</div>
       </div>
     </form>
 
     <div class="step-toolbox-row">
-      <div id="step-rep" class="step-rep step-rep--empty" aria-label="Parsed expression steps"></div>
-      <div class="toolbox" id="toolbox">
-        <div class="toolbox__row">
-          <div class="toolbox__item" data-tool="add" data-cat="arith">+</div>
-          <div class="toolbox__item" data-tool="mul" data-cat="arith">×</div>
-          <div class="toolbox__item" data-tool="power" data-cat="exp">x^n</div>
-          <div class="toolbox__item" data-tool="basePow" data-cat="exp">b^x</div>
-          <div class="toolbox__item" data-tool="exp" data-cat="exp">eˣ</div>
-          <div class="toolbox__item" data-tool="sin" data-cat="trig">sin</div>
-          <div class="toolbox__item" data-tool="cos" data-cat="trig">cos</div>
-          <div class="toolbox__item" data-tool="tan" data-cat="trig">tan</div>
-          <div class="toolbox__item" data-tool="ceil" data-cat="misc">⌈x⌉</div>
-          <div class="toolbox__item" data-tool="abs" data-cat="misc">|x|</div>
-        </div>
-        <div class="toolbox__row">
-          <div class="toolbox__item" data-tool="sub" data-cat="arith">−</div>
-          <div class="toolbox__item" data-tool="div" data-cat="arith">/</div>
-          <div class="toolbox__item" data-tool="root" data-cat="exp">ⁿ√x</div>
-          <div class="toolbox__item" data-tool="log10" data-cat="exp">log</div>
-          <div class="toolbox__item" data-tool="ln" data-cat="exp">ln</div>
-          <div class="toolbox__item" data-tool="asin" data-cat="trig">asin</div>
-          <div class="toolbox__item" data-tool="acos" data-cat="trig">acos</div>
-          <div class="toolbox__item" data-tool="atan" data-cat="trig">atan</div>
-          <div class="toolbox__item" data-tool="floor" data-cat="misc">⌊x⌋</div>
-          <div class="toolbox__item" data-tool="round" data-cat="misc">rnd</div>
+      <div class="step-rep-wrapper">
+        <div class="section-label" id="step-rep-label">Sequence of Operations</div>
+        <div id="step-rep" class="step-rep step-rep--empty" aria-label="Parsed expression steps"></div>
+      </div>
+      <div class="toolbox-wrapper">
+        <div class="section-label">Operator Toolbox</div>
+        <div class="toolbox" id="toolbox">
+          <div class="toolbox__row">
+            <div class="toolbox__item" data-tool="add" data-cat="arith">+</div>
+            <div class="toolbox__item" data-tool="mul" data-cat="arith">×</div>
+            <div class="toolbox__item" data-tool="power" data-cat="exp">x^n</div>
+            <div class="toolbox__item" data-tool="basePow" data-cat="exp">b^x</div>
+            <div class="toolbox__item" data-tool="exp" data-cat="exp">eˣ</div>
+            <div class="toolbox__item" data-tool="sin" data-cat="trig">sin</div>
+            <div class="toolbox__item" data-tool="cos" data-cat="trig">cos</div>
+            <div class="toolbox__item" data-tool="tan" data-cat="trig">tan</div>
+            <div class="toolbox__item" data-tool="ceil" data-cat="misc">⌈x⌉</div>
+            <div class="toolbox__item" data-tool="abs" data-cat="misc">|x|</div>
+          </div>
+          <div class="toolbox__row">
+            <div class="toolbox__item" data-tool="sub" data-cat="arith">−</div>
+            <div class="toolbox__item" data-tool="div" data-cat="arith">/</div>
+            <div class="toolbox__item" data-tool="root" data-cat="exp">ⁿ√x</div>
+            <div class="toolbox__item" data-tool="log10" data-cat="exp">log</div>
+            <div class="toolbox__item" data-tool="ln" data-cat="exp">ln</div>
+            <div class="toolbox__item" data-tool="asin" data-cat="trig">asin</div>
+            <div class="toolbox__item" data-tool="acos" data-cat="trig">acos</div>
+            <div class="toolbox__item" data-tool="atan" data-cat="trig">atan</div>
+            <div class="toolbox__item" data-tool="floor" data-cat="misc">⌊x⌋</div>
+            <div class="toolbox__item" data-tool="round" data-cat="misc">rnd</div>
+          </div>
         </div>
       </div>
     </div>
@@ -158,9 +164,35 @@
         <button type="button" class="mode-btn" data-mode="delta">Δ from x</button>
         <button type="button" class="mode-btn" data-mode="numberLines">Parallel</button>
       </div>
+      <div class="mode-toggle__buttons rot-toggle" id="rot-toggle" role="group" aria-label="Axis rotation">
+        <button type="button" class="mode-btn mode-btn--active" data-rot="0" title="Horizontal x-axis (0°)">—</button>
+        <button type="button" class="mode-btn" data-rot="-1.5707963267948966" title="Vertical x-axis (90°)">|</button>
+        <button type="button" class="mode-btn" data-rot="0.7853981633974483" title="Diagonal x-axis (45°)">⟋</button>
+      </div>
+      <div class="mode-toggle__buttons" role="group" aria-label="Tau mode">
+        <button type="button" class="mode-btn tau-toggle" id="tau-toggle" title="Toggle τ (tau) x-axis mode">τ</button>
+      </div>
+      <div class="mode-toggle__buttons" role="group" aria-label="Discrete mode">
+        <button type="button" class="mode-btn discrete-btn" data-discrete="continuous"
+          title="Continuous (smooth curves)">∿</button>
+        <button type="button" class="mode-btn discrete-btn" data-discrete="discreteX"
+          title="Discrete X (horizontal bars at continuous Y)">⫞</button>
+        <button type="button" class="mode-btn discrete-btn mode-btn--active" data-discrete="discrete"
+          title="Fully discrete (pixelated)">▦</button>
+      </div>
+      <div class="mode-toggle__buttons" role="group" aria-label="Glow curves">
+        <button type="button" class="mode-btn" id="glow-toggle" title="Toggle glowing thin curves">✦</button>
+      </div>
     </div>
     <!-- Toggle bar sits at bottom of graph -->
     <div class="graph-toggles" id="graph-toggles"></div>
+
+    <!-- Timeline control for t parameter (hidden until t is used in expression) -->
+    <div class="timeline-control" id="timeline-control" style="display: none;">
+      <button class="timeline-play-btn" id="timeline-play" title="Play / Pause">▶</button>
+      <input type="range" class="timeline-slider" id="timeline-slider" min="0" max="10" step="0.01" value="0">
+      <span class="timeline-value" id="timeline-value">t = 0.00</span>
+    </div>
 
     <!-- Fullscreen button -->
     <button class="fullscreen-btn" id="fullscreen-btn" title="Toggle fullscreen" aria-label="Toggle fullscreen">
