@@ -2030,7 +2030,7 @@ function renderStepRepresentation() {
         slideActive = false;
         slideDirection = null;
         valRow.classList.remove("op-block__val--sliding");
-        try { valRow.releasePointerCapture(e.pointerId); } catch {}
+        try { valRow.releasePointerCapture(e.pointerId); } catch { }
         // Trigger swap
         const swapped = swapOp(state.ops[opIdx]);
         if (swapped) {
@@ -3560,7 +3560,7 @@ function setupFullscreenButton() {
         window.scrollTo(0, 1);
       });
     } else {
-      exitFS().catch(() => {});
+      exitFS().catch(() => { });
     }
   });
 
@@ -3747,7 +3747,7 @@ function setupSettingsGear() {
     state.bgColor = col || null;
     if (col) {
       // Parse hex to RGB for canvas glass labels
-      const r = parseInt(col.slice(1,3),16), g = parseInt(col.slice(3,5),16), b = parseInt(col.slice(5,7),16);
+      const r = parseInt(col.slice(1, 3), 16), g = parseInt(col.slice(3, 5), 16), b = parseInt(col.slice(5, 7), 16);
       state.bgColorRGB = [r, g, b];
       // Only apply CSS overrides in light mode — dark mode uses its own palette
       if (state.lightMode) {
@@ -3904,7 +3904,7 @@ function buildToggleBar() {
         // Apply color from colorKey
         if (child.colorKey && userColors[child.colorKey]) {
           const hex = userColors[child.colorKey];
-          const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+          const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
           subBtn.style.setProperty('--sub-toggle-color', hex);
           subBtn.style.setProperty('--sub-toggle-bg', `rgba(${r},${g},${b},0.15)`);
           subBtn.style.setProperty('--sub-toggle-bg-light', `rgba(${r},${g},${b},0.12)`);
@@ -4036,7 +4036,7 @@ function setupMobileTogglePanel() {
 
           if (child.colorKey && userColors[child.colorKey]) {
             const hex = userColors[child.colorKey];
-            const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+            const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
             subBtn.style.setProperty('--sub-toggle-color', hex);
             subBtn.style.setProperty('--sub-toggle-bg', `rgba(${r},${g},${b},0.15)`);
             subBtn.style.setProperty('--sub-toggle-bg-light', `rgba(${r},${g},${b},0.12)`);
@@ -5093,9 +5093,9 @@ function drawDiscreteScene() {
   ctx.save();
   // Anisotropic transform: y-axis scaled by yRatio so pixel height matches text
   ctx.setTransform(
-    pd * view.scale * cosθ,               -pd * view.scale * sinθ,
-    -pd * view.scale * sinθ * yRatio,     -pd * view.scale * cosθ * yRatio,
-    pd * view.originX,                     pd * view.originY
+    pd * view.scale * cosθ, -pd * view.scale * sinθ,
+    -pd * view.scale * sinθ * yRatio, -pd * view.scale * cosθ * yRatio,
+    pd * view.originX, pd * view.originY
   );
 
   const { cellW, mx } = getDiscreteCellMetrics(xStep);
@@ -5112,9 +5112,9 @@ function drawDiscreteScene() {
     inR = bg[0]; inG = bg[1]; inB = bg[2];
     const mutedHex = getComputedStyle(document.body).getPropertyValue('--muted').trim();
     const m = mutedHex.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
-    gutR = m ? parseInt(m[1],16) : 90;
-    gutG = m ? parseInt(m[2],16) : 98;
-    gutB = m ? parseInt(m[3],16) : 120;
+    gutR = m ? parseInt(m[1], 16) : 90;
+    gutG = m ? parseInt(m[2], 16) : 98;
+    gutB = m ? parseInt(m[3], 16) : 120;
   } else {
     inR = 18; inG = 20; inB = 28;
     gutR = 0; gutG = 0; gutB = 0;
@@ -5431,8 +5431,8 @@ function drawDiscreteScene() {
 
     // Horizontal squeeze factors for compressed characters
     const MINUS_SQ = 0.55;
-    const DOT_SQ   = 0.35;
-    const DEC_SQ   = 0.85;
+    const DOT_SQ = 0.35;
+    const DEC_SQ = 0.85;
 
     // Centering correction
     const finalProbe = ctx.measureText('8');
@@ -5502,27 +5502,27 @@ function drawDiscreteScene() {
       if (dw > _maxDW) _maxDW = dw;
     }
     if (!state._numAtlas) {
-      state._numAtlas    = document.createElement('canvas');
+      state._numAtlas = document.createElement('canvas');
       state._numAtlasCtx = state._numAtlas.getContext('2d');
-      state._numTint     = document.createElement('canvas');
-      state._numTintCtx  = state._numTint.getContext('2d');
+      state._numTint = document.createElement('canvas');
+      state._numTintCtx = state._numTint.getContext('2d');
     }
     const aCvs = state._numAtlas, aCtx = state._numAtlasCtx;
-    const tCvs = state._numTint,  tCtx = state._numTintCtx;
+    const tCvs = state._numTint, tCtx = state._numTintCtx;
     const _nRows = rowCache.size;
     const _needH = _atlasRowDH * _nRows;
     if (aCvs.width < _maxDW || aCvs.height < _needH) {
-      aCvs.width  = Math.max(aCvs.width,  _maxDW);
+      aCvs.width = Math.max(aCvs.width, _maxDW);
       aCvs.height = Math.max(aCvs.height, _needH);
     }
     aCtx.clearRect(0, 0, _maxDW, _needH);
-    aCtx.font         = boldFont;
-    aCtx.textAlign    = 'center';
+    aCtx.font = boldFont;
+    aCtx.textAlign = 'center';
     aCtx.textBaseline = 'middle';
-    aCtx.fillStyle    = '#fff';
+    aCtx.fillStyle = '#fff';
     // Tint canvas must cover full atlas for batch tinting
     if (tCvs.width < _maxDW || tCvs.height < _needH) {
-      tCvs.width  = Math.max(tCvs.width,  _maxDW);
+      tCvs.width = Math.max(tCvs.width, _maxDW);
       tCvs.height = Math.max(tCvs.height, _needH);
     }
     const rowMeta = new Map();
@@ -5566,8 +5566,8 @@ function drawDiscreteScene() {
       if (!m) return;
       const srcY = m.ri * _atlasRowDH;
       ctx.drawImage(tCvs, 0, srcY, m.dw, _atlasRowDH,
-                    cx - m.tw / 2 - _PAD, cy + yShift - _atlasRowLH / 2,
-                    m.lw, _atlasRowLH);
+        cx - m.tw / 2 - _PAD, cy + yShift - _atlasRowLH / 2,
+        m.lw, _atlasRowLH);
     }
 
     // Build transform color map for inactive numerals
@@ -5613,7 +5613,7 @@ function drawDiscreteScene() {
       let fr, fg, fb;
       if (px.hasY) { fr = pR; fg = pG; fb = pB; }
       else { fr = px.r / px.count; fg = px.g / px.count; fb = px.b / px.count; }
-      if (glowTintN) { fr = fr*0.7+255*0.3; fg = fg*0.7+255*0.3; fb = fb*0.7+255*0.3; }
+      if (glowTintN) { fr = fr * 0.7 + 255 * 0.3; fg = fg * 0.7 + 255 * 0.3; fb = fb * 0.7 + 255 * 0.3; }
       const gBoost = gridBoostMap.get(px.ix) || 0;
       if (gBoost > 0) {
         const t = gBoost * 0.5;
@@ -5628,7 +5628,7 @@ function drawDiscreteScene() {
 
     // Collect all cells grouped by color (inactive first, active second for z-order)
     const inactiveBatches = new Map(); // colorKey → { r,g,b, cells:[] }
-    const activeBatches   = new Map();
+    const activeBatches = new Map();
 
     for (let ix = ix0; ix <= ix1; ix++) {
       for (let iy = iy0; iy <= iy1; iy++) {
@@ -5728,9 +5728,9 @@ function drawDiscreteXScene() {
     // Fill gutter background (muted/text color)
     const mutedHex = getComputedStyle(document.body).getPropertyValue('--muted').trim();
     const m = mutedHex.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
-    const gutR = m ? parseInt(m[1],16) : 90;
-    const gutG = m ? parseInt(m[2],16) : 98;
-    const gutB = m ? parseInt(m[3],16) : 120;
+    const gutR = m ? parseInt(m[1], 16) : 90;
+    const gutG = m ? parseInt(m[2], 16) : 98;
+    const gutB = m ? parseInt(m[3], 16) : 120;
     ctx.fillStyle = `rgb(${gutR},${gutG},${gutB})`;
     const gutLeft = ix0 * xStep - xStep / 2;
     const gutW = (ix1 - ix0 + 1) * xStep;
@@ -6092,8 +6092,8 @@ function drawDiscreteXScene() {
 
     // Horizontal squeeze factors for compressed characters
     const MINUS_SQ_DX = 0.55;
-    const DOT_SQ_DX   = 0.35;
-    const DEC_SQ_DX   = 0.85;
+    const DOT_SQ_DX = 0.35;
+    const DEC_SQ_DX = 0.85;
 
     const plotCol = getPlotColor();
     const pcR = red(plotCol), pcG = green(plotCol), pcB = blue(plotCol);
@@ -6150,7 +6150,7 @@ function drawDiscreteXScene() {
 
         const gBoost = gridBoostMap.get(ix) || 0;
         let fr = colR, fg = colG, fb = colB;
-        if (state.glowCurves) { fr = fr*0.7+255*0.3; fg = fg*0.7+255*0.3; fb = fb*0.7+255*0.3; }
+        if (state.glowCurves) { fr = fr * 0.7 + 255 * 0.3; fg = fg * 0.7 + 255 * 0.3; fb = fb * 0.7 + 255 * 0.3; }
         if (gBoost > 0) {
           const t = gBoost * 0.5;
           fr = fr + (255 - fr) * t; fg = fg + (255 - fg) * t; fb = fb + (255 - fb) * t;
@@ -6214,27 +6214,27 @@ function drawDiscreteXScene() {
         if (dw > _maxDW) _maxDW = dw;
       }
       if (!state._numAtlas) {
-        state._numAtlas    = document.createElement('canvas');
+        state._numAtlas = document.createElement('canvas');
         state._numAtlasCtx = state._numAtlas.getContext('2d');
-        state._numTint     = document.createElement('canvas');
-        state._numTintCtx  = state._numTint.getContext('2d');
+        state._numTint = document.createElement('canvas');
+        state._numTintCtx = state._numTint.getContext('2d');
       }
       const aCvs = state._numAtlas, aCtx = state._numAtlasCtx;
-      const tCvs = state._numTint,  tCtx = state._numTintCtx;
+      const tCvs = state._numTint, tCtx = state._numTintCtx;
       const _nTxt = uniqueTexts.size;
       const _needH = _rowDH * _nTxt;
       if (aCvs.width < _maxDW || aCvs.height < _needH) {
-        aCvs.width  = Math.max(aCvs.width,  _maxDW);
+        aCvs.width = Math.max(aCvs.width, _maxDW);
         aCvs.height = Math.max(aCvs.height, _needH);
       }
       aCtx.clearRect(0, 0, _maxDW, _needH);
-      aCtx.font         = boldFontDX;
-      aCtx.textAlign    = 'center';
+      aCtx.font = boldFontDX;
+      aCtx.textAlign = 'center';
       aCtx.textBaseline = 'middle';
-      aCtx.fillStyle    = '#fff';
+      aCtx.fillStyle = '#fff';
       // Tint canvas must cover full atlas for batch tinting
       if (tCvs.width < _maxDW || tCvs.height < _needH) {
-        tCvs.width  = Math.max(tCvs.width,  _maxDW);
+        tCvs.width = Math.max(tCvs.width, _maxDW);
         tCvs.height = Math.max(tCvs.height, _needH);
       }
       const txtMeta = new Map();
@@ -6279,8 +6279,8 @@ function drawDiscreteXScene() {
           if (!m) continue;
           const srcY = m.ri * _rowDH;
           ctx.drawImage(tCvs, 0, srcY, m.dw, _rowDH,
-                        d.cx - m.tw / 2 - _PAD_DX, d.cy - _rowLH / 2,
-                        m.lw, _rowLH);
+            d.cx - m.tw / 2 - _PAD_DX, d.cy - _rowLH / 2,
+            m.lw, _rowLH);
         }
       }
     }

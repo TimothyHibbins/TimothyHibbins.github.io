@@ -140,8 +140,7 @@
         </svg>
       </button>
       <!-- Mobile: collapse/expand bottom bar -->
-      <button class="topbar-collapse-btn" id="topbar-collapse-btn" type="button"
-        aria-label="Collapse/expand toolbar">
+      <button class="topbar-collapse-btn" id="topbar-collapse-btn" type="button" aria-label="Collapse/expand toolbar">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
           stroke-linecap="round" stroke-linejoin="round">
           <polyline points="6 9 12 15 18 9" />
@@ -303,7 +302,14 @@
 
     <!-- Timeline control for t parameter (hidden until t is used in expression) -->
     <div class="timeline-control" id="timeline-control" style="display: none;">
-      <button class="timeline-play-btn" id="timeline-play" title="Play / Pause"><svg class="play-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg><svg class="pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="5" y="3" width="4" height="18"/><rect x="15" y="3" width="4" height="18"/></svg></button>
+      <button class="timeline-play-btn" id="timeline-play" title="Play / Pause"><svg class="play-icon" width="14"
+          height="14" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5,3 19,12 5,21" />
+        </svg><svg class="pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"
+          style="display:none">
+          <rect x="5" y="3" width="4" height="18" />
+          <rect x="15" y="3" width="4" height="18" />
+        </svg></button>
       <input type="range" class="timeline-slider" id="timeline-slider" min="0" max="10" step="0.01" value="0">
       <span class="timeline-value" id="timeline-value">t = 0.00</span>
     </div>
