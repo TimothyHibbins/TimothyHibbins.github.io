@@ -1,5 +1,13 @@
 /* Minimal, readable styling — keep it easy to tweak. */
 
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('../Favicons/JetBrains_Mono/JetBrainsMono-VariableFont_wght.ttf') format('truetype');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #0b1020;
   --panel: #101a33;
@@ -10,7 +18,7 @@
   --shadow: rgba(0, 0, 0, 0.35);
   --btn: rgba(255, 255, 255, 0.12);
   --btnHover: rgba(255, 255, 255, 0.18);
-  --accent: #58a6ff;
+  --accent: #7a9dd4;
   --danger: #ff6b6b;
   --topbar-bg: linear-gradient(180deg, rgba(11, 16, 32, 0.92) 0%, rgba(11, 16, 32, 0.78) 100%);
   --body-bg: #0b1020;
@@ -18,13 +26,14 @@
   --help-bg: rgba(16, 26, 51, 0.55);
   --code-color: #eaf2ff;
   --settings-menu-bg: rgba(16, 26, 51, 0.95);
+  --glass-bg: rgba(0, 0, 0, 0.35);
   --settings-hover: rgba(255, 255, 255, 0.08);
   --settings-active: rgba(255, 255, 255, 0.15);
   --separator: rgba(255, 255, 255, 0.13);
   --swatch-border: rgba(255, 255, 255, 0.4);
-  --toggle-active-bg: rgba(70, 130, 220, 0.4);
-  --toggle-active-color: #e8f1ff;
-  --toggle-glow-bg: rgba(70, 130, 220, 0.15);
+  --toggle-active-bg: rgba(90, 125, 190, 0.4);
+  --toggle-active-color: #d8e4f8;
+  --toggle-glow-bg: rgba(90, 125, 190, 0.15);
 }
 
 /* ---- Light mode ---- */
@@ -38,21 +47,22 @@ body.light {
   --shadow: rgba(0, 0, 0, 0.1);
   --btn: rgba(0, 0, 0, 0.07);
   --btnHover: rgba(0, 0, 0, 0.12);
-  --accent: #2563eb;
+  --accent: #4a5a9e;
   --danger: #dc2626;
   --topbar-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(245, 246, 250, 0.9) 100%);
   --body-bg: #f5f6fa;
   --canvas-bg: rgba(255, 255, 255, 0.6);
   --help-bg: rgba(255, 255, 255, 0.75);
-  --code-color: #1e40af;
+  --code-color: #2e3a7a;
   --settings-menu-bg: #ffffff;
+  --glass-bg: rgba(255, 255, 255, 0.55);
   --settings-hover: rgba(0, 0, 0, 0.05);
   --settings-active: rgba(0, 0, 0, 0.1);
   --separator: rgba(0, 0, 0, 0.13);
   --swatch-border: rgba(0, 0, 0, 0.2);
-  --toggle-active-bg: rgba(37, 99, 235, 0.2);
-  --toggle-active-color: #1e40af;
-  --toggle-glow-bg: rgba(37, 99, 235, 0.08);
+  --toggle-active-bg: rgba(60, 75, 140, 0.22);
+  --toggle-active-color: #2e3a6e;
+  --toggle-glow-bg: rgba(60, 75, 140, 0.1);
 }
 
 html,
@@ -293,7 +303,7 @@ code {
   left: 0;
   right: 0;
   z-index: 10;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: none;
@@ -306,7 +316,7 @@ code {
 }
 
 body.light .topbar {
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--glass-bg);
 }
 
 body.light .section-label {
@@ -367,7 +377,7 @@ body.light .reset-overlay {
   outline: none;
   color: var(--text);
   min-width: 180px;
-  width: 180px;
+  width: auto;
   flex-shrink: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   font-size: 0.98rem;
@@ -837,12 +847,12 @@ body.light .op-block--misc {
   border-radius: 999px;
   overflow: hidden;
   border: 1px solid var(--border);
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--glass-bg);
   backdrop-filter: blur(6px);
 }
 
 body.light .mode-toggle__buttons {
-  background: rgba(255, 255, 255, 0.65);
+  background: var(--glass-bg);
 }
 
 .mode-btn {
@@ -875,7 +885,7 @@ body.light .mode-toggle__buttons {
   align-items: center;
   gap: 10px;
   padding: 7px 16px;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-radius: 10px;
@@ -887,7 +897,7 @@ body.light .mode-toggle__buttons {
 }
 
 body.light .timeline-control {
-  background: rgba(255, 255, 255, 0.60);
+  background: var(--glass-bg);
 }
 
 .timeline-play-btn {
@@ -980,13 +990,13 @@ body.light .timeline-slider {
   justify-content: center;
   gap: 6px;
   padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--glass-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
 
 body.light .graph-toggles {
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--glass-bg);
 }
 
 .graph-toggles-label {
@@ -997,28 +1007,63 @@ body.light .graph-toggles {
   padding: 0 2px;
 }
 
+/* Toggle groups — outer rectangle IS the parent button */
 .toggle-group {
   display: flex;
   align-items: center;
-  gap: 2px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  padding: 2px;
+  gap: 4px;
+  /* inherits .graph-toggle-btn styling (border, border-radius, padding, etc.) */
+  padding-right: 3px;
 }
 
 body.light .toggle-group {
-  border-color: rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 0, 0, 0.12);
 }
 
-.toggle-group__parent {
+.toggle-group__label {
   font-weight: 600;
+  pointer-events: none;       /* clicks pass through to the group div */
+}
+
+.toggle-group__subs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Sub-buttons: small inset rectangles inside the parent */
+.toggle-group__sub {
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+body.light .toggle-group__sub {
+  border-color: rgba(0, 0, 0, 0.1);
+  background: var(--body-bg);
+}
+
+.toggle-group__sub--on {
+  background: var(--sub-toggle-bg, var(--toggle-active-bg));
+  color: var(--sub-toggle-color, var(--toggle-active-color));
+  border-color: rgba(70, 130, 220, 0.35);
+}
+
+body.light .toggle-group__sub--on {
+  background: var(--sub-toggle-bg-light, var(--toggle-active-bg));
 }
 
 .graph-toggle-btn--partial {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.15);
-  opacity: 0.7;
+  background: var(--toggle-glow-bg);
+  border-color: rgba(70, 130, 220, 0.25);
+  opacity: 0.8;
 }
 
 .graph-toggle-btn {
@@ -1046,31 +1091,17 @@ body.light .graph-toggle-btn {
 }
 
 .graph-toggle-btn--on {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.25);
+  color: var(--toggle-active-color);
+  background: var(--toggle-active-bg);
+  border-color: rgba(70, 130, 220, 0.5);
 }
 
 body.light .graph-toggle-btn--on {
-  background: rgba(0, 0, 0, 0.06);
-  border-color: rgba(0, 0, 0, 0.2);
+  background: var(--toggle-active-bg);
+  border-color: rgba(37, 99, 235, 0.35);
 }
 
-.toggle-group__sub {
-  font-size: 0.68rem;
-  padding: 2px 6px;
-  min-width: auto;
-}
-
-.toggle-group__sub.graph-toggle-btn--on {
-  background: var(--sub-toggle-bg, rgba(255, 255, 255, 0.08));
-  border-color: var(--sub-toggle-color, rgba(255, 255, 255, 0.25));
-  color: var(--sub-toggle-color, var(--text));
-}
-
-body.light .toggle-group__sub.graph-toggle-btn--on {
-  background: var(--sub-toggle-bg-light, rgba(0, 0, 0, 0.06));
-}
+/* (sub-button styles moved into toggle-group section above) */
 
 /* ---- Reset overlay inside toggle bar (absolute to preserve centering) ---- */
 .reset-overlay {
@@ -1107,8 +1138,30 @@ body.light .toggle-group__sub.graph-toggle-btn--on {
   font-size: 0;
 }
 
+body.mobile .canvas-wrap {
+  touch-action: none;
+  -webkit-overflow-scrolling: touch;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  /* Use dynamic viewport height where supported (avoids address bar overlap) */
+  height: 100dvh;
+}
+
+body.mobile {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
 .canvas-wrap canvas {
   display: block;
+  /* Prevent bright flash before first draw() frame */
+  background-color: #0a0e1c;
+}
+
+body.light .canvas-wrap canvas {
+  background-color: #f5f6fa;
 }
 
 .status {
@@ -1293,6 +1346,22 @@ body.light .op-block__delete {
   flex: 1;
 }
 
+/* Portrait/landscape rows are mobile-only — hide on desktop */
+.toolbox__row--portrait,
+.toolbox__row--landscape {
+  display: none;
+}
+
+/* Mode dropdown trigger is mobile-only — hide on desktop */
+.mode-dropdown-trigger {
+  display: none;
+}
+
+/* On desktop the mode-dropdown-list should be transparent so buttons flow inline */
+.mode-dropdown-list {
+  display: contents;
+}
+
 .toolbox__item {
   display: flex;
   align-items: center;
@@ -1331,6 +1400,11 @@ body.light .toolbox__item:hover {
 /* ---- Drag cursor for op values ---- */
 .op-block__val {
   cursor: ew-resize;
+}
+
+/* ---- Pseudo-fullscreen prompt — mobile only, hidden by default ---- */
+.pseudofs-btn {
+  display: none;
 }
 
 /* ---- Fullscreen button ---- */
@@ -1389,4 +1463,642 @@ body.light .toolbox__item:hover {
   .toolbox {
     align-items: center;
   }
+}
+
+/* ---- Mobile layout ---- */
+@media (max-width: 600px), (hover: none) and (pointer: coarse) {
+  .topbar {
+    padding: 6px 8px 6px 8px;
+    gap: 4px;
+    flex-direction: column;
+    align-items: stretch;
+    top: auto;
+    bottom: 0;
+    transition: transform 0.3s ease;
+  }
+
+  .topbar.collapsed .step-rep-wrapper,
+  .topbar.collapsed .step-eye-mode-btn,
+  .topbar.collapsed .toolbox-wrapper {
+    display: none;
+  }
+
+  /* Hide standalone eye icons below boxes on mobile — eye-mode replaces them */
+  .step-col > .eye-btn {
+    display: none;
+  }
+
+  /* Step eye-mode toggle button in topbar */
+  .step-eye-mode-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 8px;
+    min-width: 40px;
+    min-height: 40px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .step-eye-mode-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .step-eye-mode-btn.active {
+    color: var(--text);
+    border-color: var(--toggle-active-border);
+    background: var(--toggle-active-bg, rgba(255,255,255,0.12));
+  }
+
+  .step-toolbox-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Collapse button in step-toolbox-row */
+  .step-toolbox-row > .topbar-collapse-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    padding: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: transform 0.2s, color 0.15s, background 0.15s;
+  }
+
+  .topbar.collapsed .topbar-collapse-btn {
+    transform: rotate(180deg);
+  }
+
+  .brand-logo {
+    display: none;
+  }
+
+  /* Graph toggles replaced by eye-icon pop-out */
+  .graph-toggles {
+    display: none;
+  }
+
+  .controls {
+    gap: 6px;
+  }
+
+  .control {
+    padding: 6px 8px;
+  }
+
+  .control__input {
+    min-width: 0;
+    width: 100%;
+    font-size: 0.9rem;
+  }
+
+  .expr-group {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .expr-group .control--expr {
+    width: 100%;
+  }
+
+  .step-toolbox-row {
+    flex-direction: row;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .step-toolbox-row .step-rep-wrapper {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  .step-rep {
+    padding: 4px 0 2px 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .step-endpoint {
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    min-height: 52px;
+    max-height: 52px;
+  }
+
+  .op-block {
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    min-height: 52px;
+    max-height: 52px;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .step-arrows-col {
+    min-width: 14px;
+    height: calc(52px + 2px);
+    margin: 0;
+  }
+
+  .connector-fwd,
+  .connector-inv {
+    height: calc(52px / 3);
+    margin-left: -2px;
+    margin-right: -2px;
+  }
+
+  .connector-fwd svg,
+  .connector-inv svg {
+    width: 8px;
+    height: 8px;
+  }
+
+  .op-block__fwd,
+  .op-block__inv {
+    font-size: 0.58rem;
+  }
+
+  .op-block__val {
+    font-size: 0.68rem;
+  }
+
+  .toolbox-wrapper {
+    position: static;
+    transform: none;
+    align-items: stretch;
+  }
+
+  .toolbox {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 3px;
+    justify-content: center;
+  }
+
+  /* Desktop rows hidden on mobile */
+  .toolbox__row--desktop {
+    display: none !important;
+  }
+
+  /* Toolbox rows: display as flex rows filling full width */
+  .toolbox__row--portrait,
+  .toolbox__row--landscape {
+    display: flex;
+    gap: 3px;
+  }
+
+  .toolbox__row--portrait .toolbox__item,
+  .toolbox__row--landscape .toolbox__item {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 30px;
+    padding: 0 2px;
+    font-size: 0.65rem;
+    text-align: center;
+    justify-content: center;
+  }
+
+  /* Portrait: show 3-row layout, hide landscape */
+  .toolbox__row--landscape {
+    display: none !important;
+  }
+
+  .section-label {
+    display: none; /* hide section labels on mobile to save space */
+  }
+
+  /* Mode toggles: full-width glass bar just above bottom bar */
+  .mode-toggle-overlay {
+    position: fixed;
+    top: auto;
+    bottom: 0; /* will be pushed up by JS when topbar height is known */
+    left: 0;
+    right: 0;
+    transform: none;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: center;
+    align-items: center;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border);
+    z-index: 9;
+  }
+
+  body.light .mode-toggle-overlay {
+    background: rgba(255, 255, 255, 0.55);
+  }
+
+  .mode-toggle__buttons {
+    border-radius: 8px;
+  }
+
+  .mode-btn {
+    padding: 6px 10px;
+    font-size: 0.78rem;
+    min-height: 32px;
+  }
+
+  /* Mode dropdown: portrait mode shows dropdown trigger, hides inline buttons */
+  .mode-dropdown-trigger {
+    display: none; /* shown via portrait media query */
+    padding: 6px 10px;
+    font-size: 0.78rem;
+    min-height: 32px;
+    background: var(--glass-bg, rgba(255, 255, 255, 0.06));
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .mode-dropdown-list {
+    display: contents; /* inline by default = buttons visible */
+  }
+
+  /* Portrait-specific: convert mode buttons to dropdown */
+  @media (orientation: portrait) {
+    .mode-dropdown-trigger {
+      display: inline-flex;
+    }
+
+    .mode-dropdown-list {
+      display: none; /* hidden until opened */
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      background: var(--glass-bg, rgba(0, 0, 0, 0.7));
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 4px;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 130px;
+      z-index: 20;
+    }
+
+    body.light .mode-dropdown-list {
+      background: rgba(255, 255, 255, 0.85);
+    }
+
+    .mode-dropdown-list.open {
+      display: flex;
+    }
+
+    .mode-dropdown-wrap {
+      position: relative;
+    }
+  }
+
+  /* Landscape: show 2-row toolbox, hide 3-row */
+  @media (orientation: landscape) {
+    .toolbox__row--portrait {
+      display: none !important;
+    }
+
+    .toolbox__row--landscape {
+      display: flex !important;
+    }
+  }
+
+  /* Graph toggles: hidden on mobile (replaced by eye-icon panel) */
+
+  .toggle-group {
+    flex-shrink: 0;
+  }
+
+  /* Timeline: positioned above mode bar on mobile */
+  .timeline-control {
+    position: fixed;
+    bottom: 0; /* will be pushed up by JS */
+    top: auto;
+    left: 0;
+    right: 0;
+    transform: none;
+    padding: 8px 12px;
+    width: auto;
+    max-width: none;
+    z-index: 8;
+    border-radius: 0;
+    gap: 8px;
+    touch-action: auto; /* let browser handle slider touches natively */
+  }
+
+  .timeline-slider {
+    width: 100%;
+    flex: 1;
+    height: 8px;
+    touch-action: pan-x; /* allow horizontal scrub, block vertical scroll */
+  }
+
+  .timeline-slider::-webkit-slider-thumb {
+    width: 26px;
+    height: 26px;
+  }
+
+  .timeline-slider::-moz-range-thumb {
+    width: 26px;
+    height: 26px;
+  }
+
+  .timeline-play-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+
+  .timeline-value {
+    font-size: 0.75rem;
+    min-width: 60px;
+  }
+
+  /* Fullscreen button: hidden on iOS, elsewhere above mode bar */
+  .fullscreen-btn {
+    display: none;
+  }
+
+  /* HUD */
+  .graph-hud {
+    display: none;
+  }
+
+  /* Settings gear — top-left on mobile */
+  #settingsGear {
+    width: 28px;
+    height: 28px;
+    top: 8px;
+    bottom: auto;
+    left: 8px;
+    right: auto;
+  }
+
+  /* Bigger delete button for touch — hidden on mobile, replaced by drag-to-trash */
+  .op-block__delete {
+    display: none !important;
+  }
+
+  /* Swap button: hidden on mobile, replaced by swipe-down gesture */
+  .op-block__swap {
+    display: none !important;
+  }
+
+  /* Trash zone for drag-to-delete — overlays toolbox area at bottom */
+  .trash-zone {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 70px;
+    z-index: 9998;
+    display: none; /* shown by JS during drag */
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: rgba(200, 40, 40, 0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: background 0.15s, height 0.15s;
+  }
+
+  .trash-zone.visible {
+    display: flex;
+  }
+
+  .trash-zone.hovering {
+    background: rgba(220, 50, 50, 0.92);
+    height: 90px;
+  }
+
+  .trash-zone svg {
+    width: 24px;
+    height: 24px;
+    stroke: #fff;
+  }
+
+  /* Pseudo-fullscreen prompt button */
+  .pseudofs-btn {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 12;
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--glass-bg, rgba(0, 0, 0, 0.5));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: var(--text);
+    font-size: 0.8rem;
+    cursor: pointer;
+    display: none;
+    white-space: nowrap;
+  }
+
+  body.mobile .pseudofs-btn {
+    display: block;
+  }
+
+  .pseudofs-btn.hidden {
+    display: none !important;
+  }
+
+  /* Eye-toggle mode: boxes show centered eye icon */
+  .op-block--eye-mode,
+  .step-endpoint--eye-mode {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .op-block--eye-mode .eye-btn,
+  .step-endpoint--eye-mode .eye-btn {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+
+  .op-block--eye-mode .eye-btn svg,
+  .step-endpoint--eye-mode .eye-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* In eye mode, hide delete/swap buttons */
+  .op-block--eye-mode .op-block__delete,
+  .op-block--eye-mode .op-block__swap {
+    display: none !important;
+  }
+}
+
+/* Desktop: hide mobile-only elements */
+body:not(.mobile) .step-eye-mode-btn {
+  display: none;
+}
+body:not(.mobile) .trash-zone {
+  display: none;
+}
+body:not(.mobile) .topbar-collapse-btn {
+  display: none;
+}
+
+/* ---- iOS: hide fullscreen button (not supported) ---- */
+body.ios .fullscreen-btn {
+  display: none !important;
+}
+
+/* ---- Mobile: settings menu drops down from top-left ---- */
+body.mobile #settingsMenu {
+  top: 44px;
+  bottom: auto;
+  right: auto;
+  left: 8px;
+  transform-origin: top left;
+}
+
+/* ---- Hide toolbox/step-row when keyboard is up ---- */
+.toolbox-hidden {
+  display: none !important;
+}
+
+/* ---- Mobile visibility eye-icon pop-out ---- */
+.mobile-eye-toggle {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 12;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--glass-bg, rgba(0, 0, 0, 0.35));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--muted);
+  cursor: pointer;
+  display: none; /* shown via JS on mobile */
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+body.mobile .topbar {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+body.mobile .control__input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+body.mobile .mobile-eye-toggle {
+  display: flex;
+}
+
+.mobile-eye-toggle:hover,
+.mobile-eye-toggle.active {
+  color: var(--text);
+  border-color: var(--toggle-active-border);
+}
+
+.mobile-toggle-panel {
+  position: fixed;
+  top: 52px;
+  right: 8px;
+  z-index: 12;
+  background: var(--glass-bg, rgba(0, 0, 0, 0.6));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  max-height: calc(100dvh - 70px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+body.light .mobile-toggle-panel {
+  background: var(--glass-bg);
+}
+
+.mobile-toggle-panel.open {
+  display: flex;
+}
+
+.mobile-toggle-panel .graph-toggle-btn {
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  min-height: 40px;
+}
+
+.mobile-toggle-panel .toggle-group {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.mobile-toggle-panel .toggle-group__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.mobile-toggle-panel .toggle-group__sub {
+  font-size: 0.8rem;
+  padding: 6px 8px;
+  min-height: 36px;
+  flex: 1 1 calc(50% - 2px);
+  min-width: 0;
+  text-align: center;
+  justify-content: center;
+}
+
+.mobile-toggle-panel .graph-toggles-label {
+  font-size: 0.75rem;
+  padding-bottom: 2px;
 }

@@ -47,13 +47,15 @@ const state = {
   viewDirty: false, // true after pan/zoom
   lightMode: false,
   theme: "auto", // "light", "dark", "auto"
-  toggles: { xgrid: true, ygrid: true, xaxis: false, yaxis: false, arrows: true, intermediates: true, starbursts: true, xlabels: true, ylabels: true },
+  toggles: { xgrid: true, ygrid: true, xaxis: false, yaxis: false, arrows: true, intermediates: true, subintermediates: true, starbursts: true, xlabels: true, ylabels: true },
   glowCurves: true, // when true, curves are 1px bright with coloured glow (continuous/discreteX only)
   hoveredToggle: null, // which toggle key is being hovered (for glow effect)
   toggleJustTurnedOff: {}, // tracks toggles recently clicked OFF (prevents immediate hover preview)
   tauMode: false, // when true, x-axis is in τ units (1 τ = 2π)
   discreteMode: "discreteX", // "continuous", "discreteX", or "discrete"
+  numeralMode: true, // when true, discrete pixels show numeral values instead of solid fills
   stepEyes: { x: true, ops: [], y: true }, // per-step visibility (eye toggles)
+  stepEyeMode: false, // mobile: show eye toggles inside op boxes
   hoveredStep: null, // "x" | "op-0" | "op-1" | ... | "y" (for glow)
   statusText: "",
   statusKind: "info",
@@ -494,7 +496,7 @@ function drawAxesAndLabels(majorStep) {
   }
 }
 
-const MONO_FONT = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
+const MONO_FONT = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
 const SANS_FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
 
 function getLabelFont() {
@@ -563,9 +565,11 @@ function drawGlassLabel(txt, sx, sy, opts = {}) {
   const alphaFrac = a / 255;
   const bgBaseAlpha = state.lightMode ? 0.7 : 0.55;
   const bgAlpha = bgBaseAlpha * alphaFrac;
-  const bgR = state.lightMode ? 255 : 0;
-  const bgG = state.lightMode ? 255 : 0;
-  const bgB = state.lightMode ? 255 : 0;
+  // Use selected background color for glass panes in light mode, or defaults
+  const bgRGB = (state.lightMode && state.bgColorRGB) ? state.bgColorRGB : null;
+  const bgR = bgRGB ? bgRGB[0] : (state.lightMode ? 255 : 0);
+  const bgG = bgRGB ? bgRGB[1] : (state.lightMode ? 255 : 0);
+  const bgB = bgRGB ? bgRGB[2] : (state.lightMode ? 255 : 0);
 
   // Draw softened glass (blurred pass for frosted edges, then solid center)
   ctx.fillStyle = `rgba(${bgR},${bgG},${bgB},${bgAlpha * 0.5})`;
@@ -1759,6 +1763,8 @@ function updateInputOverlay() {
     ui.exprOverlay.innerHTML = "";
     if (controlEl) controlEl.classList.remove('has-overlay');
   }
+  // Re-measure input width now that overlay content has changed (may shrink)
+  autoSizeInput();
 }
 
 /** Tokenize raw input text and assign colors based on token type */
@@ -1934,8 +1940,11 @@ function renderStepRepresentation() {
     const col = document.createElement("div");
     col.className = "step-col";
     col.appendChild(element);
-    const eye = createEyeBtn(stepKey, isVisible);
-    col.appendChild(eye);
+    // In eye mode, the eye is inside the box; skip standalone eye below
+    if (!state.stepEyeMode) {
+      const eye = createEyeBtn(stepKey, isVisible);
+      col.appendChild(eye);
+    }
     // Hover: set hoveredStep for glow effect
     col.addEventListener("mouseenter", () => {
       state.hoveredStep = stepKey;
@@ -1949,15 +1958,22 @@ function renderStepRepresentation() {
   // x endpoint
   const xBox = document.createElement("div");
   xBox.className = "step-endpoint step-box--x";
-  xBox.textContent = "x";
   xBox.dataset.liveRole = "x";
+  if (state.stepEyeMode) {
+    xBox.appendChild(createEyeBtn("x", state.stepEyes.x));
+    xBox.classList.add("step-endpoint--eye-mode");
+  } else {
+    xBox.textContent = "x";
+  }
   flow.appendChild(wrapWithEye(xBox, "x", state.stepEyes.x));
 
   let dragSrcIdx = null;
+  let dragCurrIdx = null;
   let dragPreviewOps = null;
   let dragClone = null;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
+  let dragSwapTime = 0;
 
   function makeArrowCol() {
     const col = document.createElement("div");
@@ -1976,7 +1992,9 @@ function renderStepRepresentation() {
 
     let slideActive = false;
     let slideStartX = 0;
+    let slideStartY = 0;
     let slideStartVal = 0;
+    let slideDirection = null; // 'horizontal' or 'vertical' — decided after threshold
 
     valRow.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
@@ -1988,14 +2006,42 @@ function renderStepRepresentation() {
 
       slideActive = true;
       slideStartX = e.clientX;
+      slideStartY = e.clientY;
       slideStartVal = numVal;
+      slideDirection = null;
       valRow.setPointerCapture(e.pointerId);
       valRow.classList.add("op-block__val--sliding");
     });
 
     valRow.addEventListener("pointermove", (e) => {
       if (!slideActive) return;
-      const dx = e.clientX - slideStartX; // right = positive
+      const dx = e.clientX - slideStartX;
+      const dy = e.clientY - slideStartY;
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+
+      // Determine direction on first significant movement
+      if (slideDirection === null && (absDx > 8 || absDy > 8)) {
+        slideDirection = absDy > absDx ? 'vertical' : 'horizontal';
+      }
+
+      // If vertical swipe detected, cancel slide and trigger swap
+      if (slideDirection === 'vertical' && _isMobile && dy > 30 && absDy > absDx * 1.5) {
+        slideActive = false;
+        slideDirection = null;
+        valRow.classList.remove("op-block__val--sliding");
+        try { valRow.releasePointerCapture(e.pointerId); } catch {}
+        // Trigger swap
+        const swapped = swapOp(state.ops[opIdx]);
+        if (swapped) {
+          state.ops[opIdx] = swapped;
+          applyOpsChange();
+        }
+        return;
+      }
+
+      // Only do horizontal val-slide if direction is horizontal (or undecided)
+      if (slideDirection === 'vertical') return;
       // Sensitivity: scale relative to the magnitude of the value
       const magnitude = Math.max(Math.abs(slideStartVal), 1);
       const sensitivity = magnitude * 0.01;
@@ -2330,11 +2376,60 @@ function renderStepRepresentation() {
     flow.appendChild(wrapWithEye(yBox, "y", state.stepEyes.y));
   }
 
+  /* FLIP-animated rebuild: records old block rects, rebuilds DOM, then
+     slides each block from its old position to its new one. */
+  function animatedRebuildFlowPreview(newOps, prevOps) {
+    // FIRST: record old positions keyed by op object reference
+    const oldRects = new Map();
+    flow.querySelectorAll('.op-block').forEach(block => {
+      const idx = parseInt(block.dataset.idx);
+      if (idx >= 0 && idx < prevOps.length) {
+        oldRects.set(prevOps[idx], block.getBoundingClientRect());
+      }
+    });
+
+    // Rebuild DOM (destroys old blocks)
+    rebuildFlowPreview(newOps);
+
+    // LAST + INVERT + PLAY
+    flow.querySelectorAll('.op-block').forEach(block => {
+      const idx = parseInt(block.dataset.idx);
+      if (idx >= 0 && idx < newOps.length) {
+        const oldRect = oldRects.get(newOps[idx]);
+        if (oldRect) {
+          const newRect = block.getBoundingClientRect();
+          const dx = oldRect.left - newRect.left;
+          if (Math.abs(dx) > 1) {
+            block.style.transform = `translateX(${dx}px)`;
+            block.style.transition = 'none';
+            block.offsetHeight; // force reflow
+            block.style.transition = 'transform 0.2s ease-out';
+            block.style.transform = '';
+            block.addEventListener('transitionend', () => {
+              block.style.transition = '';
+            }, { once: true });
+          }
+        }
+      }
+    });
+  }
+
   // ---- Pointer-event drag system (iOS-like) ----
+  const _isMobile = document.body.classList.contains('mobile');
+  const _trashZone = document.getElementById('trash-zone');
+
   function onDragMove(e) {
     if (dragSrcIdx === null || !dragClone) return;
     dragClone.style.left = (e.clientX - dragOffsetX) + "px";
     dragClone.style.top = (e.clientY - dragOffsetY) + "px";
+
+    // Mobile: check if over trash zone (bottom of screen)
+    if (_isMobile && _trashZone) {
+      const trashRect = _trashZone.getBoundingClientRect();
+      const overTrash = e.clientY > trashRect.top;
+      _trashZone.classList.toggle('hovering', overTrash);
+    }
+
     // Hit test: temporarily hide clone to see what's underneath
     dragClone.style.display = "none";
     const hit = document.elementFromPoint(e.clientX, e.clientY);
@@ -2342,50 +2437,130 @@ function renderStepRepresentation() {
     const target = hit?.closest(".op-block");
     if (target && target.dataset.idx !== undefined) {
       const dstIdx = parseInt(target.dataset.idx);
-      if (dstIdx !== dragSrcIdx) {
+      if (dstIdx !== dragCurrIdx && Date.now() - dragSwapTime > 200) {
+        const prevOps = dragPreviewOps || state.ops;
+        // Always build from original state.ops
         const preview = [...state.ops];
-        const moved = preview.splice(dragSrcIdx, 1)[0];
+        const [moved] = preview.splice(dragSrcIdx, 1);
         preview.splice(dstIdx, 0, moved);
-        if (!dragPreviewOps || dragPreviewOps.length !== preview.length ||
-          !dragPreviewOps.every((o, k) => o === preview[k])) {
-          dragPreviewOps = preview;
-          rebuildFlowPreview(preview);
-          // Live-preview the reordered graph
-          try {
-            const previewSteps = rebuildStepsFromOps(preview);
-            state.steps = previewSteps;
-            state.fn = previewSteps.length > 0 ? previewSteps[previewSteps.length - 1].fn : null;
-          } catch { /* keep old graph on error */ }
-        }
+        dragPreviewOps = preview;
+        dragCurrIdx = dstIdx;
+        dragSwapTime = Date.now();
+        animatedRebuildFlowPreview(preview, prevOps);
+        // Live-preview the reordered graph
+        try {
+          const previewSteps = rebuildStepsFromOps(preview);
+          state.steps = previewSteps;
+          state.fn = previewSteps.length > 0 ? previewSteps[previewSteps.length - 1].fn : null;
+        } catch { /* keep old graph on error */ }
       }
     }
   }
 
-  function onDragEnd() {
+  function onDragEnd(e) {
     document.removeEventListener("pointermove", onDragMove);
     document.removeEventListener("pointerup", onDragEnd);
+
+    // Mobile: check if dropped on trash zone (bottom of screen)
+    let deletedByTrash = false;
+    if (_isMobile && _trashZone && dragSrcIdx !== null) {
+      const trashRect = _trashZone.getBoundingClientRect();
+      const dropY = e?.clientY ?? Infinity;
+      if (dropY <= window.innerHeight && dropY > trashRect.top && _trashZone.classList.contains('hovering')) {
+        deletedByTrash = true;
+        const idx = dragSrcIdx;
+        state.ops.splice(idx, 1);
+        state.stepEyes.ops.splice(idx, 1);
+        applyOpsChange();
+      }
+      _trashZone.classList.remove('visible', 'hovering');
+      // Restore toolbox visibility
+      const toolboxWrap = document.querySelector('.toolbox-wrapper');
+      if (toolboxWrap) toolboxWrap.style.visibility = '';
+    }
+
     if (dragClone) { dragClone.remove(); dragClone = null; }
-    if (dragPreviewOps) {
-      state.ops = dragPreviewOps;
-      dragPreviewOps = null;
-      dragSrcIdx = null;
-      try {
-        const steps = rebuildStepsFromOps(state.ops);
-        state.steps = steps;
-        state.fn = steps.length > 0 ? steps[steps.length - 1].fn : null;
-        syncInputFromOps();
-        setStatusForCurrentMode();
-      } catch (err) {
-        setStatus(err?.message ?? String(err), "error");
+
+    if (!deletedByTrash) {
+      // Only apply reorder if item actually moved from its original position
+      if (dragPreviewOps && dragCurrIdx !== dragSrcIdx) {
+        state.ops = dragPreviewOps;
+        dragPreviewOps = null;
+        dragSrcIdx = null;
+        dragCurrIdx = null;
+        try {
+          const steps = rebuildStepsFromOps(state.ops);
+          state.steps = steps;
+          state.fn = steps.length > 0 ? steps[steps.length - 1].fn : null;
+          syncInputFromOps();
+          setStatusForCurrentMode();
+        } catch (err) {
+          setStatus(err?.message ?? String(err), "error");
+        }
+      } else {
+        // Dropped in original position or never moved — restore original graph
+        if (dragPreviewOps) {
+          try {
+            const steps = rebuildStepsFromOps(state.ops);
+            state.steps = steps;
+            state.fn = steps.length > 0 ? steps[steps.length - 1].fn : null;
+          } catch { /* ignore */ }
+        }
+        dragPreviewOps = null;
+        dragSrcIdx = null;
+        dragCurrIdx = null;
       }
     } else {
+      dragPreviewOps = null;
       dragSrcIdx = null;
+      dragCurrIdx = null;
     }
     renderStepRepresentation();
   }
 
   function attachDragHandlers(opBlock) {
     opBlock.style.touchAction = "none"; // prevent touch scroll interference
+
+    // ---- Swipe-down-to-swap gesture (mobile) ----
+    if (_isMobile) {
+      let swipeStartY = null;
+      let swipeStartX = null;
+      let swipeTriggered = false;
+
+      opBlock.addEventListener("pointerdown", (e) => {
+        if (e.target.closest('.eye-btn') || e.target.closest('.op-block__val')) return;
+        swipeStartY = e.clientY;
+        swipeStartX = e.clientX;
+        swipeTriggered = false;
+      });
+
+      const onSwipeMove = (e) => {
+        if (swipeStartY === null || swipeTriggered) return;
+        const dy = e.clientY - swipeStartY;
+        const dx = Math.abs(e.clientX - swipeStartX);
+        // Swipe down: vertical movement > 30px, more vertical than horizontal
+        if (dy > 30 && dy > dx * 1.5) {
+          swipeTriggered = true;
+          const idx = parseInt(opBlock.dataset.idx);
+          const swapped = swapOp(state.ops[idx]);
+          if (swapped) {
+            state.ops[idx] = swapped;
+            applyOpsChange();
+            // Brief flash feedback
+            opBlock.style.transition = 'transform 0.15s';
+            opBlock.style.transform = 'translateY(4px)';
+            setTimeout(() => { opBlock.style.transform = ''; }, 150);
+          }
+          swipeStartY = null;
+        }
+      };
+
+      opBlock.addEventListener("pointermove", onSwipeMove);
+      opBlock.addEventListener("pointerup", () => { swipeStartY = null; });
+      opBlock.addEventListener("pointercancel", () => { swipeStartY = null; });
+    }
+
+    // ---- Drag-to-reorder (+ drag-to-trash on mobile) ----
     opBlock.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
       if (e.target.closest('.op-block__swap')) return;
@@ -2394,32 +2569,78 @@ function renderStepRepresentation() {
       if (e.target.closest('.op-block__val')) return;
       e.preventDefault();
       e.stopPropagation();
-      dragSrcIdx = parseInt(opBlock.dataset.idx);
-      dragPreviewOps = null;
-      const rect = opBlock.getBoundingClientRect();
-      dragOffsetX = e.clientX - rect.left;
-      dragOffsetY = e.clientY - rect.top;
-      // Create a floating clone that follows the pointer (iOS-style)
-      dragClone = opBlock.cloneNode(true);
-      dragClone.style.cssText =
-        "position:fixed;z-index:9999;pointer-events:none;" +
-        "width:" + rect.width + "px;height:" + rect.height + "px;" +
-        "left:" + rect.left + "px;top:" + rect.top + "px;" +
-        "opacity:0.92;box-shadow:0 10px 30px rgba(0,0,0,0.35);" +
-        "transform:scale(1.06);transition:none;border-radius:6px;" +
-        "font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;font-size:0.9rem;";
-      document.body.appendChild(dragClone);
-      opBlock.classList.add("op-block--dragging");
-      document.addEventListener("pointermove", onDragMove);
-      document.addEventListener("pointerup", onDragEnd);
+
+      // On mobile, use a hold delay to distinguish tap/swipe from drag
+      if (_isMobile) {
+        const holdTimer = setTimeout(() => {
+          startDrag(e);
+        }, 250); // 250ms hold to start drag
+
+        const abortHold = () => {
+          clearTimeout(holdTimer);
+          opBlock.removeEventListener('pointermove', checkHoldAbort);
+          opBlock.removeEventListener('pointerup', abortHold);
+          opBlock.removeEventListener('pointercancel', abortHold);
+        };
+        const checkHoldAbort = (me) => {
+          // If moved too much before hold timer, cancel drag (allow swipe)
+          const dx = Math.abs(me.clientX - e.clientX);
+          const dy = Math.abs(me.clientY - e.clientY);
+          if (dx > 8 || dy > 8) abortHold();
+        };
+        opBlock.addEventListener('pointermove', checkHoldAbort);
+        opBlock.addEventListener('pointerup', abortHold);
+        opBlock.addEventListener('pointercancel', abortHold);
+      } else {
+        startDrag(e);
+      }
+
+      function startDrag(startEvt) {
+        dragSrcIdx = parseInt(opBlock.dataset.idx);
+        dragCurrIdx = dragSrcIdx;
+        dragPreviewOps = null;
+        const rect = opBlock.getBoundingClientRect();
+        dragOffsetX = startEvt.clientX - rect.left;
+        dragOffsetY = startEvt.clientY - rect.top;
+        // Create a floating clone
+        dragClone = opBlock.cloneNode(true);
+        dragClone.style.cssText =
+          "position:fixed;z-index:9999;pointer-events:none;" +
+          "width:" + rect.width + "px;height:" + rect.height + "px;" +
+          "left:" + rect.left + "px;top:" + rect.top + "px;" +
+          "opacity:0.92;box-shadow:0 10px 30px rgba(0,0,0,0.35);" +
+          "transform:scale(1.06);transition:none;border-radius:6px;" +
+          "font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;font-size:0.9rem;";
+        document.body.appendChild(dragClone);
+        opBlock.classList.add("op-block--dragging");
+        // Show trash zone on mobile (overlays toolbox area)
+        if (_isMobile && _trashZone) {
+          _trashZone.classList.add('visible');
+          // Hide toolbox content but keep space (visibility:hidden preserves layout)
+          const toolboxWrap = document.querySelector('.toolbox-wrapper');
+          if (toolboxWrap) toolboxWrap.style.visibility = 'hidden';
+        }
+        document.addEventListener("pointermove", onDragMove);
+        document.addEventListener("pointerup", onDragEnd);
+      }
     });
   }
 
   for (let i = 0; i < ops.length; i++) {
     flow.appendChild(makeArrowCol());
-    const opBlock = buildOpBlock(ops[i], i);
-    attachDragHandlers(opBlock);
-    flow.appendChild(wrapWithEye(opBlock, String(i), state.stepEyes.ops[i]));
+    if (state.stepEyeMode) {
+      // In eye mode: op-block just contains a large eye toggle
+      const cat = getOpCategory(ops[i]);
+      const eyeBlock = document.createElement("div");
+      eyeBlock.className = "op-block op-block--" + cat + " op-block--eye-mode";
+      eyeBlock.dataset.idx = String(i);
+      eyeBlock.appendChild(createEyeBtn(String(i), state.stepEyes.ops[i]));
+      flow.appendChild(wrapWithEye(eyeBlock, String(i), state.stepEyes.ops[i]));
+    } else {
+      const opBlock = buildOpBlock(ops[i], i);
+      attachDragHandlers(opBlock);
+      flow.appendChild(wrapWithEye(opBlock, String(i), state.stepEyes.ops[i]));
+    }
   }
 
   // Final arrow column
@@ -2428,8 +2649,13 @@ function renderStepRepresentation() {
   // y endpoint
   const yBox = document.createElement("div");
   yBox.className = "step-endpoint step-box--y";
-  yBox.textContent = "y";
   yBox.dataset.liveRole = "y";
+  if (state.stepEyeMode) {
+    yBox.appendChild(createEyeBtn("y", state.stepEyes.y));
+    yBox.classList.add("step-endpoint--eye-mode");
+  } else {
+    yBox.textContent = "y";
+  }
   flow.appendChild(wrapWithEye(yBox, "y", state.stepEyes.y));
 
   el.appendChild(flow);
@@ -2632,6 +2858,16 @@ function updateLiveInputOverlay(xVal, values) {
 
   ui.exprOverlay.innerHTML = html + suffix;
   if (controlEl) controlEl.classList.add('has-overlay');
+  // Auto-size input to fit live-value overlay
+  autoSizeExprInput();
+}
+
+/**
+ * Auto-size the expression input to fit live-value overlay content.
+ * Delegates to autoSizeInput which considers both input text and overlay width.
+ */
+function autoSizeExprInput() {
+  autoSizeInput();
 }
 
 function compileExpression(exprRaw) {
@@ -2726,7 +2962,16 @@ function autoSizeInput() {
   el.style.width = '0';
   const needed = el.scrollWidth;
   el.style.width = saved;
-  el.style.width = Math.max(180, needed + 32) + 'px';
+  // Measure overlay content width independently: temporarily remove right:0
+  // so the overlay shrinks to its intrinsic content width (avoids feedback loop)
+  let overlayContentW = 0;
+  if (ui.exprOverlay && ui.exprOverlay.innerHTML) {
+    const sr = ui.exprOverlay.style.right;
+    ui.exprOverlay.style.right = 'auto';
+    overlayContentW = ui.exprOverlay.scrollWidth;
+    ui.exprOverlay.style.right = sr;
+  }
+  el.style.width = Math.max(180, needed + 32, overlayContentW + 20) + 'px';
 }
 
 function liveParse() {
@@ -2815,6 +3060,16 @@ function plotFunction() {
 }
 
 function setup() {
+  // Detect mobile/touch device
+  const isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints > 0 && window.innerWidth < 800);
+  if (isMobile) document.body.classList.add('mobile');
+
+  // Detect iOS (all iOS browsers use WebKit — no Fullscreen API)
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS) document.body.classList.add('ios');
+
   ui.exprEl = document.getElementById("expr");
   ui.modeButtons = Array.from(document.querySelectorAll("#mode-toggle .mode-btn"));
   ui.plotEl = document.getElementById("plot");
@@ -2864,6 +3119,8 @@ function setup() {
 
   canvas = createCanvas(w, h);
   canvas.parent("canvas-wrap");
+  // Paint dark immediately to prevent bright flash through topbar glass
+  background(10, 14, 28);
 
   // Prevent browser image-drag when dragging on the canvas
   canvas.elt.addEventListener('dragstart', e => e.preventDefault());
@@ -2904,6 +3161,20 @@ function setup() {
     }
   });
 
+  // On mobile: hide toolbox when keyboard appears (input focused)
+  if (isMobile && ui.exprEl) {
+    const toolboxW = document.querySelector('.toolbox-wrapper');
+    const stepRow = document.querySelector('.step-toolbox-row');
+    ui.exprEl.addEventListener('focus', () => {
+      toolboxW?.classList.add('toolbox-hidden');
+      stepRow?.classList.add('toolbox-hidden');
+    });
+    ui.exprEl.addEventListener('blur', () => {
+      toolboxW?.classList.remove('toolbox-hidden');
+      stepRow?.classList.remove('toolbox-hidden');
+    });
+  }
+
   // Info button toggle
   ui.infoBtn?.addEventListener("click", () => {
     const popup = ui.infoPopup;
@@ -2925,16 +3196,21 @@ function setup() {
   // ---- Toggle bar (bottom of graph) ----
   buildToggleBar();
 
+  // ---- Mobile: eye-icon visibility toggle panel ----
+  setupMobileTogglePanel();
+
+  // ---- Mobile: touch handlers for pinch-zoom and drag-pan ----
+  setupTouchHandlers();
+
+  // ---- Mobile: topbar collapse, pseudo-fullscreen, tap-to-show, bar positioning ----
+  setupMobileBarControls();
+
   // ---- HUD overlay (top-right, below topbar) ----
   const hudEl = document.createElement("div");
   hudEl.className = "graph-hud";
   hudEl.id = "graph-hud";
   document.body.appendChild(hudEl);
   ui.hudEl = hudEl;
-
-  // ---- Dynamic mode-toggle positioning ----
-  const topbar = document.querySelector('.topbar');
-  const modeToggle = document.getElementById('mode-toggle-overlay');
 
   // ---- Rotation segmented button ----
   const rotToggle = document.getElementById('rot-toggle');
@@ -2971,6 +3247,16 @@ function setup() {
     });
   }
 
+  // ---- Numeral mode toggle ----
+  const numeralBtn = document.getElementById('numeral-toggle');
+  if (numeralBtn) {
+    numeralBtn.classList.toggle('mode-btn--active', state.numeralMode);
+    numeralBtn.addEventListener('click', () => {
+      state.numeralMode = !state.numeralMode;
+      numeralBtn.classList.toggle('mode-btn--active', state.numeralMode);
+    });
+  }
+
   // ---- Timeline control for t parameter ----
   setupTimeline();
 
@@ -2990,12 +3276,18 @@ function setup() {
   });
 
   function updateOverlayPositions() {
+    if (document.body.classList.contains('mobile')) return; // mobile uses bottom-positioning via setupMobileBarControls
+    const topbar = document.querySelector('.topbar');
+    const modeToggle = document.getElementById('mode-toggle-overlay');
     if (!topbar) return;
     const h = topbar.getBoundingClientRect().height;
     if (modeToggle) modeToggle.style.top = (h + 12) + "px";
   }
   updateOverlayPositions();
-  if (topbar) new ResizeObserver(updateOverlayPositions).observe(topbar);
+  {
+    const topbar = document.querySelector('.topbar');
+    if (topbar) new ResizeObserver(updateOverlayPositions).observe(topbar);
+  }
 
   // ---- Toolbox (right of step flow) ----
   buildToolbox();
@@ -3014,7 +3306,12 @@ function setup() {
     state.tPlaying = true;
     const playBtn = document.getElementById('timeline-play');
     if (playBtn) {
-      playBtn.textContent = '⏸';
+      const playIcon = playBtn.querySelector('.play-icon');
+      const pauseIcon = playBtn.querySelector('.pause-icon');
+      if (playIcon && pauseIcon) {
+        playIcon.style.display = 'none';
+        pauseIcon.style.display = '';
+      }
       playBtn.classList.add('timeline-play-btn--active');
     }
   }
@@ -3122,23 +3419,13 @@ function buildToolbox() {
 
     // Color by data-cat attribute, using OP_COLORS single source of truth
     const cat = el.getAttribute("data-cat") || "misc";
-    // For arith, use specific sub-colour based on tool key
-    let c;
-    if (cat === "arith") {
-      if (key === "add" || key === "sub") c = OP_COLORS.addSub;
-      else if (key === "mul" || key === "div" || key === "mod") c = OP_COLORS.mulDiv;
-      else c = OP_COLORS.misc;
-    } else {
-      c = OP_COLORS[catToKey[cat]] || OP_COLORS.misc;
-    }
-    const [tr, tg, tb] = hexToRgb(c);
-    // Use the same text colour as the badge themes (via CSS class)
+    // Map to CSS class name
     const catKey = cat === 'arith'
       ? ((key === 'add' || key === 'sub') ? 'addSub' : 'mulDiv')
       : (catToKey[cat] || 'misc');
     el.classList.add('op-block--' + catKey);
-    el.style.borderColor = c;
-    el.style.background = `rgba(${tr}, ${tg}, ${tb}, 0.35)`;
+    // Border/background handled by CSS class (which uses var(--panel)
+    // for tinting with the active colour scheme)
 
     attachToolboxDrag(el, def);
   }
@@ -3245,18 +3532,43 @@ function setupFullscreenButton() {
   const expandSVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
   const compressSVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
 
+  // Cross-browser fullscreen helpers
+  function requestFS(el) {
+    if (el.requestFullscreen) return el.requestFullscreen();
+    if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+    if (el.mozRequestFullScreen) return el.mozRequestFullScreen();
+    if (el.msRequestFullscreen) return el.msRequestFullscreen();
+    return Promise.reject();
+  }
+  function exitFS() {
+    if (document.exitFullscreen) return document.exitFullscreen();
+    if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+    if (document.mozCancelFullScreen) return document.mozCancelFullScreen();
+    if (document.msExitFullscreen) return document.msExitFullscreen();
+    return Promise.reject();
+  }
+  function getFS() {
+    return document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+  }
+
   btn.innerHTML = expandSVG;
 
   btn.addEventListener("click", () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => { });
+    if (!getFS()) {
+      requestFS(document.documentElement).catch(() => {
+        // iOS Safari: no fullscreen API — try scrolling to hide address bar
+        window.scrollTo(0, 1);
+      });
     } else {
-      document.exitFullscreen();
+      exitFS().catch(() => {});
     }
   });
 
-  document.addEventListener("fullscreenchange", () => {
-    btn.innerHTML = document.fullscreenElement ? compressSVG : expandSVG;
+  // Listen for all vendor-prefixed fullscreenchange events
+  ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach(evt => {
+    document.addEventListener(evt, () => {
+      btn.innerHTML = getFS() ? compressSVG : expandSVG;
+    });
   });
 }
 
@@ -3346,6 +3658,35 @@ function setupSettingsGear() {
       state.lightMode = !prefersDark;
       document.body.classList.toggle("light", state.lightMode);
     }
+    // When entering dark mode, clear bg-color CSS overrides;
+    // when entering light mode, re-apply them if a bg color is saved
+    if (!state.lightMode) {
+      document.body.style.removeProperty("--body-bg");
+      document.body.style.removeProperty("--panel");
+      document.body.style.removeProperty("--panel2");
+      document.body.style.removeProperty("--settings-menu-bg");
+      document.body.style.removeProperty("--glass-bg");
+      document.body.style.removeProperty("--topbar-bg");
+      // Dark mode: accent derived from dark bg defaults
+      if (typeof clearAccentOverrides === 'function') clearAccentOverrides();
+    } else if (state.bgColor) {
+      // Re-apply inline overrides for current bg color
+      const rgb = state.bgColorRGB;
+      if (rgb) {
+        const [r, g, b] = rgb;
+        document.body.style.setProperty("--body-bg", state.bgColor);
+        document.body.style.setProperty("--panel", state.bgColor);
+        document.body.style.setProperty("--panel2", state.bgColor);
+        document.body.style.setProperty("--settings-menu-bg", state.bgColor);
+        document.body.style.setProperty("--glass-bg", `rgba(${r},${g},${b},0.55)`);
+        document.body.style.setProperty("--topbar-bg",
+          `linear-gradient(180deg, rgba(${r},${g},${b},0.95) 0%, rgba(${r},${g},${b},0.9) 100%)`);
+        if (typeof applyAccentFromBg === 'function') applyAccentFromBg(r, g, b);
+      }
+    } else {
+      // Light mode, default bg — clear accent overrides to use CSS defaults
+      if (typeof clearAccentOverrides === 'function') clearAccentOverrides();
+    }
     try { localStorage.setItem("gc-theme", theme); } catch { }
   }
 
@@ -3366,14 +3707,69 @@ function setupSettingsGear() {
     colorFT: "#FFF1E5",
   };
 
+  // Helper: derive accent / toggle colors from an RGB background
+  function applyAccentFromBg(r, g, b) {
+    // RGB → HSL
+    const r1 = r / 255, g1 = g / 255, b1 = b / 255;
+    const mx = Math.max(r1, g1, b1), mn = Math.min(r1, g1, b1);
+    let h = 0, s = 0, l = (mx + mn) / 2;
+    if (mx !== mn) {
+      const d = mx - mn;
+      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      if (mx === r1) h = ((g1 - b1) / d + (g1 < b1 ? 6 : 0)) / 6;
+      else if (mx === g1) h = ((b1 - r1) / d + 2) / 6;
+      else h = ((r1 - g1) / d + 4) / 6;
+    }
+    const hDeg = Math.round(h * 360);
+    // Accent: same hue, moderate sat, brighter
+    const accentS = Math.max(35, Math.min(55, Math.round(s * 100 * 1.2)));
+    const accentL = state.lightMode ? 38 : 62;
+    const toggleA = state.lightMode ? 0.22 : 0.4;
+    const toggleTxtL = state.lightMode ? 28 : 90;
+    const glowA = state.lightMode ? 0.1 : 0.15;
+    document.body.style.setProperty("--accent", `hsl(${hDeg}, ${accentS}%, ${accentL}%)`);
+    document.body.style.setProperty("--toggle-active-bg", `hsla(${hDeg}, ${accentS}%, ${accentL}%, ${toggleA})`);
+    document.body.style.setProperty("--toggle-active-color", `hsl(${hDeg}, ${accentS}%, ${toggleTxtL}%)`);
+    document.body.style.setProperty("--toggle-glow-bg", `hsla(${hDeg}, ${accentS}%, ${accentL}%, ${glowA})`);
+  }
+  function clearAccentOverrides() {
+    document.body.style.removeProperty("--accent");
+    document.body.style.removeProperty("--toggle-active-bg");
+    document.body.style.removeProperty("--toggle-active-color");
+    document.body.style.removeProperty("--toggle-glow-bg");
+  }
+
   function setBackgroundColor(id) {
     document.querySelectorAll(".color-btn").forEach((b) => b.classList.remove("active"));
     document.getElementById(id)?.classList.add("active");
     const col = bgColors[id];
+    // Store for p5.js canvas background
+    state.bgColor = col || null;
     if (col) {
-      document.body.style.setProperty("--body-bg", col);
+      // Parse hex to RGB for canvas glass labels
+      const r = parseInt(col.slice(1,3),16), g = parseInt(col.slice(3,5),16), b = parseInt(col.slice(5,7),16);
+      state.bgColorRGB = [r, g, b];
+      // Only apply CSS overrides in light mode — dark mode uses its own palette
+      if (state.lightMode) {
+        document.body.style.setProperty("--body-bg", col);
+        document.body.style.setProperty("--panel", col);
+        document.body.style.setProperty("--panel2", col);
+        document.body.style.setProperty("--settings-menu-bg", col);
+        document.body.style.setProperty("--glass-bg", `rgba(${r},${g},${b},0.55)`);
+        document.body.style.setProperty("--topbar-bg",
+          `linear-gradient(180deg, rgba(${r},${g},${b},0.95) 0%, rgba(${r},${g},${b},0.9) 100%)`);
+        applyAccentFromBg(r, g, b);
+      }
     } else {
+      state.bgColorRGB = null;
+      // Clear any inline overrides so CSS variables fall back to theme defaults
       document.body.style.removeProperty("--body-bg");
+      document.body.style.removeProperty("--panel");
+      document.body.style.removeProperty("--panel2");
+      document.body.style.removeProperty("--settings-menu-bg");
+      document.body.style.removeProperty("--glass-bg");
+      document.body.style.removeProperty("--topbar-bg");
+      clearAccentOverrides();
     }
     try { localStorage.setItem("gc-bg-color", id); } catch { }
   }
@@ -3423,19 +3819,26 @@ const toggleDefs = [
     ]
   },
   { key: "arrows", label: "Transforms", colorKey: "curve" },
-  { key: "intermediates", label: "Intermediates", colorKey: "other" },
+  {
+    type: 'group', label: 'Intermediates',
+    keys: ['intermediates', 'subintermediates'],
+    children: [
+      { key: 'intermediates', label: 'main', colorKey: 'other' },
+      { key: 'subintermediates', label: 'sub', colorKey: 'other' },
+    ]
+  },
   { key: "starbursts", label: "Starbursts", colorKey: "other" },
 ];
 
 function updateToggleGroupUI(group, def) {
   const allOn = def.keys.every(k => state.toggles[k]);
   const anyOn = def.keys.some(k => state.toggles[k]);
-  const parentBtn = group.querySelector('.toggle-group__parent');
-  parentBtn.classList.toggle("graph-toggle-btn--on", allOn);
-  parentBtn.classList.toggle("graph-toggle-btn--partial", anyOn && !allOn);
+  // The group div itself is the parent button now
+  group.classList.toggle("graph-toggle-btn--on", allOn);
+  group.classList.toggle("graph-toggle-btn--partial", anyOn && !allOn);
   def.children.forEach(child => {
     const subBtn = group.querySelector(`[data-toggle-key="${child.key}"]`);
-    if (subBtn) subBtn.classList.toggle("graph-toggle-btn--on", state.toggles[child.key]);
+    if (subBtn) subBtn.classList.toggle("toggle-group__sub--on", state.toggles[child.key]);
   });
 }
 
@@ -3452,23 +3855,27 @@ function buildToggleBar() {
 
   toggleDefs.forEach((def) => {
     if (def.type === 'group') {
+      // The group itself acts as the outer button rectangle
       const group = document.createElement("div");
-      group.className = "toggle-group";
+      group.className = "toggle-group graph-toggle-btn";
+      group.setAttribute("role", "button");
+      group.tabIndex = 0;
 
-      // Parent button
-      const parentBtn = document.createElement("button");
-      parentBtn.className = "graph-toggle-btn toggle-group__parent";
-      parentBtn.type = "button";
       const allOn = def.keys.every(k => state.toggles[k]);
       const anyOn = def.keys.some(k => state.toggles[k]);
-      if (allOn) parentBtn.classList.add("graph-toggle-btn--on");
-      else if (anyOn) parentBtn.classList.add("graph-toggle-btn--partial");
+      if (allOn) group.classList.add("graph-toggle-btn--on");
+      else if (anyOn) group.classList.add("graph-toggle-btn--partial");
 
-      const parentSpan = document.createElement("span");
-      parentSpan.textContent = def.label;
-      parentBtn.appendChild(parentSpan);
+      // Label on the left — clicking it toggles all children
+      const labelSpan = document.createElement("span");
+      labelSpan.className = "toggle-group__label";
+      labelSpan.textContent = def.label;
+      group.appendChild(labelSpan);
 
-      parentBtn.addEventListener("click", () => {
+      // Click on the label area (group background) toggles all
+      group.addEventListener("click", (e) => {
+        // If the click was on a sub-button, don't toggle all
+        if (e.target.closest(".toggle-group__sub")) return;
         const allCurrentlyOn = def.keys.every(k => state.toggles[k]);
         const newVal = !allCurrentlyOn;
         def.keys.forEach(k => {
@@ -3477,29 +3884,26 @@ function buildToggleBar() {
         });
         updateToggleGroupUI(group, def);
       });
-      parentBtn.addEventListener("mouseenter", () => { state.hoveredToggle = [...def.keys]; });
-      parentBtn.addEventListener("mouseleave", () => {
+      group.addEventListener("mouseenter", () => { state.hoveredToggle = [...def.keys]; });
+      group.addEventListener("mouseleave", () => {
         if (Array.isArray(state.hoveredToggle)) state.hoveredToggle = null;
         def.keys.forEach(k => delete state.toggleJustTurnedOff[k]);
       });
 
-      group.appendChild(parentBtn);
+      // Sub-buttons container — sits inside the outer button
+      const subContainer = document.createElement("div");
+      subContainer.className = "toggle-group__subs";
 
       // Sub-buttons
       def.children.forEach((child) => {
         const subBtn = document.createElement("button");
-        subBtn.className = "graph-toggle-btn toggle-group__sub" + (state.toggles[child.key] ? " graph-toggle-btn--on" : "");
+        subBtn.className = "toggle-group__sub" + (state.toggles[child.key] ? " toggle-group__sub--on" : "");
         subBtn.type = "button";
         subBtn.dataset.toggleKey = child.key;
 
         // Apply color from colorKey
         if (child.colorKey && userColors[child.colorKey]) {
-          const c = userColors[child.colorKey];
-          subBtn.style.setProperty('--sub-toggle-color', c);
-          subBtn.style.setProperty('--sub-toggle-bg', c.replace(')', ', 0.15)').replace('rgb(', 'rgba('));
-          subBtn.style.setProperty('--sub-toggle-bg-light', c.replace(')', ', 0.12)').replace('rgb(', 'rgba('));
-          // Hex to rgba for the bg
-          const hex = c;
+          const hex = userColors[child.colorKey];
           const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
           subBtn.style.setProperty('--sub-toggle-color', hex);
           subBtn.style.setProperty('--sub-toggle-bg', `rgba(${r},${g},${b},0.15)`);
@@ -3514,7 +3918,7 @@ function buildToggleBar() {
           e.stopPropagation();
           state.toggles[child.key] = !state.toggles[child.key];
           if (!state.toggles[child.key]) state.toggleJustTurnedOff[child.key] = true;
-          subBtn.classList.toggle("graph-toggle-btn--on", state.toggles[child.key]);
+          subBtn.classList.toggle("toggle-group__sub--on", state.toggles[child.key]);
           updateToggleGroupUI(group, def);
         });
         subBtn.addEventListener("mouseenter", () => { state.hoveredToggle = child.key; });
@@ -3523,9 +3927,10 @@ function buildToggleBar() {
           delete state.toggleJustTurnedOff[child.key];
         });
 
-        group.appendChild(subBtn);
+        subContainer.appendChild(subBtn);
       });
 
+      group.appendChild(subContainer);
       bar.appendChild(group);
     } else {
       // Regular toggle button
@@ -3564,6 +3969,483 @@ function windowResized() {
   resizeCanvas(window.innerWidth, window.innerHeight);
 }
 
+/* ========== Mobile: eye-icon visibility toggle panel ========== */
+
+function setupMobileTogglePanel() {
+  if (!document.body.classList.contains('mobile')) return;
+
+  const eyeBtn = document.getElementById('mobile-eye-toggle');
+  const panel = document.getElementById('mobile-toggle-panel');
+  if (!eyeBtn || !panel) return;
+
+  // Build toggle buttons into the panel (mirrors buildToggleBar but bigger)
+  function populatePanel() {
+    panel.innerHTML = '';
+
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'graph-toggles-label';
+    labelSpan.textContent = 'Visibility toggles';
+    panel.appendChild(labelSpan);
+
+    toggleDefs.forEach((def) => {
+      if (def.type === 'group') {
+        // Same outer-button structure as desktop
+        const group = document.createElement('div');
+        group.className = 'toggle-group graph-toggle-btn';
+        group.setAttribute('role', 'button');
+        group.tabIndex = 0;
+
+        const allOn = def.keys.every(k => state.toggles[k]);
+        const anyOn = def.keys.some(k => state.toggles[k]);
+        if (allOn) group.classList.add('graph-toggle-btn--on');
+        else if (anyOn) group.classList.add('graph-toggle-btn--partial');
+
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'toggle-group__label';
+        labelSpan.textContent = def.label;
+        group.appendChild(labelSpan);
+
+        group.addEventListener('click', (e) => {
+          if (e.target.closest('.toggle-group__sub')) return;
+          const allCurrentlyOn = def.keys.every(k => state.toggles[k]);
+          const newVal = !allCurrentlyOn;
+          def.keys.forEach(k => {
+            state.toggles[k] = newVal;
+            if (!newVal) state.toggleJustTurnedOff[k] = true;
+          });
+          updateMobilePanelUI();
+          // Also sync desktop toggle bar
+          if (typeof updateToggleGroupUI === 'function') {
+            const desktopGroups = ui.graphTogglesEl?.querySelectorAll('.toggle-group');
+            desktopGroups?.forEach(dg => {
+              // Match by label
+              const lbl = dg.querySelector('.toggle-group__label');
+              if (lbl && lbl.textContent === def.label) updateToggleGroupUI(dg, def);
+            });
+          }
+        });
+
+        const subContainer = document.createElement('div');
+        subContainer.className = 'toggle-group__subs';
+
+        def.children.forEach((child) => {
+          const subBtn = document.createElement('button');
+          subBtn.className = 'toggle-group__sub' + (state.toggles[child.key] ? ' toggle-group__sub--on' : '');
+          subBtn.type = 'button';
+          subBtn.dataset.toggleKey = child.key;
+
+          if (child.colorKey && userColors[child.colorKey]) {
+            const hex = userColors[child.colorKey];
+            const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+            subBtn.style.setProperty('--sub-toggle-color', hex);
+            subBtn.style.setProperty('--sub-toggle-bg', `rgba(${r},${g},${b},0.15)`);
+            subBtn.style.setProperty('--sub-toggle-bg-light', `rgba(${r},${g},${b},0.12)`);
+          }
+
+          subBtn.textContent = child.label;
+
+          subBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            state.toggles[child.key] = !state.toggles[child.key];
+            if (!state.toggles[child.key]) state.toggleJustTurnedOff[child.key] = true;
+            updateMobilePanelUI();
+          });
+
+          subContainer.appendChild(subBtn);
+        });
+
+        group.appendChild(subContainer);
+        panel.appendChild(group);
+      } else {
+        const btn = document.createElement('button');
+        btn.className = 'graph-toggle-btn' + (state.toggles[def.key] ? ' graph-toggle-btn--on' : '');
+        btn.type = 'button';
+        btn.dataset.toggleKey = def.key;
+        btn.textContent = def.label;
+
+        btn.addEventListener('click', () => {
+          state.toggles[def.key] = !state.toggles[def.key];
+          if (!state.toggles[def.key]) state.toggleJustTurnedOff[def.key] = true;
+          updateMobilePanelUI();
+        });
+
+        panel.appendChild(btn);
+      }
+    });
+  }
+
+  function updateMobilePanelUI() {
+    // Standalone buttons
+    panel.querySelectorAll('.graph-toggle-btn[data-toggle-key]').forEach(btn => {
+      const key = btn.dataset.toggleKey;
+      btn.classList.toggle('graph-toggle-btn--on', !!state.toggles[key]);
+    });
+    // Sub-buttons
+    panel.querySelectorAll('.toggle-group__sub[data-toggle-key]').forEach(btn => {
+      const key = btn.dataset.toggleKey;
+      btn.classList.toggle('toggle-group__sub--on', !!state.toggles[key]);
+    });
+    // Group parent (the toggle-group div itself)
+    panel.querySelectorAll('.toggle-group').forEach(groupEl => {
+      const subBtns = groupEl.querySelectorAll('.toggle-group__sub');
+      const keys = Array.from(subBtns).map(b => b.dataset.toggleKey);
+      const allOn = keys.every(k => state.toggles[k]);
+      const anyOn = keys.some(k => state.toggles[k]);
+      groupEl.classList.toggle('graph-toggle-btn--on', allOn);
+      groupEl.classList.toggle('graph-toggle-btn--partial', !allOn && anyOn);
+    });
+  }
+
+  populatePanel();
+
+  eyeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    panel.classList.toggle('open');
+    eyeBtn.classList.toggle('active', panel.classList.contains('open'));
+  });
+
+  // Close panel when tapping outside
+  document.addEventListener('click', (e) => {
+    if (!panel.contains(e.target) && e.target !== eyeBtn) {
+      panel.classList.remove('open');
+      eyeBtn.classList.remove('active');
+    }
+  });
+}
+
+/* ========== Mobile: touch handlers (pinch-zoom, drag-pan, cursor offset) ========== */
+
+function setupTouchHandlers() {
+  if (!document.body.classList.contains('mobile')) return;
+
+  const canvasWrap = document.getElementById('canvas-wrap');
+  if (!canvasWrap) return;
+
+  let activeTouches = [];
+  let isPinching = false;
+  let initialPinchDist = 0;
+  let initialScale = 0;
+  // For simultaneous pan+zoom: track pinch center movement
+  let prevPinchCenterX = 0;
+  let prevPinchCenterY = 0;
+  let pinchWorldCenter = null;
+  const CURSOR_OFFSET_Y = -60;
+
+  let touchCursorX = -1;
+  let touchCursorY = -1;
+  let touchActive = false;
+
+  window._mobileTouchCursor = { x: -1, y: -1, active: false };
+
+  function getTouchDist(t1, t2) {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function getTouchCenter(t1, t2) {
+    return {
+      x: (t1.clientX + t2.clientX) / 2,
+      y: (t1.clientY + t2.clientY) / 2,
+    };
+  }
+
+  function inputIsFocused() {
+    const el = document.activeElement;
+    return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+  }
+
+  canvasWrap.addEventListener('touchstart', (e) => {
+    if (inputIsFocused()) return;
+    // Don't interfere with timeline slider or other UI controls
+    const t = e.touches[0];
+    if (t && isOverUI(t.clientX, t.clientY)) return;
+    activeTouches = Array.from(e.touches);
+
+    if (activeTouches.length === 2) {
+      isPinching = true;
+      initialPinchDist = getTouchDist(activeTouches[0], activeTouches[1]);
+      initialScale = view.scale;
+      const center = getTouchCenter(activeTouches[0], activeTouches[1]);
+      prevPinchCenterX = center.x;
+      prevPinchCenterY = center.y;
+      pinchWorldCenter = screenToWorld(center.x, center.y);
+      e.preventDefault();
+    } else if (activeTouches.length === 1) {
+      if (!isOverUI(activeTouches[0].clientX, activeTouches[0].clientY)) {
+        state.isPanning = true;
+        state.panStartMouseX = activeTouches[0].clientX;
+        state.panStartMouseY = activeTouches[0].clientY;
+        state.panStartOriginX = view.originX;
+        state.panStartOriginY = view.originY;
+
+        touchCursorX = activeTouches[0].clientX;
+        touchCursorY = activeTouches[0].clientY + CURSOR_OFFSET_Y;
+        touchActive = true;
+        window._mobileTouchCursor = { x: touchCursorX, y: touchCursorY, active: true };
+      }
+    }
+  }, { passive: false });
+
+  canvasWrap.addEventListener('touchmove', (e) => {
+    if (inputIsFocused()) return;
+    activeTouches = Array.from(e.touches);
+
+    if (isPinching && activeTouches.length >= 2) {
+      // Simultaneous zoom + pan
+      const newDist = getTouchDist(activeTouches[0], activeTouches[1]);
+      const zoomFactor = newDist / initialPinchDist;
+      const nextScale = constrain(initialScale * zoomFactor, 12, 1200);
+      view.scale = nextScale;
+
+      const center = getTouchCenter(activeTouches[0], activeTouches[1]);
+
+      // Recompute origin: zoom about initial pinch world point + pan by center delta
+      const c = Math.cos(view.rotation), s = Math.sin(view.rotation);
+      view.originX = center.x - (pinchWorldCenter.x * c - pinchWorldCenter.y * s) * view.scale;
+      view.originY = center.y + (pinchWorldCenter.x * s + pinchWorldCenter.y * c) * view.scale;
+
+      prevPinchCenterX = center.x;
+      prevPinchCenterY = center.y;
+
+      state.viewDirty = true;
+      if (ui.resetOverlay) ui.resetOverlay.style.display = "";
+      e.preventDefault();
+    } else if (state.isPanning && activeTouches.length === 1) {
+      const dx = activeTouches[0].clientX - state.panStartMouseX;
+      const dy = activeTouches[0].clientY - state.panStartMouseY;
+      view.originX = state.panStartOriginX + dx;
+      view.originY = state.panStartOriginY + dy;
+      state.viewDirty = true;
+      if (ui.resetOverlay) ui.resetOverlay.style.display = "";
+
+      touchCursorX = activeTouches[0].clientX;
+      touchCursorY = activeTouches[0].clientY + CURSOR_OFFSET_Y;
+      window._mobileTouchCursor = { x: touchCursorX, y: touchCursorY, active: true };
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  canvasWrap.addEventListener('touchend', (e) => {
+    activeTouches = Array.from(e.touches);
+    if (activeTouches.length < 2) {
+      if (isPinching && activeTouches.length === 1) {
+        // Transition from pinch back to single-finger: restart pan from current position
+        state.isPanning = true;
+        state.panStartMouseX = activeTouches[0].clientX;
+        state.panStartMouseY = activeTouches[0].clientY;
+        state.panStartOriginX = view.originX;
+        state.panStartOriginY = view.originY;
+      }
+      isPinching = false;
+    }
+    if (activeTouches.length === 0) {
+      state.isPanning = false;
+      setTimeout(() => {
+        touchActive = false;
+        window._mobileTouchCursor = { x: -1, y: -1, active: false };
+      }, 1500);
+    }
+  });
+
+  // Prevent default to stop iOS scroll/bounce — but not for UI controls
+  canvasWrap.addEventListener('touchmove', (e) => {
+    if (activeTouches.length >= 1 && (state.isPanning || isPinching)) e.preventDefault();
+  }, { passive: false });
+}
+
+/* ========== Mobile: bar controls (collapse, positioning, pseudo-fullscreen, tap-to-show) ========== */
+
+function setupMobileBarControls() {
+  if (!document.body.classList.contains('mobile')) return;
+
+  const topbar = document.querySelector('.topbar');
+  const collapseBtn = document.getElementById('topbar-collapse-btn');
+  const modeToggle = document.getElementById('mode-toggle-overlay');
+  const timeline = document.getElementById('timeline-control');
+  const pseudoFsBtn = document.getElementById('pseudofs-btn');
+
+  // ---- 1. Topbar collapse toggle ----
+  if (collapseBtn && topbar) {
+    collapseBtn.addEventListener('click', () => {
+      topbar.classList.toggle('collapsed');
+      updateMobileBarPositions();
+    });
+  }
+
+  // ---- 1b. Mode dropdown (portrait only) ----
+  const modeDropdownTrigger = document.getElementById('mode-dropdown-trigger');
+  const modeDropdownList = document.getElementById('mode-dropdown-list');
+  if (modeDropdownTrigger && modeDropdownList) {
+    // Toggle dropdown on trigger click
+    modeDropdownTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      modeDropdownList.classList.toggle('open');
+    });
+
+    // Close dropdown on outside click
+    document.addEventListener('click', (e) => {
+      if (!modeDropdownTrigger.contains(e.target) && !modeDropdownList.contains(e.target)) {
+        modeDropdownList.classList.remove('open');
+      }
+    });
+
+    // Update trigger text when a mode button inside the list is clicked
+    const modeLabels = { cartesian: 'Cartesian', delta: 'Δ from x', numberLines: 'Parallel' };
+    modeDropdownList.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.mode;
+        if (mode && modeLabels[mode]) {
+          modeDropdownTrigger.textContent = modeLabels[mode] + ' ▾';
+          // Actually switch the mode
+          state.mode = mode;
+          // Update active styling on all mode buttons
+          if (ui.modeButtons) {
+            ui.modeButtons.forEach(b => b.classList.toggle('mode-btn--active', b.dataset.mode === mode));
+          }
+          setStatusForCurrentMode();
+        }
+        modeDropdownList.classList.remove('open');
+      });
+    });
+  }
+
+  // ---- 2. Dynamic positioning: mode bar & timeline above topbar ----
+  function updateMobileBarPositions() {
+    if (!topbar) return;
+    const topbarH = topbar.getBoundingClientRect().height;
+
+    if (modeToggle) {
+      modeToggle.style.bottom = topbarH + 'px';
+    }
+    if (timeline) {
+      // Timeline sits above mode-toggle if visible, else above topbar
+      const modeVisible = modeToggle && getComputedStyle(modeToggle).display !== 'none';
+      const modeH = modeVisible ? modeToggle.getBoundingClientRect().height : 0;
+      timeline.style.bottom = (topbarH + modeH) + 'px';
+    }
+  }
+
+  // Run positioning after layout settles (multiple attempts for robustness)
+  requestAnimationFrame(() => {
+    updateMobileBarPositions();
+    // Second pass after dynamic content settles
+    setTimeout(updateMobileBarPositions, 100);
+    setTimeout(updateMobileBarPositions, 500);
+  });
+  window.addEventListener('resize', updateMobileBarPositions);
+  window.addEventListener('orientationchange', () => {
+    setTimeout(updateMobileBarPositions, 300);
+  });
+
+  // Also update when mode-toggle visibility changes (e.g. mode buttons toggled)
+  if (modeToggle) {
+    const observer = new MutationObserver(updateMobileBarPositions);
+    observer.observe(modeToggle, { attributes: true, attributeFilter: ['style', 'class'] });
+  }
+
+  // ---- 3. Pseudo-fullscreen ----
+  // Use Fullscreen API where supported; on iOS suggest PWA.
+  if (pseudoFsBtn) {
+    const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+    const isIOS = document.body.classList.contains('ios');
+
+    if (isStandalone) {
+      pseudoFsBtn.style.display = 'none';
+    } else {
+      let fsActive = false;
+
+      pseudoFsBtn.addEventListener('click', () => {
+        if (fsActive) return;
+        // Try standard Fullscreen API first (works on Firefox Android, Chrome Android)
+        const docEl = document.documentElement;
+        const tryFullscreen = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
+        if (tryFullscreen) {
+          const promise = tryFullscreen.call(docEl);
+          if (promise && promise.then) {
+            promise.then(() => {
+              fsActive = true;
+              pseudoFsBtn.style.display = 'none';
+            }).catch(() => {
+              showPWAHint();
+            });
+          } else {
+            fsActive = true;
+            pseudoFsBtn.style.display = 'none';
+          }
+        } else {
+          showPWAHint();
+        }
+      });
+
+      function showPWAHint() {
+        // iOS doesn't support fullscreen API in browser — suggest Add to Home Screen
+        if (isIOS) {
+          pseudoFsBtn.innerHTML = '<span style="font-size:0.7rem">Add to Home Screen (Share → Add) for fullscreen</span>';
+        } else {
+          pseudoFsBtn.innerHTML = '<span style="font-size:0.7rem">Install as app for fullscreen</span>';
+        }
+        setTimeout(() => { pseudoFsBtn.style.display = 'none'; }, 6000);
+      }
+
+      // Monitor visual viewport for chrome show/hide — resize canvas accordingly
+      if (window.visualViewport) {
+        let lastVVH = window.visualViewport.height;
+        window.visualViewport.addEventListener('resize', () => {
+          const newH = window.visualViewport.height;
+          if (Math.abs(newH - lastVVH) > 10) {
+            lastVVH = newH;
+            if (typeof resizeCanvas === 'function') {
+              resizeCanvas(window.innerWidth, window.innerHeight);
+            }
+            updateMobileBarPositions();
+          }
+        });
+      }
+
+      // Fullscreen change listener
+      const onFsChange = () => {
+        const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
+        if (!isFs && fsActive) {
+          fsActive = false;
+          pseudoFsBtn.style.display = '';
+        }
+      };
+      document.addEventListener('fullscreenchange', onFsChange);
+      document.addEventListener('webkitfullscreenchange', onFsChange);
+    }
+
+    // Show button again on orientation change
+    window.addEventListener('orientationchange', () => {
+      pseudoFsBtn.style.display = '';
+      setTimeout(() => updateMobileBarPositions(), 500);
+    });
+  }
+
+  // ---- 4. Mobile op-block gestures are handled in renderStepRepresentation ----
+  // (drag-to-trash for delete, swipe-down for swap)
+
+  // ---- 5. Eye-toggle mode in op boxes ----
+  setupEyeToggleMode();
+}
+
+/* ========== Mobile: eye-toggle mode (replace box contents with eye toggles) ========== */
+function setupEyeToggleMode() {
+  const eyeBtn = document.getElementById('step-eye-mode-btn');
+  if (!eyeBtn) return;
+
+  state.stepEyeMode = false;
+
+  eyeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.stepEyeMode = !state.stepEyeMode;
+    eyeBtn.classList.toggle('active', state.stepEyeMode);
+
+    // Re-render steps with eye mode
+    renderStepRepresentation();
+  });
+}
+
 function isMouseOverCanvas() {
   return mouseX >= 0 && mouseX <= width && mouseY >= 0 && mouseY <= height;
 }
@@ -3573,6 +4455,20 @@ function updateTimelineVisibility() {
   const el = document.getElementById('timeline-control');
   if (!el) return;
   el.style.display = state.usesT ? '' : 'none';
+  // Reposition mobile bars since timeline affects stacking
+  if (document.body.classList.contains('mobile')) {
+    requestAnimationFrame(() => {
+      const topbar = document.querySelector('.topbar');
+      const modeToggle = document.getElementById('mode-toggle-overlay');
+      if (topbar) {
+        const topbarH = topbar.getBoundingClientRect().height;
+        if (modeToggle) modeToggle.style.bottom = topbarH + 'px';
+        const modeVisible = modeToggle && getComputedStyle(modeToggle).display !== 'none';
+        const modeH = modeVisible ? modeToggle.getBoundingClientRect().height : 0;
+        el.style.bottom = (topbarH + modeH) + 'px';
+      }
+    });
+  }
 }
 
 /** Wire up timeline slider, play/pause, and keyboard shortcuts. */
@@ -3590,7 +4486,12 @@ function setupTimeline() {
 
   playBtn.addEventListener('click', () => {
     state.tPlaying = !state.tPlaying;
-    playBtn.textContent = state.tPlaying ? '⏸' : '▶';
+    const playIcon = playBtn.querySelector('.play-icon');
+    const pauseIcon = playBtn.querySelector('.pause-icon');
+    if (playIcon && pauseIcon) {
+      playIcon.style.display = state.tPlaying ? 'none' : '';
+      pauseIcon.style.display = state.tPlaying ? '' : 'none';
+    }
     playBtn.classList.toggle('timeline-play-btn--active', state.tPlaying);
   });
 
@@ -3606,22 +4507,30 @@ function setupTimeline() {
   });
 }
 
-function isOverUI() {
+function isOverUI(cx, cy) {
+  // cx, cy are optional explicit coordinates (for touch); fallback to p5 mouseX/mouseY
+  const checkX = cx !== undefined ? cx : mouseX;
+  const checkY = cy !== undefined ? cy : mouseY;
   const topbar = document.querySelector('.topbar');
   const toggles = ui.graphTogglesEl;
   const settingsMenu = document.getElementById('settingsMenu');
   const modeOverlay = document.getElementById('mode-toggle-overlay');
   const timelineCtrl = document.getElementById('timeline-control');
-  const els = [topbar, toggles, settingsMenu, modeOverlay, timelineCtrl];
+  const mobilePanel = document.getElementById('mobile-toggle-panel');
+  const mobileEye = document.getElementById('mobile-eye-toggle');
+  const settingsGear = document.getElementById('settingsGear');
+  const trashZoneEl = document.getElementById('trash-zone');
+  const els = [topbar, toggles, settingsMenu, modeOverlay, timelineCtrl, mobilePanel, mobileEye, settingsGear, trashZoneEl];
   for (const el of els) {
     if (!el || el.style.display === 'none') continue;
     const r = el.getBoundingClientRect();
-    if (mouseX >= r.left && mouseX <= r.right && mouseY >= r.top && mouseY <= r.bottom) return true;
+    if (checkX >= r.left && checkX <= r.right && checkY >= r.top && checkY <= r.bottom) return true;
   }
   return false;
 }
 
 function mousePressed() {
+  if (document.body.classList.contains('mobile')) return;
   if (!isMouseOverCanvas() || isOverUI()) return;
   state.isPanning = true;
   state.panStartMouseX = mouseX;
@@ -3631,6 +4540,7 @@ function mousePressed() {
 }
 
 function mouseDragged() {
+  if (document.body.classList.contains('mobile')) return;
   if (!state.isPanning) return;
   const dx = mouseX - state.panStartMouseX;
   const dy = mouseY - state.panStartMouseY;
@@ -3645,6 +4555,7 @@ function mouseReleased() {
 }
 
 function mouseWheel(event) {
+  if (document.body.classList.contains('mobile')) return;
   if (!isMouseOverCanvas() || isOverUI()) return;
 
   // Zoom about cursor:
@@ -4059,8 +4970,27 @@ function drawDiscreteScene() {
 
   const ix0 = Math.floor(minX / xStep);
   const ix1 = Math.ceil(maxX / xStep);
-  const iy0 = Math.floor(minY / yStep);
-  const iy1 = Math.ceil(maxY / yStep);
+
+  // In numeral mode, compute yRatio so pixel height matches text height.
+  // yRatio scales the y-axis in screen space; world intervals stay 0.1.
+  let yRatio = 1;
+  if (state.numeralMode) {
+    const cW = xStep * (1 - 2 * DISCRETE_MODE_PIXEL_X_MARGIN);
+    const cH = yStep * (1 - 2 * DISCRETE_MODE_PIXEL_Y_MARGIN);
+    const refSz = 100;
+    drawingContext.font = `bold ${refSz}px 'JetBrains Mono', monospace`;
+    const pm = drawingContext.measureText('8');
+    const pH = pm.actualBoundingBoxAscent + pm.actualBoundingBoxDescent;
+    const pW3 = drawingContext.measureText('8.8').width;
+    const dW = drawingContext.measureText('.').width;
+    const eW3 = pW3 - dW * 0.65;
+    const isVert = Math.abs(view.rotation + Math.PI / 2) < 0.1;
+    yRatio = isVert ? (eW3 * cW / (pH * cH)) : (pH * cW / (eW3 * cH));
+  }
+
+  // Adjust iy bounds for anisotropic y-scaling
+  const iy0 = Math.floor(minY / (yStep * yRatio));
+  const iy1 = Math.ceil(maxY / (yStep * yRatio));
 
   const isDelta = state.mode === "delta";
   const showYAxis = state.toggles.yaxis;
@@ -4115,22 +5045,24 @@ function drawDiscreteScene() {
       }
 
       // Subintermediate pixels (dimmer than intermediates)
-      const nextOp = state.ops[k];
-      if (nextOp && state.stepEyes.ops[k] !== false) {
-        const subItems = getSubintermediateFns(step.fn, nextOp);
-        for (const sub of subItems) {
-          const subCol = getStepColor(sub.category);
-          const sr = Math.round(red(subCol) * 0.5);
-          const sg = Math.round(green(subCol) * 0.5);
-          const sb = Math.round(blue(subCol) * 0.5);
-          for (let ix = ix0; ix <= ix1; ix++) {
-            const cx = ix * xStep * eS;
-            let fy;
-            try { fy = sub.fn(cx); } catch { continue; }
-            if (!Number.isFinite(fy)) continue;
-            if (isDelta) fy = fy - cx;
-            if (!Number.isFinite(fy)) continue;
-            addColor(ix, Math.round(fy / yStep), sr, sg, sb, false);
+      if (state.toggles.subintermediates) {
+        const nextOp = state.ops[k];
+        if (nextOp && state.stepEyes.ops[k] !== false) {
+          const subItems = getSubintermediateFns(step.fn, nextOp);
+          for (const sub of subItems) {
+            const subCol = getStepColor(sub.category);
+            const sr = Math.round(red(subCol) * 0.5);
+            const sg = Math.round(green(subCol) * 0.5);
+            const sb = Math.round(blue(subCol) * 0.5);
+            for (let ix = ix0; ix <= ix1; ix++) {
+              const cx = ix * xStep * eS;
+              let fy;
+              try { fy = sub.fn(cx); } catch { continue; }
+              if (!Number.isFinite(fy)) continue;
+              if (isDelta) fy = fy - cx;
+              if (!Number.isFinite(fy)) continue;
+              addColor(ix, Math.round(fy / yStep), sr, sg, sb, false);
+            }
           }
         }
       }
@@ -4159,10 +5091,11 @@ function drawDiscreteScene() {
   const pd = window.devicePixelRatio || 1;
 
   ctx.save();
+  // Anisotropic transform: y-axis scaled by yRatio so pixel height matches text
   ctx.setTransform(
-    pd * view.scale * cosθ, -pd * view.scale * sinθ,
-    -pd * view.scale * sinθ, -pd * view.scale * cosθ,
-    pd * view.originX, pd * view.originY
+    pd * view.scale * cosθ,               -pd * view.scale * sinθ,
+    -pd * view.scale * sinθ * yRatio,     -pd * view.scale * cosθ * yRatio,
+    pd * view.originX,                     pd * view.originY
   );
 
   const { cellW, mx } = getDiscreteCellMetrics(xStep);
@@ -4172,10 +5105,34 @@ function drawDiscreteScene() {
   // Note: the transform flips y, so fillRect draws "upward" in world space.
   // We pass negative cellH so rects extend in the +y (upward) world direction.
 
-  // 4a. Inactive tint: one tall strip per column (O(cols) not O(cols×rows))
-  const inR = state.lightMode ? 255 : 18;
-  const inG = state.lightMode ? 255 : 20;
-  const inB = state.lightMode ? 255 : 28;
+  // Compute discrete scene colors
+  let inR, inG, inB, gutR, gutG, gutB;
+  if (state.lightMode) {
+    const bg = state.bgColorRGB || [245, 246, 250];
+    inR = bg[0]; inG = bg[1]; inB = bg[2];
+    const mutedHex = getComputedStyle(document.body).getPropertyValue('--muted').trim();
+    const m = mutedHex.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+    gutR = m ? parseInt(m[1],16) : 90;
+    gutG = m ? parseInt(m[2],16) : 98;
+    gutB = m ? parseInt(m[3],16) : 120;
+  } else {
+    inR = 18; inG = 20; inB = 28;
+    gutR = 0; gutG = 0; gutB = 0;
+  }
+
+  const numerals = state.numeralMode;
+
+  // 4a. Gutter fill: cover entire visible grid area with gutter color (light mode)
+  if (state.lightMode) {
+    ctx.fillStyle = `rgb(${gutR},${gutG},${gutB})`;
+    const gutLeft = ix0 * xStep - xStep / 2;
+    const gutW = (ix1 - ix0 + 1) * xStep;
+    const gutBot = iy0 * yStep - yStep / 2;
+    const gutH = (iy1 - iy0 + 1) * yStep;
+    ctx.fillRect(gutLeft, gutBot, gutW, gutH);
+  }
+
+  // 4a. Inactive tint: one tall strip per column
   ctx.fillStyle = `rgb(${inR},${inG},${inB})`;
   const stripBot = iy0 * yStep - yStep / 2 + my;
   const stripTop = (iy1 + 1) * yStep - yStep / 2 - my;
@@ -4186,10 +5143,7 @@ function drawDiscreteScene() {
 
   // 4a2. Carve horizontal gap bands between rows (O(rows)) for y-margin
   if (my > 0) {
-    const bgR = state.lightMode ? 215 : 0;
-    const bgG = state.lightMode ? 218 : 0;
-    const bgB = state.lightMode ? 225 : 0;
-    ctx.fillStyle = `rgb(${bgR},${bgG},${bgB})`;
+    ctx.fillStyle = `rgb(${gutR},${gutG},${gutB})`;
     const bandLeft = ix0 * xStep - xStep / 2;
     const bandW = (ix1 - ix0 + 1) * xStep;
     const bandH = 2 * my;
@@ -4217,8 +5171,8 @@ function drawDiscreteScene() {
     }
   }
 
-  // 4b. Transformation band fills (alternating sub-bands)
-  if (showIntermediates) {
+  // 4b. Transformation band fills (skip in numeral mode — replaced by colored numerals)
+  if (!numerals && showIntermediates) {
     const steps = state.steps;
     if (steps.length >= 2) {
       for (let k = 1; k < steps.length; k++) {
@@ -4232,7 +5186,7 @@ function drawDiscreteScene() {
         // Build ordered band boundary functions: [prev, sub1, sub2, …, target]
         const op = state.ops[k - 1];
         let bandFns = [prevStep.fn];
-        if (op) {
+        if (op && state.toggles.subintermediates) {
           const subItems = getSubintermediateFns(prevStep.fn, op);
           bandFns = bandFns.concat(subItems.map(s => s.fn));
         }
@@ -4397,11 +5351,13 @@ function drawDiscreteScene() {
         stampDiscreteGlow(steps[k].fn, getStepColor(steps[k]), 130 / 255);
 
         // Subintermediate glow (dimmer)
-        const nextOp = state.ops[k];
-        if (nextOp && state.stepEyes.ops[k] !== false) {
-          const subItems = getSubintermediateFns(steps[k].fn, nextOp);
-          for (const sub of subItems) {
-            stampDiscreteGlow(sub.fn, getStepColor(sub.category), 80 / 255);
+        if (state.toggles.subintermediates) {
+          const nextOp = state.ops[k];
+          if (nextOp && state.stepEyes.ops[k] !== false) {
+            const subItems = getSubintermediateFns(steps[k].fn, nextOp);
+            for (const sub of subItems) {
+              stampDiscreteGlow(sub.fn, getStepColor(sub.category), 80 / 255);
+            }
           }
         }
       }
@@ -4415,34 +5371,312 @@ function drawDiscreteScene() {
 
   // 4c. Overdraw active pixels with resolved colors (brighter at grid ticks)
   const glowTint = state.glowCurves;
-  for (const [, px] of pixels) {
-    let fr, fg, fb;
-    if (px.hasY) {
-      fr = pR; fg = pG; fb = pB;
-    } else {
-      fr = px.r / px.count;
-      fg = px.g / px.count;
-      fb = px.b / px.count;
+  if (!numerals) {
+    for (const [, px] of pixels) {
+      let fr, fg, fb;
+      if (px.hasY) {
+        fr = pR; fg = pG; fb = pB;
+      } else {
+        fr = px.r / px.count;
+        fg = px.g / px.count;
+        fb = px.b / px.count;
+      }
+      if (glowTint) {
+        fr = fr * 0.7 + 255 * 0.3;
+        fg = fg * 0.7 + 255 * 0.3;
+        fb = fb * 0.7 + 255 * 0.3;
+      }
+      // Brighten at grid ticks (lerp toward white, preserving hue)
+      const gBoost = gridBoostMap.get(px.ix) || 0;
+      if (gBoost > 0) {
+        const t = gBoost * 0.5;
+        fr = fr + (255 - fr) * t;
+        fg = fg + (255 - fg) * t;
+        fb = fb + (255 - fb) * t;
+      }
+      ctx.fillStyle = `rgb(${Math.round(fr)},${Math.round(fg)},${Math.round(fb)})`;
+      ctx.fillRect(
+        px.ix * xStep - xStep / 2 + mx,
+        px.iy * yStep - yStep / 2 + my,
+        cellW, cellH
+      );
     }
-    if (glowTint) {
-      fr = fr * 0.7 + 255 * 0.3;
-      fg = fg * 0.7 + 255 * 0.3;
-      fb = fb * 0.7 + 255 * 0.3;
+  }
+
+  // 4d. Numeral mode: draw y-values as text in ALL pixels (active + inactive)
+  if (numerals) {
+    ctx.save();
+    const pd2 = window.devicePixelRatio || 1;
+    ctx.setTransform(pd2, 0, 0, pd2, 0, 0);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const isVertical = Math.abs(view.rotation + Math.PI / 2) < 0.1;
+    // Cell screen dimensions (after anisotropic scaling)
+    const cellScrW = isVertical ? (cellH * view.scale * yRatio) : (cellW * view.scale);
+    const cellScrH = isVertical ? (cellW * view.scale) : (cellH * view.scale * yRatio);
+    // Font sized so text fits both dimensions (they match by design via yRatio)
+    const refSize = 100;
+    ctx.font = `bold ${refSize}px 'JetBrains Mono', monospace`;
+    const probe = ctx.measureText('8');
+    const probeH = probe.actualBoundingBoxAscent + probe.actualBoundingBoxDescent;
+    const probeW3 = ctx.measureText('8.8').width;
+    const dotW = ctx.measureText('.').width;
+    const effW3 = probeW3 - dotW * 0.65;
+    let fontSize = refSize * Math.min(cellScrW / effW3, cellScrH / probeH);
+    fontSize = Math.max(4, fontSize);
+    const boldFont = `bold ${fontSize}px 'JetBrains Mono', monospace`;
+    ctx.font = boldFont;
+
+    // Horizontal squeeze factors for compressed characters
+    const MINUS_SQ = 0.55;
+    const DOT_SQ   = 0.35;
+    const DEC_SQ   = 0.85;
+
+    // Centering correction
+    const finalProbe = ctx.measureText('8');
+    const finalAsc = finalProbe.actualBoundingBoxAscent;
+    const finalDesc = finalProbe.actualBoundingBoxDescent;
+    const yShift = (finalAsc - finalDesc) / 2;
+
+    // --- Pre-cache text and tight-kerned char data per unique iy ---
+    // Pre-measure bold char widths for squeeze rendering
+    const boldMinusW = ctx.measureText('\u2212').width;
+    const boldDotW = ctx.measureText('.').width;
+    const boldDigitW = {};
+    for (let d = 0; d <= 9; d++) boldDigitW[d] = ctx.measureText(String(d)).width;
+
+    const rowCache = new Map();
+    for (let iy = iy0; iy <= iy1; iy++) {
+      const val = iy * yStep;
+      const absVal = Math.abs(val);
+      let text;
+      if (absVal >= 100) text = Math.round(absVal).toString();
+      else if (absVal >= 10) text = Math.round(absVal).toString();
+      else if (absVal < 0.05) text = '0';
+      else text = absVal.toFixed(1);
+      const isNeg = val < 0;
+      const dotIdx = text.indexOf('.');
+      const hasDot = dotIdx !== -1;
+      // Build per-char layout: { ch, w (allocated), sq (squeeze) }
+      // Integer part: bold, full width. Dot + decimal: bold, squeezed.
+      let chars = [];
+      let totalW = 0;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (hasDot && i >= dotIdx) {
+          if (ch === '.') {
+            const w = boldDotW * DOT_SQ;
+            chars.push({ ch, w, sq: DOT_SQ });
+            totalW += w;
+          } else {
+            const bw = boldDigitW[parseInt(ch)] || boldDotW;
+            const w = bw * DEC_SQ;
+            chars.push({ ch, w, sq: DEC_SQ });
+            totalW += w;
+          }
+        } else {
+          const w = boldDigitW[parseInt(ch)] || ctx.measureText(ch).width;
+          chars.push({ ch, w, sq: 1 });
+          totalW += w;
+        }
+      }
+      // Minus sign: bold, squeezed
+      let minusW = 0;
+      if (isNeg) {
+        minusW = boldMinusW * MINUS_SQ;
+        totalW += minusW;
+      }
+      rowCache.set(iy, { text, isNeg, hasDot, chars, totalW, minusW });
     }
-    // Brighten at grid ticks (lerp toward white, preserving hue)
-    const gBoost = gridBoostMap.get(px.ix) || 0;
-    if (gBoost > 0) {
-      const t = gBoost * 0.5;
-      fr = fr + (255 - fr) * t;
-      fg = fg + (255 - fg) * t;
-      fb = fb + (255 - fb) * t;
+
+    // --- Row atlas: pre-render each iy text as white on shared offscreen canvas ---
+    // --- Row atlas: pre-render each iy text as white on shared offscreen canvas ---
+    const _PAD = 2;
+    const _atlasRowDH = Math.ceil(fontSize * 1.8 * pd2);
+    const _atlasRowLH = _atlasRowDH / pd2;
+    let _maxDW = 0;
+    for (const rc of rowCache.values()) {
+      const dw = Math.ceil((rc.totalW + _PAD * 2) * pd2);
+      if (dw > _maxDW) _maxDW = dw;
     }
-    ctx.fillStyle = `rgb(${Math.round(fr)},${Math.round(fg)},${Math.round(fb)})`;
-    ctx.fillRect(
-      px.ix * xStep - xStep / 2 + mx,
-      px.iy * yStep - yStep / 2 + my,
-      cellW, cellH
-    );
+    if (!state._numAtlas) {
+      state._numAtlas    = document.createElement('canvas');
+      state._numAtlasCtx = state._numAtlas.getContext('2d');
+      state._numTint     = document.createElement('canvas');
+      state._numTintCtx  = state._numTint.getContext('2d');
+    }
+    const aCvs = state._numAtlas, aCtx = state._numAtlasCtx;
+    const tCvs = state._numTint,  tCtx = state._numTintCtx;
+    const _nRows = rowCache.size;
+    const _needH = _atlasRowDH * _nRows;
+    if (aCvs.width < _maxDW || aCvs.height < _needH) {
+      aCvs.width  = Math.max(aCvs.width,  _maxDW);
+      aCvs.height = Math.max(aCvs.height, _needH);
+    }
+    aCtx.clearRect(0, 0, _maxDW, _needH);
+    aCtx.font         = boldFont;
+    aCtx.textAlign    = 'center';
+    aCtx.textBaseline = 'middle';
+    aCtx.fillStyle    = '#fff';
+    // Tint canvas must cover full atlas for batch tinting
+    if (tCvs.width < _maxDW || tCvs.height < _needH) {
+      tCvs.width  = Math.max(tCvs.width,  _maxDW);
+      tCvs.height = Math.max(tCvs.height, _needH);
+    }
+    const rowMeta = new Map();
+    let _ri = 0;
+    for (const [iy, rc] of rowCache) {
+      const midYD = _ri * _atlasRowDH + _atlasRowDH / 2;
+      let x = _PAD;
+      if (rc.isNeg) {
+        aCtx.setTransform(pd2 * MINUS_SQ, 0, 0, pd2, pd2 * (x + rc.minusW / 2), midYD);
+        aCtx.fillText('\u2212', 0, 0);
+        x += rc.minusW;
+      }
+      for (const ch of rc.chars) {
+        if (ch.sq < 1) {
+          aCtx.setTransform(pd2 * ch.sq, 0, 0, pd2, pd2 * (x + ch.w / 2), midYD);
+          aCtx.fillText(ch.ch, 0, 0);
+        } else {
+          aCtx.setTransform(pd2, 0, 0, pd2, 0, 0);
+          aCtx.fillText(ch.ch, x + ch.w / 2, midYD / pd2);
+        }
+        x += ch.w;
+      }
+      const dw = Math.ceil((rc.totalW + _PAD * 2) * pd2);
+      rowMeta.set(iy, { ri: _ri, dw, lw: dw / pd2, tw: rc.totalW });
+      _ri++;
+    }
+    aCtx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // Helper: tint full atlas to a single color (2 ops, called once per unique color)
+    function tintAtlas(r, g, b) {
+      tCtx.globalCompositeOperation = 'copy';
+      tCtx.drawImage(aCvs, 0, 0, _maxDW, _needH, 0, 0, _maxDW, _needH);
+      tCtx.globalCompositeOperation = 'source-in';
+      tCtx.fillStyle = `rgb(${r},${g},${b})`;
+      tCtx.fillRect(0, 0, _maxDW, _needH);
+    }
+
+    // Helper: stamp a single row from tinted atlas (1 drawImage, no composite switch)
+    function stampTinted(iy, cx, cy) {
+      const m = rowMeta.get(iy);
+      if (!m) return;
+      const srcY = m.ri * _atlasRowDH;
+      ctx.drawImage(tCvs, 0, srcY, m.dw, _atlasRowDH,
+                    cx - m.tw / 2 - _PAD, cy + yShift - _atlasRowLH / 2,
+                    m.lw, _atlasRowLH);
+    }
+
+    // Build transform color map for inactive numerals
+    const transformColors = new Map();
+    if (showIntermediates) {
+      const steps = state.steps;
+      if (steps.length >= 2) {
+        for (let k = 1; k < steps.length; k++) {
+          if (k < steps.length - 1 && state.stepEyes.ops[k - 1] === false) continue;
+          if (k === steps.length - 1 && !state.stepEyes.y) continue;
+          const prevStep = steps[k - 1];
+          const curStep = steps[k];
+          const col = getStepColor(curStep);
+          const cr = red(col), cg = green(col), cb = blue(col);
+          for (let ix = ix0; ix <= ix1; ix++) {
+            const cx = ix * xStep * eS;
+            let v0t, v1t;
+            try { v0t = prevStep.fn(cx); } catch { continue; }
+            if (!Number.isFinite(v0t)) continue;
+            if (isDelta) v0t = v0t - cx;
+            if (!Number.isFinite(v0t)) continue;
+            try { v1t = curStep.fn(cx); } catch { continue; }
+            if (!Number.isFinite(v1t)) continue;
+            if (isDelta) v1t = v1t - cx;
+            if (!Number.isFinite(v1t)) continue;
+            const iyLo = Math.round(Math.min(v0t, v1t) / yStep);
+            const iyHi = Math.round(Math.max(v0t, v1t) / yStep);
+            for (let iy = iyLo; iy <= iyHi; iy++) {
+              const key = ix * 131072 + iy;
+              if (!pixels.has(key)) {
+                transformColors.set(key, { r: cr, g: cg, b: cb });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Pre-compute active pixel colors
+    const activeColors = new Map();
+    const glowTintN = state.glowCurves;
+    for (const [key, px] of pixels) {
+      let fr, fg, fb;
+      if (px.hasY) { fr = pR; fg = pG; fb = pB; }
+      else { fr = px.r / px.count; fg = px.g / px.count; fb = px.b / px.count; }
+      if (glowTintN) { fr = fr*0.7+255*0.3; fg = fg*0.7+255*0.3; fb = fb*0.7+255*0.3; }
+      const gBoost = gridBoostMap.get(px.ix) || 0;
+      if (gBoost > 0) {
+        const t = gBoost * 0.5;
+        fr = fr + (255 - fr) * t;
+        fg = fg + (255 - fg) * t;
+        fb = fb + (255 - fb) * t;
+      }
+      activeColors.set(key, { r: Math.round(fr), g: Math.round(fg), b: Math.round(fb) });
+    }
+
+    // --- Rendering: batch by color, tint atlas once per unique color ---
+
+    // Collect all cells grouped by color (inactive first, active second for z-order)
+    const inactiveBatches = new Map(); // colorKey → { r,g,b, cells:[] }
+    const activeBatches   = new Map();
+
+    for (let ix = ix0; ix <= ix1; ix++) {
+      for (let iy = iy0; iy <= iy1; iy++) {
+        const key = ix * 131072 + iy;
+        if (activeColors.has(key)) continue;
+        const tc = transformColors.get(key);
+        let cr, cg, cb;
+        if (tc) {
+          const blend = state.lightMode ? 0.65 : 0.55;
+          cr = Math.round(gutR + (tc.r - gutR) * blend);
+          cg = Math.round(gutG + (tc.g - gutG) * blend);
+          cb = Math.round(gutB + (tc.b - gutB) * blend);
+        } else {
+          cr = gutR; cg = gutG; cb = gutB;
+        }
+        const ck = (cr << 16) | (cg << 8) | cb;
+        if (!inactiveBatches.has(ck)) inactiveBatches.set(ck, { r: cr, g: cg, b: cb, cells: [] });
+        const scr = worldToScreen(ix * xStep, iy * yStep * yRatio);
+        inactiveBatches.get(ck).cells.push({ iy, x: scr.x, y: scr.y });
+      }
+    }
+
+    if (activeColors.size > 0) {
+      for (let ix = ix0; ix <= ix1; ix++) {
+        for (let iy = iy0; iy <= iy1; iy++) {
+          const key = ix * 131072 + iy;
+          const ac = activeColors.get(key);
+          if (!ac) continue;
+          const ck = (ac.r << 16) | (ac.g << 8) | ac.b;
+          if (!activeBatches.has(ck)) activeBatches.set(ck, { r: ac.r, g: ac.g, b: ac.b, cells: [] });
+          const scr = worldToScreen(ix * xStep, iy * yStep * yRatio);
+          activeBatches.get(ck).cells.push({ iy, x: scr.x, y: scr.y });
+        }
+      }
+    }
+
+    // Draw inactive batches (tint atlas once per color, stamp all cells)
+    for (const batch of inactiveBatches.values()) {
+      tintAtlas(batch.r, batch.g, batch.b);
+      for (const c of batch.cells) stampTinted(c.iy, c.x, c.y);
+    }
+    // Draw active batches on top
+    for (const batch of activeBatches.values()) {
+      tintAtlas(batch.r, batch.g, batch.b);
+      for (const c of batch.cells) stampTinted(c.iy, c.x, c.y);
+    }
+
+    ctx.restore();
   }
 
   ctx.restore();
@@ -4484,11 +5718,28 @@ function drawDiscreteXScene() {
 
   const { cellW, mx } = getDiscreteCellMetrics(xStep);
   const barThickness = 0.025; // world units — thin horizontal bar
+  const numerals = state.numeralMode;
 
-  // Draw full-height column strips (inactive tint) with black gutters
-  const inR = state.lightMode ? 255 : 18;
-  const inG = state.lightMode ? 255 : 20;
-  const inB = state.lightMode ? 255 : 28;
+  // Compute discrete scene colors
+  let inR, inG, inB;
+  if (state.lightMode) {
+    const bg = state.bgColorRGB || [245, 246, 250];
+    inR = bg[0]; inG = bg[1]; inB = bg[2];
+    // Fill gutter background (muted/text color)
+    const mutedHex = getComputedStyle(document.body).getPropertyValue('--muted').trim();
+    const m = mutedHex.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+    const gutR = m ? parseInt(m[1],16) : 90;
+    const gutG = m ? parseInt(m[2],16) : 98;
+    const gutB = m ? parseInt(m[3],16) : 120;
+    ctx.fillStyle = `rgb(${gutR},${gutG},${gutB})`;
+    const gutLeft = ix0 * xStep - xStep / 2;
+    const gutW = (ix1 - ix0 + 1) * xStep;
+    ctx.fillRect(gutLeft, minY, gutW, maxY - minY);
+  } else {
+    inR = 18; inG = 20; inB = 28;
+  }
+
+  // Draw column strips (inactive tint)
   ctx.fillStyle = `rgb(${inR},${inG},${inB})`;
   for (let ix = ix0; ix <= ix1; ix++) {
     ctx.fillRect(ix * xStep - xStep / 2 + mx, minY, cellW, maxY - minY);
@@ -4582,7 +5833,7 @@ function drawDiscreteXScene() {
     }
   }
 
-  // Intermediate curves as horizontal bars
+  // Intermediate curves — bands always shown, bars only when not in numeral mode
   if (showIntermediates) {
     const steps = state.steps;
 
@@ -4600,7 +5851,7 @@ function drawDiscreteXScene() {
         // Build ordered band boundary functions: [prev, sub1, sub2, …, target]
         const op = state.ops[k - 1];
         let bandFns = [prevStep.fn];
-        if (op) {
+        if (op && state.toggles.subintermediates) {
           const subItems = getSubintermediateFns(prevStep.fn, op);
           bandFns = bandFns.concat(subItems.map(s => s.fn));
         }
@@ -4658,47 +5909,52 @@ function drawDiscreteXScene() {
       }
     }
 
-    for (let k = 0; k < steps.length - 1; k++) {
-      if (k === 0 && !state.stepEyes.x) continue;
-      if (k > 0 && state.stepEyes.ops[k - 1] === false) continue;
-      const step = steps[k];
-      const col = getStepColor(step);
-      drawBars(step.fn, red(col), green(col), blue(col), barThickness * 0.7);
+    // Intermediate bars (skip in numeral mode)
+    if (!numerals) {
+      for (let k = 0; k < steps.length - 1; k++) {
+        if (k === 0 && !state.stepEyes.x) continue;
+        if (k > 0 && state.stepEyes.ops[k - 1] === false) continue;
+        const step = steps[k];
+        const col = getStepColor(step);
+        drawBars(step.fn, red(col), green(col), blue(col), barThickness * 0.7);
 
-      // Subintermediate bars
-      const nextOp = state.ops[k];
-      if (nextOp && state.stepEyes.ops[k] !== false) {
-        const subItems = getSubintermediateFns(step.fn, nextOp);
-        for (const sub of subItems) {
-          const subBarCol = getStepColor(sub.category);
-          const sr = red(subBarCol), sg = green(subBarCol), sb = blue(subBarCol);
-          for (let ix = ix0; ix <= ix1; ix++) {
-            const cx = ix * xStep * eS;
-            let fy;
-            try { fy = sub.fn(cx); } catch { continue; }
-            if (!Number.isFinite(fy)) continue;
-            if (isDelta) fy = fy - cx;
-            if (!Number.isFinite(fy)) continue;
-            const left = ix * xStep - xStep / 2 + mx;
-            const gBoost = gridBoostMap.get(ix) || 0;
-            if (gBoost > 0) {
-              const t = gBoost * 0.5;
-              const bsr = Math.round(sr + (255 - sr) * t);
-              const bsg = Math.round(sg + (255 - sg) * t);
-              const bsb = Math.round(sb + (255 - sb) * t);
-              ctx.fillStyle = `rgba(${bsr},${bsg},${bsb},0.55)`;
-            } else {
-              ctx.fillStyle = `rgba(${sr},${sg},${sb},0.55)`;
+        // Subintermediate bars
+        if (state.toggles.subintermediates) {
+          const nextOp = state.ops[k];
+          if (nextOp && state.stepEyes.ops[k] !== false) {
+            const subItems = getSubintermediateFns(step.fn, nextOp);
+            for (const sub of subItems) {
+              const subBarCol = getStepColor(sub.category);
+              const sr = red(subBarCol), sg = green(subBarCol), sb = blue(subBarCol);
+              for (let ix = ix0; ix <= ix1; ix++) {
+                const cx = ix * xStep * eS;
+                let fy;
+                try { fy = sub.fn(cx); } catch { continue; }
+                if (!Number.isFinite(fy)) continue;
+                if (isDelta) fy = fy - cx;
+                if (!Number.isFinite(fy)) continue;
+                const left = ix * xStep - xStep / 2 + mx;
+                const gBoost = gridBoostMap.get(ix) || 0;
+                if (gBoost > 0) {
+                  const t = gBoost * 0.5;
+                  const bsr = Math.round(sr + (255 - sr) * t);
+                  const bsg = Math.round(sg + (255 - sg) * t);
+                  const bsb = Math.round(sb + (255 - sb) * t);
+                  ctx.fillStyle = `rgba(${bsr},${bsg},${bsb},0.55)`;
+                } else {
+                  ctx.fillStyle = `rgba(${sr},${sg},${sb},0.55)`;
+                }
+                ctx.fillRect(left, fy - barThickness * 0.35, cellW, barThickness * 0.5);
+              }
             }
-            ctx.fillRect(left, fy - barThickness * 0.35, cellW, barThickness * 0.5);
           }
         }
       }
     }
   }
 
-  // Y-curve bars (highest priority, slightly thicker)
-  if (state.stepEyes.y) {
+  // Y-curve bars (skip in numeral mode)
+  if (!numerals && state.stepEyes.y) {
     const plotCol = getPlotColor();
     drawBars(state.fn, red(plotCol), green(plotCol), blue(plotCol), barThickness);
   }
@@ -4754,21 +6010,23 @@ function drawDiscreteXScene() {
           ctx.drawImage(gc, 0, 0, 1, glowCanvasH, left, fy - glowWR, cellW, 2 * glowWR);
         }
       }
-      // Hairline (near-white with chroma hint) — brighter at grid ticks
-      const hr = 255 * 0.8 + cr * 0.2, hg = 255 * 0.8 + cg * 0.2, hb = 255 * 0.8 + cb * 0.2;
-      const hlThick = 1.5 / view.scale;
-      for (let ix = ix0; ix <= ix1; ix++) {
-        const cx = ix * xStep * eS;
-        let fy;
-        try { fy = evalFn(cx); } catch { continue; }
-        if (!Number.isFinite(fy)) continue;
-        if (isDelta) fy = fy - cx;
-        if (!Number.isFinite(fy)) continue;
-        const left = ix * xStep - xStep / 2 + mx;
-        const gBoost = gridBoostMap.get(ix) || 0;
-        const hlAlpha = Math.min(1, alphaS * (1 + gBoost * 0.5));
-        ctx.fillStyle = `rgba(${hr | 0},${hg | 0},${hb | 0},${hlAlpha.toFixed(4)})`;
-        ctx.fillRect(left, fy - hlThick / 2, cellW, hlThick);
+      // Hairline (near-white with chroma hint) — skip in numeral mode
+      if (!numerals) {
+        const hr = 255 * 0.8 + cr * 0.2, hg = 255 * 0.8 + cg * 0.2, hb = 255 * 0.8 + cb * 0.2;
+        const hlThick = 1.5 / view.scale;
+        for (let ix = ix0; ix <= ix1; ix++) {
+          const cx = ix * xStep * eS;
+          let fy;
+          try { fy = evalFn(cx); } catch { continue; }
+          if (!Number.isFinite(fy)) continue;
+          if (isDelta) fy = fy - cx;
+          if (!Number.isFinite(fy)) continue;
+          const left = ix * xStep - xStep / 2 + mx;
+          const gBoost = gridBoostMap.get(ix) || 0;
+          const hlAlpha = Math.min(1, alphaS * (1 + gBoost * 0.5));
+          ctx.fillStyle = `rgba(${hr | 0},${hg | 0},${hb | 0},${hlAlpha.toFixed(4)})`;
+          ctx.fillRect(left, fy - hlThick / 2, cellW, hlThick);
+        }
       }
     }
 
@@ -4783,12 +6041,14 @@ function drawDiscreteXScene() {
         stampGlowW(step.fn, sCol, 130 / 255);
 
         // Subintermediate glow (dimmer than intermediates)
-        const nextOp = state.ops[k];
-        if (nextOp && state.stepEyes.ops[k] !== false) {
-          const subItems = getSubintermediateFns(step.fn, nextOp);
-          for (const sub of subItems) {
-            const subGlowCol = getStepColor(sub.category);
-            stampGlowW(sub.fn, subGlowCol, 80 / 255);
+        if (state.toggles.subintermediates) {
+          const nextOp = state.ops[k];
+          if (nextOp && state.stepEyes.ops[k] !== false) {
+            const subItems = getSubintermediateFns(step.fn, nextOp);
+            for (const sub of subItems) {
+              const subGlowCol = getStepColor(sub.category);
+              stampGlowW(sub.fn, subGlowCol, 80 / 255);
+            }
           }
         }
       }
@@ -4798,6 +6058,234 @@ function drawDiscreteXScene() {
     if (state.stepEyes.y) {
       stampGlowW(state.fn, getPlotColor(), 1);
     }
+  }
+
+  // Numeral mode: draw y-values as text at active data points (discrete-X only)
+  if (numerals) {
+    ctx.save();
+    const pd2 = window.devicePixelRatio || 1;
+    ctx.setTransform(pd2, 0, 0, pd2, 0, 0);
+
+    const isVertical = Math.abs(view.rotation + Math.PI / 2) < 0.1;
+
+    // Calibrate font: in vertical mode, height must fit cellScreenW
+    const cellScreenW = cellW * view.scale;
+    const refSize = 100;
+    ctx.font = `bold ${refSize}px 'JetBrains Mono', monospace`;
+    const probe = ctx.measureText('8');
+    const probeH = probe.actualBoundingBoxAscent + probe.actualBoundingBoxDescent;
+    let fontSize;
+    if (isVertical) {
+      // Cell width on screen = vertical extent for text, so size by height
+      fontSize = Math.max(4, refSize * (cellScreenW / probeH));
+    } else {
+      // Horizontal: size so text width fills cell
+      const probeW3 = ctx.measureText('8.8').width;
+      const dotW = ctx.measureText('.').width;
+      const effW = probeW3 - dotW * 0.65;
+      fontSize = Math.max(4, refSize * (cellScreenW / effW) * 0.92);
+    }
+    const boldFontDX = `bold ${fontSize}px 'JetBrains Mono', monospace`;
+    ctx.font = boldFontDX;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Horizontal squeeze factors for compressed characters
+    const MINUS_SQ_DX = 0.55;
+    const DOT_SQ_DX   = 0.35;
+    const DEC_SQ_DX   = 0.85;
+
+    const plotCol = getPlotColor();
+    const pcR = red(plotCol), pcG = green(plotCol), pcB = blue(plotCol);
+
+    // Pre-measure bold char widths for squeeze rendering
+    const boldMinusDX = ctx.measureText('\u2212').width;
+    const boldDotDX = ctx.measureText('.').width;
+    const boldDigitDX = {};
+    for (let d = 0; d <= 9; d++) boldDigitDX[d] = ctx.measureText(String(d)).width;
+
+    // Build text layout (squeeze factors) without drawing
+    function buildLayout(str, isNeg) {
+      const dotIdx = str.indexOf('.');
+      const hasDot = dotIdx !== -1;
+      let totalW = 0;
+      const parts = [];
+      if (isNeg) {
+        const mw = boldMinusDX * MINUS_SQ_DX;
+        parts.push({ ch: '\u2212', w: mw, sq: MINUS_SQ_DX });
+        totalW += mw;
+      }
+      for (let i = 0; i < str.length; i++) {
+        const ch = str[i];
+        if (hasDot && i >= dotIdx) {
+          if (ch === '.') {
+            const w = boldDotDX * DOT_SQ_DX;
+            parts.push({ ch, w, sq: DOT_SQ_DX });
+            totalW += w;
+          } else {
+            const bw = boldDigitDX[parseInt(ch)] || boldDotDX;
+            const w = bw * DEC_SQ_DX;
+            parts.push({ ch, w, sq: DEC_SQ_DX });
+            totalW += w;
+          }
+        } else {
+          const w = boldDigitDX[parseInt(ch)] || ctx.measureText(ch).width;
+          parts.push({ ch, w, sq: 1 });
+          totalW += w;
+        }
+      }
+      return { parts, totalW };
+    }
+
+    // Collect all numeral draws (evaluate once, render in passes)
+    const dxDraws = [];
+    function collectNumeralBar(evalFn, colR, colG, colB) {
+      for (let ix = ix0; ix <= ix1; ix++) {
+        const cx = ix * xStep * eS;
+        let fy;
+        try { fy = evalFn(cx); } catch { continue; }
+        if (!Number.isFinite(fy)) continue;
+        if (isDelta) fy = fy - cx;
+        if (!Number.isFinite(fy)) continue;
+
+        const gBoost = gridBoostMap.get(ix) || 0;
+        let fr = colR, fg = colG, fb = colB;
+        if (state.glowCurves) { fr = fr*0.7+255*0.3; fg = fg*0.7+255*0.3; fb = fb*0.7+255*0.3; }
+        if (gBoost > 0) {
+          const t = gBoost * 0.5;
+          fr = fr + (255 - fr) * t; fg = fg + (255 - fg) * t; fb = fb + (255 - fb) * t;
+        }
+
+        const absVal = Math.abs(fy);
+        let text;
+        if (absVal >= 100) text = Math.round(absVal).toString();
+        else if (absVal >= 10) text = Math.round(absVal).toString();
+        else if (absVal < 0.05) text = '0';
+        else text = absVal.toFixed(1);
+        const isNeg = fy < 0;
+        const layout = buildLayout(text, isNeg);
+        const scr = worldToScreen(ix * xStep, fy);
+        dxDraws.push({ layout, cx: scr.x, cy: scr.y, r: Math.round(fr), g: Math.round(fg), b: Math.round(fb) });
+      }
+    }
+
+    // Collect intermediate numerals
+    if (showIntermediates) {
+      const steps = state.steps;
+      for (let k = 0; k < steps.length - 1; k++) {
+        if (k === 0 && !state.stepEyes.x) continue;
+        if (k > 0 && state.stepEyes.ops[k - 1] === false) continue;
+        const sCol = getStepColor(steps[k]);
+        collectNumeralBar(steps[k].fn, red(sCol), green(sCol), blue(sCol));
+
+        if (state.toggles.subintermediates) {
+          const nextOp = state.ops[k];
+          if (nextOp && state.stepEyes.ops[k] !== false) {
+            const subItems = getSubintermediateFns(steps[k].fn, nextOp);
+            for (const sub of subItems) {
+              const subCol = getStepColor(sub.category);
+              collectNumeralBar(sub.fn, red(subCol), green(subCol), blue(subCol));
+            }
+          }
+        }
+      }
+    }
+
+    // Collect Y-curve numerals
+    if (state.stepEyes.y) {
+      collectNumeralBar(state.fn, pcR, pcG, pcB);
+    }
+
+    // --- Rendering: atlas + batch-by-color (no fillText per data-point) ---
+
+    if (dxDraws.length > 0) {
+      const _PAD_DX = 2;
+      const _rowDH = Math.ceil(fontSize * 1.8 * pd2);
+      const _rowLH = _rowDH / pd2;
+      const uniqueTexts = new Map();
+      for (const d of dxDraws) {
+        const key = d.layout.parts.map(p => p.ch).join('');
+        d._ak = key;
+        if (!uniqueTexts.has(key)) uniqueTexts.set(key, d.layout);
+      }
+      let _maxDW = 0;
+      for (const lo of uniqueTexts.values()) {
+        const dw = Math.ceil((lo.totalW + _PAD_DX * 2) * pd2);
+        if (dw > _maxDW) _maxDW = dw;
+      }
+      if (!state._numAtlas) {
+        state._numAtlas    = document.createElement('canvas');
+        state._numAtlasCtx = state._numAtlas.getContext('2d');
+        state._numTint     = document.createElement('canvas');
+        state._numTintCtx  = state._numTint.getContext('2d');
+      }
+      const aCvs = state._numAtlas, aCtx = state._numAtlasCtx;
+      const tCvs = state._numTint,  tCtx = state._numTintCtx;
+      const _nTxt = uniqueTexts.size;
+      const _needH = _rowDH * _nTxt;
+      if (aCvs.width < _maxDW || aCvs.height < _needH) {
+        aCvs.width  = Math.max(aCvs.width,  _maxDW);
+        aCvs.height = Math.max(aCvs.height, _needH);
+      }
+      aCtx.clearRect(0, 0, _maxDW, _needH);
+      aCtx.font         = boldFontDX;
+      aCtx.textAlign    = 'center';
+      aCtx.textBaseline = 'middle';
+      aCtx.fillStyle    = '#fff';
+      // Tint canvas must cover full atlas for batch tinting
+      if (tCvs.width < _maxDW || tCvs.height < _needH) {
+        tCvs.width  = Math.max(tCvs.width,  _maxDW);
+        tCvs.height = Math.max(tCvs.height, _needH);
+      }
+      const txtMeta = new Map();
+      let _ri = 0;
+      for (const [key, layout] of uniqueTexts) {
+        const midYD = _ri * _rowDH + _rowDH / 2;
+        let x = _PAD_DX;
+        for (const p of layout.parts) {
+          if (p.sq < 1) {
+            aCtx.setTransform(pd2 * p.sq, 0, 0, pd2, pd2 * (x + p.w / 2), midYD);
+            aCtx.fillText(p.ch, 0, 0);
+          } else {
+            aCtx.setTransform(pd2, 0, 0, pd2, 0, 0);
+            aCtx.fillText(p.ch, x + p.w / 2, midYD / pd2);
+          }
+          x += p.w;
+        }
+        const dw = Math.ceil((layout.totalW + _PAD_DX * 2) * pd2);
+        txtMeta.set(key, { ri: _ri, dw, lw: dw / pd2, tw: layout.totalW });
+        _ri++;
+      }
+      aCtx.setTransform(1, 0, 0, 1, 0, 0);
+
+      // Batch draws by color
+      const dxBatches = new Map();
+      for (const d of dxDraws) {
+        const ck = (d.r << 16) | (d.g << 8) | d.b;
+        if (!dxBatches.has(ck)) dxBatches.set(ck, { r: d.r, g: d.g, b: d.b, draws: [] });
+        dxBatches.get(ck).draws.push(d);
+      }
+
+      for (const batch of dxBatches.values()) {
+        // Tint full atlas once for this color
+        tCtx.globalCompositeOperation = 'copy';
+        tCtx.drawImage(aCvs, 0, 0, _maxDW, _needH, 0, 0, _maxDW, _needH);
+        tCtx.globalCompositeOperation = 'source-in';
+        tCtx.fillStyle = `rgb(${batch.r},${batch.g},${batch.b})`;
+        tCtx.fillRect(0, 0, _maxDW, _needH);
+        // Stamp all draws with this color
+        for (const d of batch.draws) {
+          const m = txtMeta.get(d._ak);
+          if (!m) continue;
+          const srcY = m.ri * _rowDH;
+          ctx.drawImage(tCvs, 0, srcY, m.dw, _rowDH,
+                        d.cx - m.tw / 2 - _PAD_DX, d.cy - _rowLH / 2,
+                        m.lw, _rowLH);
+        }
+      }
+    }
+
+    ctx.restore();
   }
 
   ctx.restore();
@@ -4910,8 +6398,9 @@ function drawYLabelsOnCurve(yAtX) {
 }
 
 /**
- * When x-axis is hidden, show x-value labels along the y=x identity line.
- * For each x grid point, places the x-value label at (x, x) on the y=x diagonal.
+ * Show x-value labels along the y=x identity line (or on the x-axis in delta mode).
+ * For each x grid point, places the x-value label at (x, x) on the y=x diagonal,
+ * except in delta mode where labels sit on the x-axis (y=0, the Δ=0 / identity line).
  */
 function drawXLabelsOnCurve() {
   if (!state.fn) return;
@@ -4924,6 +6413,7 @@ function drawXLabelsOnCurve() {
   }
   const xCol = getStepColor("x");
   const eS = (isDiscreteAny() && state.tauMode) ? 2 * Math.PI : 1;
+  const isDelta = state.mode === "delta";
 
   push();
   for (const lv of levels) {
@@ -4932,11 +6422,12 @@ function drawXLabelsOnCurve() {
     if (tickAlpha < 1) continue;
 
     for (let x = Math.floor(minX / lv.step) * lv.step; x <= maxX; x += lv.step) {
-      // Plot on the y=x identity line at (x, x*eS) — eS adjusts for tau eval scaling
-      const s = worldToScreen(x, x * eS);
+      // In delta mode, place on x-axis (y=0, the identity / Δ=0 line);
+      // otherwise on the y=x diagonal at (x, x*eS)
+      const s = isDelta ? worldToScreen(x, 0) : worldToScreen(x, x * eS);
       if (s.x < -40 || s.x > width + 40 || s.y < -20 || s.y > height + 20) continue;
 
-      // Place x-value label below the identity line
+      // Place x-value label below the line
       drawGlassLabel(formatXLabel(x * eS),
         s.x, s.y + 5,
         { col: xCol, alpha: labelAlpha, align: "center", baseline: "top", size: 11 });
@@ -4965,7 +6456,7 @@ function drawIntermediateCurves(transformFn) {
     }
 
     // Subintermediates between this step and the next
-    if (k < steps.length - 1) {
+    if (k < steps.length - 1 && state.toggles.subintermediates) {
       const nextOp = state.ops[k]; // op that transforms step[k] → step[k+1]
       if (nextOp && state.stepEyes.ops[k] !== false) {
         const subItems = getSubintermediateFns(step.fn, nextOp);
@@ -5011,18 +6502,20 @@ function drawIntermediateDots(transformFn) {
         drawStarburst(pt.x, pt.y, col, 3.75, 255 * lv.alpha);
 
         // Subintermediate dots between step[k] and step[k+1]
-        const nextOp = state.ops[k];
-        if (nextOp && state.stepEyes.ops[k] !== false) {
-          const subItems = getSubintermediateFns(steps[k].fn, nextOp);
-          for (const sub of subItems) {
-            let sv;
-            try { sv = sub.fn(x); } catch { continue; }
-            if (!Number.isFinite(sv)) continue;
-            const syVal = transformFn ? transformFn(sv, x) : sv;
-            if (!Number.isFinite(syVal)) continue;
-            const spt = worldToScreen(x, syVal);
-            const subDotCol = getStepColor(sub.category);
-            drawStarburst(spt.x, spt.y, subDotCol, 2.25, 180 * lv.alpha);
+        if (state.toggles.subintermediates) {
+          const nextOp = state.ops[k];
+          if (nextOp && state.stepEyes.ops[k] !== false) {
+            const subItems = getSubintermediateFns(steps[k].fn, nextOp);
+            for (const sub of subItems) {
+              let sv;
+              try { sv = sub.fn(x); } catch { continue; }
+              if (!Number.isFinite(sv)) continue;
+              const syVal = transformFn ? transformFn(sv, x) : sv;
+              if (!Number.isFinite(syVal)) continue;
+              const spt = worldToScreen(x, syVal);
+              const subDotCol = getStepColor(sub.category);
+              drawStarburst(spt.x, spt.y, subDotCol, 2.25, 180 * lv.alpha);
+            }
           }
         }
       }
@@ -5327,7 +6820,9 @@ function draw() {
     if (valEl) valEl.textContent = 't = ' + state.t.toFixed(2);
   }
 
-  if (isDiscreteAny() && !state.lightMode) {
+  if (state.bgColor && state.lightMode) {
+    background(state.bgColor);
+  } else if (isDiscreteAny() && !state.lightMode) {
     background(0);
   } else {
     background(state.lightMode ? 245 : 10, state.lightMode ? 246 : 14, state.lightMode ? 250 : 28);
@@ -5445,19 +6940,33 @@ function draw() {
   state.toggles = savedToggles;
 
   // Cursor starburst (replaces system cursor on active graph area)
-  const cursorOnCanvas = isMouseOverCanvas() && !isOverUI();
+  // On mobile, use touch cursor position (offset above finger) instead of mouseX/mouseY
+  const tc = window._mobileTouchCursor;
+  const inputFocused = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
+  const isMobileCursor = tc && tc.active && document.body.classList.contains('mobile') && !inputFocused;
+  const effectiveCursorX = isMobileCursor ? tc.x : mouseX;
+  const effectiveCursorY = isMobileCursor ? tc.y : mouseY;
+  const cursorOnCanvas = isMobileCursor
+    ? (tc.x >= 0 && tc.x <= width && tc.y >= 0 && tc.y <= height)
+    : (!inputFocused && isMouseOverCanvas() && !isOverUI());
   if (cursorOnCanvas) {
-    document.body.style.cursor = 'none';
+    document.body.style.cursor = isMobileCursor ? '' : 'none';
+    // Temporarily override mouseX/mouseY for cursor drawing functions
+    const savedMX = mouseX, savedMY = mouseY;
+    window._p5Inst = this;
+    mouseX = effectiveCursorX;
+    mouseY = effectiveCursorY;
     if (!isDiscreteAny()) drawCursorToYCurve();
     drawCursorStarburst();
-    let liveX = screenToWorld(mouseX, mouseY).x;
+    let liveX = screenToWorld(effectiveCursorX, effectiveCursorY).x;
     if (isDiscreteAny()) {
       const { xStep } = getDiscreteStep();
       liveX = Math.round(liveX / xStep) * xStep;
-      // In tau mode, scale visual position → eval x for function evaluation & display
       if (state.tauMode) liveX = liveX * (2 * Math.PI);
     }
     updateLiveOpValues(liveX);
+    mouseX = savedMX;
+    mouseY = savedMY;
   } else {
     document.body.style.cursor = '';
     updateLiveOpValues(null);

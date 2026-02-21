@@ -3,7 +3,11 @@
 
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="manifest.json" />
   <title>Graphing Calculator</title>
 
   <link rel="stylesheet" type="text/css" href="style.css" />
@@ -126,38 +130,114 @@
         <div class="section-label" id="step-rep-label">Sequence of Operations</div>
         <div id="step-rep" class="step-rep step-rep--empty" aria-label="Parsed expression steps"></div>
       </div>
+      <!-- Mobile: toggle eye-mode on op boxes (replaces contents with eye toggles) -->
+      <button class="step-eye-mode-btn" id="step-eye-mode-btn" type="button" title="Toggle step visibility mode"
+        aria-label="Toggle step visibility mode">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      </button>
+      <!-- Mobile: collapse/expand bottom bar -->
+      <button class="topbar-collapse-btn" id="topbar-collapse-btn" type="button"
+        aria-label="Collapse/expand toolbar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
     </div>
     <div class="toolbox-wrapper">
       <div class="section-label">Operator Toolbox</div>
       <div class="toolbox" id="toolbox">
-        <div class="toolbox__row">
+        <!-- Desktop rows (hidden on mobile) -->
+        <div class="toolbox__row toolbox__row--desktop">
           <div class="toolbox__item" data-tool="sin" data-cat="trig">sin</div>
           <div class="toolbox__item" data-tool="cos" data-cat="trig">cos</div>
           <div class="toolbox__item" data-tool="tan" data-cat="trig">tan</div>
           <div class="toolbox__item" data-tool="ceil" data-cat="misc">⌈x⌉</div>
           <div class="toolbox__item" data-tool="abs" data-cat="misc">|x|</div>
         </div>
-        <div class="toolbox__row">
+        <div class="toolbox__row toolbox__row--desktop">
           <div class="toolbox__item" data-tool="asin" data-cat="trig">asin</div>
           <div class="toolbox__item" data-tool="acos" data-cat="trig">acos</div>
           <div class="toolbox__item" data-tool="atan" data-cat="trig">atan</div>
           <div class="toolbox__item" data-tool="floor" data-cat="misc">⌊x⌋</div>
           <div class="toolbox__item" data-tool="round" data-cat="misc">rnd</div>
         </div>
-        <div class="toolbox__row">
+        <div class="toolbox__row toolbox__row--desktop">
           <div class="toolbox__item" data-tool="add" data-cat="arith">+</div>
           <div class="toolbox__item" data-tool="mul" data-cat="arith">×</div>
           <div class="toolbox__item" data-tool="power" data-cat="exp">x^n</div>
           <div class="toolbox__item" data-tool="basePow" data-cat="exp">b^x</div>
           <div class="toolbox__item" data-tool="exp" data-cat="exp">eˣ</div>
         </div>
-        <div class="toolbox__row">
+        <div class="toolbox__row toolbox__row--desktop">
           <div class="toolbox__item" data-tool="sub" data-cat="arith">−</div>
           <div class="toolbox__item" data-tool="div" data-cat="arith">/</div>
           <div class="toolbox__item" data-tool="root" data-cat="exp">ⁿ√x</div>
           <div class="toolbox__item" data-tool="log10" data-cat="exp">log</div>
           <div class="toolbox__item" data-tool="ln" data-cat="exp">ln</div>
           <div class="toolbox__item" data-tool="mod" data-cat="arith">mod</div>
+        </div>
+        <!-- Portrait mobile: 3 rows (hidden on desktop + landscape) -->
+        <div class="toolbox__row toolbox__row--portrait">
+          <div class="toolbox__item" data-tool="round" data-cat="misc">rnd</div>
+          <div class="toolbox__item" data-tool="ceil" data-cat="misc">⌈x⌉</div>
+          <div class="toolbox__item" data-tool="floor" data-cat="misc">⌊x⌋</div>
+          <div class="toolbox__item" data-tool="abs" data-cat="misc">|x|</div>
+          <div class="toolbox__item" data-tool="mod" data-cat="arith">mod</div>
+          <div class="toolbox__item" data-tool="exp" data-cat="exp">eˣ</div>
+          <div class="toolbox__item" data-tool="ln" data-cat="exp">ln</div>
+        </div>
+        <div class="toolbox__row toolbox__row--portrait">
+          <div class="toolbox__item" data-tool="tan" data-cat="trig">tan</div>
+          <div class="toolbox__item" data-tool="asin" data-cat="trig">asin</div>
+          <div class="toolbox__item" data-tool="sin" data-cat="trig">sin</div>
+          <div class="toolbox__item" data-tool="add" data-cat="arith">+</div>
+          <div class="toolbox__item" data-tool="mul" data-cat="arith">×</div>
+          <div class="toolbox__item" data-tool="power" data-cat="exp">x^n</div>
+          <div class="toolbox__item" data-tool="basePow" data-cat="exp">b^x</div>
+        </div>
+        <div class="toolbox__row toolbox__row--portrait">
+          <div class="toolbox__item" data-tool="atan" data-cat="trig">atan</div>
+          <div class="toolbox__item" data-tool="acos" data-cat="trig">acos</div>
+          <div class="toolbox__item" data-tool="cos" data-cat="trig">cos</div>
+          <div class="toolbox__item" data-tool="sub" data-cat="arith">−</div>
+          <div class="toolbox__item" data-tool="div" data-cat="arith">/</div>
+          <div class="toolbox__item" data-tool="root" data-cat="exp">ⁿ√x</div>
+          <div class="toolbox__item" data-tool="log10" data-cat="exp">log</div>
+        </div>
+        <!-- Landscape mobile: 2 rows reversed L-R (hidden on desktop + portrait) -->
+        <div class="toolbox__row toolbox__row--landscape">
+          <div class="toolbox__item" data-tool="abs" data-cat="misc">|x|</div>
+          <div class="toolbox__item" data-tool="ceil" data-cat="misc">⌈x⌉</div>
+          <div class="toolbox__item" data-tool="tan" data-cat="trig">tan</div>
+          <div class="toolbox__item" data-tool="cos" data-cat="trig">cos</div>
+          <div class="toolbox__item" data-tool="sin" data-cat="trig">sin</div>
+        </div>
+        <div class="toolbox__row toolbox__row--landscape">
+          <div class="toolbox__item" data-tool="round" data-cat="misc">rnd</div>
+          <div class="toolbox__item" data-tool="floor" data-cat="misc">⌊x⌋</div>
+          <div class="toolbox__item" data-tool="atan" data-cat="trig">atan</div>
+          <div class="toolbox__item" data-tool="acos" data-cat="trig">acos</div>
+          <div class="toolbox__item" data-tool="asin" data-cat="trig">asin</div>
+        </div>
+        <div class="toolbox__row toolbox__row--landscape">
+          <div class="toolbox__item" data-tool="exp" data-cat="exp">eˣ</div>
+          <div class="toolbox__item" data-tool="basePow" data-cat="exp">b^x</div>
+          <div class="toolbox__item" data-tool="power" data-cat="exp">x^n</div>
+          <div class="toolbox__item" data-tool="mul" data-cat="arith">×</div>
+          <div class="toolbox__item" data-tool="add" data-cat="arith">+</div>
+        </div>
+        <div class="toolbox__row toolbox__row--landscape">
+          <div class="toolbox__item" data-tool="mod" data-cat="arith">mod</div>
+          <div class="toolbox__item" data-tool="ln" data-cat="exp">ln</div>
+          <div class="toolbox__item" data-tool="log10" data-cat="exp">log</div>
+          <div class="toolbox__item" data-tool="root" data-cat="exp">ⁿ√x</div>
+          <div class="toolbox__item" data-tool="div" data-cat="arith">/</div>
+          <div class="toolbox__item" data-tool="sub" data-cat="arith">−</div>
         </div>
       </div>
     </div>
@@ -167,12 +247,30 @@
 
   <!-- Canvas fills entire viewport -->
   <div class="canvas-wrap" id="canvas-wrap">
+    <!-- Mobile: trash zone for drag-to-delete op blocks -->
+    <div class="trash-zone" id="trash-zone">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6" />
+        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+        <path d="M10 11v6" />
+        <path d="M14 11v6" />
+        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+      </svg>
+      <span>Drop to delete</span>
+    </div>
+    <!-- Pseudo-fullscreen prompt (mobile only) -->
+    <button class="pseudofs-btn" id="pseudofs-btn">↑ Tap for fullscreen</button>
     <!-- Mode toggle sits inside the graph, centred at top -->
     <div class="mode-toggle-overlay" id="mode-toggle-overlay">
-      <div class="mode-toggle__buttons" id="mode-toggle" role="group" aria-label="Mode">
-        <button type="button" class="mode-btn mode-btn--active" data-mode="cartesian">Cartesian</button>
-        <button type="button" class="mode-btn" data-mode="delta">Δ from x</button>
-        <button type="button" class="mode-btn" data-mode="numberLines">Parallel</button>
+      <!-- Mode selector: inline on landscape, dropdown on portrait -->
+      <div class="mode-toggle__buttons mode-dropdown-wrap" id="mode-toggle" role="group" aria-label="Mode">
+        <button type="button" class="mode-dropdown-trigger" id="mode-dropdown-trigger">Cartesian ▾</button>
+        <div class="mode-dropdown-list" id="mode-dropdown-list">
+          <button type="button" class="mode-btn mode-btn--active" data-mode="cartesian">Cartesian</button>
+          <button type="button" class="mode-btn" data-mode="delta">Δ from x</button>
+          <button type="button" class="mode-btn" data-mode="numberLines">Parallel</button>
+        </div>
       </div>
       <div class="mode-toggle__buttons rot-toggle" id="rot-toggle" role="group" aria-label="Axis rotation">
         <button type="button" class="mode-btn" data-rot="0" title="Horizontal x-axis (0°)">—</button>
@@ -195,13 +293,17 @@
         <button type="button" class="mode-btn mode-btn--active" id="glow-toggle"
           title="Toggle glowing thin curves">glow</button>
       </div>
+      <div class="mode-toggle__buttons" role="group" aria-label="Numeral mode">
+        <button type="button" class="mode-btn" id="numeral-toggle"
+          title="Show y-values as numerals in discrete modes">123</button>
+      </div>
     </div>
     <!-- Toggle bar sits at bottom of graph -->
     <div class="graph-toggles" id="graph-toggles"></div>
 
     <!-- Timeline control for t parameter (hidden until t is used in expression) -->
     <div class="timeline-control" id="timeline-control" style="display: none;">
-      <button class="timeline-play-btn" id="timeline-play" title="Play / Pause">▶</button>
+      <button class="timeline-play-btn" id="timeline-play" title="Play / Pause"><svg class="play-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg><svg class="pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="5" y="3" width="4" height="18"/><rect x="15" y="3" width="4" height="18"/></svg></button>
       <input type="range" class="timeline-slider" id="timeline-slider" min="0" max="10" step="0.01" value="0">
       <span class="timeline-value" id="timeline-value">t = 0.00</span>
     </div>
@@ -213,6 +315,16 @@
         <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
       </svg>
     </button>
+
+    <!-- Mobile: eye icon for visibility toggles pop-out -->
+    <button class="mobile-eye-toggle" id="mobile-eye-toggle" title="Visibility toggles" aria-label="Visibility toggles">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    </button>
+    <div class="mobile-toggle-panel" id="mobile-toggle-panel"></div>
   </div>
 
   <script src="sketch.js"></script>
