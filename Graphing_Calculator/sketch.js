@@ -4,6 +4,76 @@
  * - Expression compiler with a whitelist of identifiers
  */
 
+/* ===== OKLAB perceptual colour utilities ===== */
+// sRGB ↔ linear sRGB
+function srgbToLinear(x) { return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }
+function linearToSrgb(x) { return x <= 0.0031308 ? x * 12.92 : 1.055 * Math.pow(x, 1 / 2.4) - 0.055; }
+
+// sRGB [0-255] → OKLAB {L, a, b}
+function rgbToOklab(r, g, b) {
+  const lr = srgbToLinear(r / 255), lg = srgbToLinear(g / 255), lb = srgbToLinear(b / 255);
+  const l_ = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+  const m_ = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+  const s_ = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+  return {
+    L: 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+    a: 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+    b: 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+  };
+}
+
+// OKLAB {L, a, b} → sRGB [0-255]
+function oklabToRgb(L, a, b) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l3 = l_ * l_ * l_, m3 = m_ * m_ * m_, s3 = s_ * s_ * s_;
+  const lr = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+  const lg = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+  const lb = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
+  return [
+    Math.round(Math.min(255, Math.max(0, linearToSrgb(lr) * 255))),
+    Math.round(Math.min(255, Math.max(0, linearToSrgb(lg) * 255))),
+    Math.round(Math.min(255, Math.max(0, linearToSrgb(lb) * 255)))
+  ];
+}
+
+// OKLAB → OKLCH {L, C, h (degrees)}
+function oklabToOklch(L, a, b) {
+  const C = Math.sqrt(a * a + b * b);
+  const h = (Math.atan2(b, a) * 180 / Math.PI + 360) % 360;
+  return { L, C, h };
+}
+
+// OKLCH → OKLAB
+function oklchToOklab(L, C, h) {
+  const hRad = h * Math.PI / 180;
+  return { L, a: C * Math.cos(hRad), b: C * Math.sin(hRad) };
+}
+
+// Mix two sRGB [0-255] colors in OKLAB space, return sRGB [0-255]
+function oklabMix(r1, g1, b1, r2, g2, b2, t) {
+  const c1 = rgbToOklab(r1, g1, b1);
+  const c2 = rgbToOklab(r2, g2, b2);
+  return oklabToRgb(
+    c1.L + (c2.L - c1.L) * t,
+    c1.a + (c2.a - c1.a) * t,
+    c1.b + (c2.b - c1.b) * t
+  );
+}
+
+// Brighten a sRGB color toward white by t [0-1] in OKLAB
+function oklabBrighten(r, g, b, t) {
+  return oklabMix(r, g, b, 255, 255, 255, t);
+}
+
+// sRGB hex → OKLCH  (for CSS conversion reference)
+function hexToOklch(hex) {
+  const [r, g, b] = hexToRgb(hex);
+  const ok = rgbToOklab(r, g, b);
+  return oklabToOklch(ok.L, ok.a, ok.b);
+}
+
 window._gcT = 0; // global t parameter read by compiled expressions
 
 let canvas;
@@ -47,8 +117,9 @@ const state = {
   viewDirty: false, // true after pan/zoom
   lightMode: false,
   theme: "auto", // "light", "dark", "auto"
-  toggles: { xgrid: true, ygrid: true, xaxis: false, yaxis: false, arrows: true, intermediates: true, subintermediates: true, starbursts: true, xlabels: true, ylabels: true },
+  toggles: { xgrid: true, ygrid: true, xaxis: false, yaxis: false, arrows: true, intermediates: true, subintermediates: true, starbursts: true, xlabels: false, ylabels: false },
   glowCurves: true, // when true, curves are 1px bright with coloured glow (continuous/discreteX only)
+  equalizeColors: false, // when true, normalize OP_COLORS to uniform perceptual lightness
   hoveredToggle: null, // which toggle key is being hovered (for glow effect)
   toggleJustTurnedOff: {}, // tracks toggles recently clicked OFF (prevents immediate hover preview)
   tauMode: false, // when true, x-axis is in τ units (1 τ = 2π)
@@ -722,6 +793,30 @@ const OP_COLORS = {
   misc: "#8892a8",   // abs, floor, ceil, round
   curve: "#5ac878",
 };
+const OP_COLORS_ORIG = { ...OP_COLORS };
+
+/** Equalize all OP_COLORS to a uniform perceptual lightness in OKLCH */
+function equalizeOpColors(on, targetL) {
+  targetL = targetL || 0.65;
+  if (on) {
+    for (const key of Object.keys(OP_COLORS_ORIG)) {
+      const hex = OP_COLORS_ORIG[key];
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      const lab = rgbToOklab(r, g, b);
+      const lch = oklabToOklch(lab.L, lab.a, lab.b);
+      const newLab = oklchToOklab(targetL, lch.C, lch.h);
+      const [nr, ng, nb] = oklabToRgb(newLab.L, newLab.a, newLab.b);
+      const rr = Math.round(Math.max(0, Math.min(255, nr)));
+      const gg = Math.round(Math.max(0, Math.min(255, ng)));
+      const bb = Math.round(Math.max(0, Math.min(255, nb)));
+      OP_COLORS[key] = `#${rr.toString(16).padStart(2, '0')}${gg.toString(16).padStart(2, '0')}${bb.toString(16).padStart(2, '0')}`;
+    }
+  } else {
+    Object.assign(OP_COLORS, OP_COLORS_ORIG);
+  }
+}
 const userColors = OP_COLORS;
 
 /* Classify an op into a colour category */
@@ -3257,6 +3352,17 @@ function setup() {
     });
   }
 
+  // ---- Equalize colors toggle (experimental) ----
+  const eqBtn = document.getElementById('eq-toggle');
+  if (eqBtn) {
+    eqBtn.classList.toggle('mode-btn--active', state.equalizeColors);
+    eqBtn.addEventListener('click', () => {
+      state.equalizeColors = !state.equalizeColors;
+      equalizeOpColors(state.equalizeColors);
+      eqBtn.classList.toggle('mode-btn--active', state.equalizeColors);
+    });
+  }
+
   // ---- Timeline control for t parameter ----
   setupTimeline();
 
@@ -3709,28 +3815,21 @@ function setupSettingsGear() {
 
   // Helper: derive accent / toggle colors from an RGB background
   function applyAccentFromBg(r, g, b) {
-    // RGB → HSL
-    const r1 = r / 255, g1 = g / 255, b1 = b / 255;
-    const mx = Math.max(r1, g1, b1), mn = Math.min(r1, g1, b1);
-    let h = 0, s = 0, l = (mx + mn) / 2;
-    if (mx !== mn) {
-      const d = mx - mn;
-      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
-      if (mx === r1) h = ((g1 - b1) / d + (g1 < b1 ? 6 : 0)) / 6;
-      else if (mx === g1) h = ((b1 - r1) / d + 2) / 6;
-      else h = ((r1 - g1) / d + 4) / 6;
-    }
-    const hDeg = Math.round(h * 360);
-    // Accent: same hue, moderate sat, brighter
-    const accentS = Math.max(35, Math.min(55, Math.round(s * 100 * 1.2)));
-    const accentL = state.lightMode ? 38 : 62;
+    // RGB → OKLCH for perceptually uniform accent derivation
+    const lab = rgbToOklab(r, g, b);
+    const lch = oklabToOklch(lab.L, lab.a, lab.b);
+    const h = lch.C > 0.005 ? lch.h : 270; // fallback hue if near-achromatic
+    const accentC = state.lightMode ? 0.11 : 0.09;
+    const accentL = state.lightMode ? 49 : 69;
     const toggleA = state.lightMode ? 0.22 : 0.4;
-    const toggleTxtL = state.lightMode ? 28 : 90;
+    const toggleTxtL = state.lightMode ? 37 : 92;
+    const toggleTxtC = state.lightMode ? 0.09 : 0.03;
     const glowA = state.lightMode ? 0.1 : 0.15;
-    document.body.style.setProperty("--accent", `hsl(${hDeg}, ${accentS}%, ${accentL}%)`);
-    document.body.style.setProperty("--toggle-active-bg", `hsla(${hDeg}, ${accentS}%, ${accentL}%, ${toggleA})`);
-    document.body.style.setProperty("--toggle-active-color", `hsl(${hDeg}, ${accentS}%, ${toggleTxtL}%)`);
-    document.body.style.setProperty("--toggle-glow-bg", `hsla(${hDeg}, ${accentS}%, ${accentL}%, ${glowA})`);
+    const hStr = h.toFixed(1);
+    document.body.style.setProperty("--accent", `oklch(${accentL}% ${accentC} ${hStr})`);
+    document.body.style.setProperty("--toggle-active-bg", `oklch(${accentL}% ${accentC} ${hStr} / ${toggleA})`);
+    document.body.style.setProperty("--toggle-active-color", `oklch(${toggleTxtL}% ${toggleTxtC} ${hStr})`);
+    document.body.style.setProperty("--toggle-glow-bg", `oklch(${accentL}% ${accentC} ${hStr} / ${glowA})`);
   }
   function clearAccentOverrides() {
     document.body.style.removeProperty("--accent");
@@ -5121,6 +5220,10 @@ function drawDiscreteScene() {
   }
 
   const numerals = state.numeralMode;
+  // In numeral mode + dark mode, use pure black for inactive pixel fill
+  if (numerals && !state.lightMode) {
+    inR = 0; inG = 0; inB = 0;
+  }
 
   // 4a. Gutter fill: cover entire visible grid area with gutter color (light mode)
   if (state.lightMode) {
@@ -5382,17 +5485,13 @@ function drawDiscreteScene() {
         fb = px.b / px.count;
       }
       if (glowTint) {
-        fr = fr * 0.7 + 255 * 0.3;
-        fg = fg * 0.7 + 255 * 0.3;
-        fb = fb * 0.7 + 255 * 0.3;
+        [fr, fg, fb] = oklabMix(fr, fg, fb, 255, 255, 255, 0.3);
       }
-      // Brighten at grid ticks (lerp toward white, preserving hue)
+      // Brighten at grid ticks (perceptual lerp toward white in OKLAB)
       const gBoost = gridBoostMap.get(px.ix) || 0;
       if (gBoost > 0) {
         const t = gBoost * 0.5;
-        fr = fr + (255 - fr) * t;
-        fg = fg + (255 - fg) * t;
-        fb = fb + (255 - fb) * t;
+        [fr, fg, fb] = oklabBrighten(fr, fg, fb, t);
       }
       ctx.fillStyle = `rgb(${Math.round(fr)},${Math.round(fg)},${Math.round(fb)})`;
       ctx.fillRect(
@@ -5613,13 +5712,11 @@ function drawDiscreteScene() {
       let fr, fg, fb;
       if (px.hasY) { fr = pR; fg = pG; fb = pB; }
       else { fr = px.r / px.count; fg = px.g / px.count; fb = px.b / px.count; }
-      if (glowTintN) { fr = fr * 0.7 + 255 * 0.3; fg = fg * 0.7 + 255 * 0.3; fb = fb * 0.7 + 255 * 0.3; }
+      if (glowTintN) { [fr, fg, fb] = oklabMix(fr, fg, fb, 255, 255, 255, 0.3); }
       const gBoost = gridBoostMap.get(px.ix) || 0;
       if (gBoost > 0) {
         const t = gBoost * 0.5;
-        fr = fr + (255 - fr) * t;
-        fg = fg + (255 - fg) * t;
-        fb = fb + (255 - fb) * t;
+        [fr, fg, fb] = oklabBrighten(fr, fg, fb, t);
       }
       activeColors.set(key, { r: Math.round(fr), g: Math.round(fg), b: Math.round(fb) });
     }
@@ -5638,9 +5735,13 @@ function drawDiscreteScene() {
         let cr, cg, cb;
         if (tc) {
           const blend = state.lightMode ? 0.65 : 0.55;
-          cr = Math.round(gutR + (tc.r - gutR) * blend);
-          cg = Math.round(gutG + (tc.g - gutG) * blend);
-          cb = Math.round(gutB + (tc.b - gutB) * blend);
+          [cr, cg, cb] = oklabMix(gutR, gutG, gutB, tc.r, tc.g, tc.b, blend);
+          // Brighten transform-colored numerals at grid ticks (matches active pixel behavior)
+          const gBoost = gridBoostMap.get(ix) || 0;
+          if (gBoost > 0) {
+            const t = gBoost * 0.35;
+            [cr, cg, cb] = oklabBrighten(cr, cg, cb, t);
+          }
         } else {
           cr = gutR; cg = gutG; cb = gutB;
         }
@@ -5822,9 +5923,7 @@ function drawDiscreteXScene() {
       const gBoost = gridBoostMap.get(ix) || 0;
       if (gBoost > 0) {
         const t = gBoost * 0.5;
-        const br = Math.round(colR + (255 - colR) * t);
-        const bg = Math.round(colG + (255 - colG) * t);
-        const bb = Math.round(colB + (255 - colB) * t);
+        const [br, bg, bb] = oklabBrighten(colR, colG, colB, t);
         ctx.fillStyle = `rgb(${br},${bg},${bb})`;
       } else {
         ctx.fillStyle = baseStyle;
@@ -5937,9 +6036,7 @@ function drawDiscreteXScene() {
                 const gBoost = gridBoostMap.get(ix) || 0;
                 if (gBoost > 0) {
                   const t = gBoost * 0.5;
-                  const bsr = Math.round(sr + (255 - sr) * t);
-                  const bsg = Math.round(sg + (255 - sg) * t);
-                  const bsb = Math.round(sb + (255 - sb) * t);
+                  const [bsr, bsg, bsb] = oklabBrighten(sr, sg, sb, t);
                   ctx.fillStyle = `rgba(${bsr},${bsg},${bsb},0.55)`;
                 } else {
                   ctx.fillStyle = `rgba(${sr},${sg},${sb},0.55)`;
@@ -6012,7 +6109,7 @@ function drawDiscreteXScene() {
       }
       // Hairline (near-white with chroma hint) — skip in numeral mode
       if (!numerals) {
-        const hr = 255 * 0.8 + cr * 0.2, hg = 255 * 0.8 + cg * 0.2, hb = 255 * 0.8 + cb * 0.2;
+        const [hr, hg, hb] = oklabMix(cr, cg, cb, 255, 255, 255, 0.8);
         const hlThick = 1.5 / view.scale;
         for (let ix = ix0; ix <= ix1; ix++) {
           const cx = ix * xStep * eS;
@@ -6150,10 +6247,10 @@ function drawDiscreteXScene() {
 
         const gBoost = gridBoostMap.get(ix) || 0;
         let fr = colR, fg = colG, fb = colB;
-        if (state.glowCurves) { fr = fr * 0.7 + 255 * 0.3; fg = fg * 0.7 + 255 * 0.3; fb = fb * 0.7 + 255 * 0.3; }
+        if (state.glowCurves) { [fr, fg, fb] = oklabMix(fr, fg, fb, 255, 255, 255, 0.3); }
         if (gBoost > 0) {
           const t = gBoost * 0.5;
-          fr = fr + (255 - fr) * t; fg = fg + (255 - fg) * t; fb = fb + (255 - fb) * t;
+          [fr, fg, fb] = oklabBrighten(fr, fg, fb, t);
         }
 
         const absVal = Math.abs(fy);
