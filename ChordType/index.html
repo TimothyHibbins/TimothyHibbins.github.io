@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChordType</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="app">
+        <header>
+            <h1>ChordType</h1>
+            <p class="subtitle">Bash the keyboard. We'll figure out the words.</p>
+        </header>
+
+        <section id="output-section">
+            <label>Output</label>
+            <div id="output" tabindex="-1"></div>
+        </section>
+
+        <section id="buffer-section">
+            <label>Keystroke Buffer</label>
+            <div id="buffer"></div>
+            <div id="buffer-hint">Start typing — press <kbd>Space</kbd> to commit a word</div>
+        </section>
+
+        <section id="candidates-section">
+            <label>Top Matches</label>
+            <ol id="candidates"></ol>
+        </section>
+
+        <footer>
+            <span id="stats"></span>
+            <span class="keys-help">
+                <kbd>Space</kbd> commit &nbsp;
+                <kbd>Backspace</kbd> undo letter &nbsp;
+                <kbd>Esc</kbd> clear buffer &nbsp;
+                <kbd>Tab</kbd> next candidate
+            </span>
+        </footer>
+    </div>
+
+    <script src="chordtype.js"></script>
+</body>
+
+</html>

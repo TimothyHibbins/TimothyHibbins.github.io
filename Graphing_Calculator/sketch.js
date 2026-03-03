@@ -117,17 +117,25 @@ const state = {
   viewDirty: false, // true after pan/zoom
   lightMode: false,
   theme: "auto", // "light", "dark", "auto"
-  toggles: { xgrid: true, ygrid: true, xaxis: false, yaxis: false, arrows: true, intermediates: true, subintermediates: true, starbursts: true, xlabels: false, ylabels: false },
-  glowCurves: true, // when true, curves are 1px bright with coloured glow (continuous/discreteX only)
+  toggles: { xgrid: true, ygrid: true, xaxis: false, yaxis: false, arrows: true, intermediates: true, subintermediates: false, starbursts: false, xlabels: false, ylabels: false },
+  glowCurves: false, // when true, curves are 1px bright with coloured glow (continuous/discreteX only)
   equalizeColors: false, // when true, normalize OP_COLORS to uniform perceptual lightness
+  latexOpsOrder: false, // when true, LaTeX matches ops sequence order rather than conventional math
+  latexMulSymbol: "dot", // "dot" = \cdot, "times" = \times
+  hudVisible: false, // HUD info overlay visibility
   hoveredToggle: null, // which toggle key is being hovered (for glow effect)
   toggleJustTurnedOff: {}, // tracks toggles recently clicked OFF (prevents immediate hover preview)
   tauMode: false, // when true, x-axis is in τ units (1 τ = 2π)
   discreteMode: "discreteX", // "continuous", "discreteX", or "discrete"
-  numeralMode: true, // when true, discrete pixels show numeral values instead of solid fills
+  numeralMode: false, // when true, discrete pixels show numeral values instead of solid fills
   stepEyes: { x: true, ops: [], y: true }, // per-step visibility (eye toggles)
   stepEyeMode: false, // mobile: show eye toggles inside op boxes
   hoveredStep: null, // "x" | "op-0" | "op-1" | ... | "y" (for glow)
+  equalsEdge: null,  // { fromId, toId } — pipe the '=' marker sits on; null = Y→root
+  equalsLhsSpans: null,   // LHS displaySpans when equalsEdge active (for mode switching)
+  equalsFullSpans: null,  // tree-order full spans (LHS = RHS)
+  equalsRhsExpr: null,    // parseable RHS expression string
+  treeRotationDeg: 0,     // rotation angle for the expression tree view (degrees)
   statusText: "",
   statusKind: "info",
   t: 0,
@@ -136,6 +144,12 @@ const state = {
   tSpeed: 1,
   tPlaying: true,
   usesT: false,
+
+  // Expanded column state for discrete modes (click-to-inspect)
+  // expandedCols: Set of ix that have intermediate columns expanded
+  // expandedSubCols: Map of "ix:opIdx" → true for subintermediate expansions
+  expandedCols: new Set(),
+  expandedSubCols: new Map(),
 };
 
 /** Returns true when in any discrete mode ("discrete" or "discreteX"). */
@@ -165,15 +179,14 @@ function resetView() {
   const topbar = document.querySelector('.topbar');
   const toggleBar = document.querySelector('.graph-toggles');
   const topH = topbar ? topbar.getBoundingClientRect().height : 0;
-  const bottomH = toggleBar ? toggleBar.getBoundingClientRect().height : 0;
+  const bottomH = (toggleBar && toggleBar.style.display !== 'none') ? toggleBar.getBoundingClientRect().height : 0;
   view.originX = width * 0.5;
   view.originY = topH + (height - topH - bottomH) * 0.5;
   view.scale = 80;
-  view.rotation = 0;
-  // Sync rotation button UI
-  if (ui.rotBtns) ui.rotBtns.forEach(b => {
-    b.classList.toggle("mode-btn--active", parseFloat(b.dataset.rot) === 0);
-  });
+  // Keep rotation / axis orientation unchanged
+  // Clear expanded discrete columns
+  state.expandedCols.clear();
+  state.expandedSubCols.clear();
 }
 
 function screenToWorld(sx, sy) {
@@ -338,10 +351,12 @@ function drawGridLines() {
 
   strokeWeight(1);
 
-  // Restrict y gridlines to visible function range
+  // Restrict y gridlines to visible function range, clamped to viewport
+  // (without clamping, a function like 3x²+2x+5 with rangeMax≈3M causes
+  //  millions of off-screen line draws)
   const dr = state.fn ? computeVisibleDomainRange() : null;
-  const yGridMin = (dr && Number.isFinite(dr.rangeMin)) ? dr.rangeMin : minY;
-  const yGridMax = (dr && Number.isFinite(dr.rangeMax)) ? dr.rangeMax : maxY;
+  const yGridMin = Math.max(minY, (dr && Number.isFinite(dr.rangeMin)) ? dr.rangeMin : minY);
+  const yGridMax = Math.min(maxY, (dr && Number.isFinite(dr.rangeMax)) ? dr.rangeMax : maxY);
 
   // Vertical lines (x grid) — tau-aware
   if (state.toggles.xgrid) {
@@ -397,8 +412,14 @@ function getGridStepAndFade() {
   return { minorStep, majorStep, finerStep, finerFade };
 }
 
+// Per-frame cache for computeVisibleDomainRange (called multiple times per draw)
+let _domainRangeCache = null;
+let _domainRangeCacheFrame = -1;
+
 function computeVisibleDomainRange() {
   if (!state.fn) return { domainMin: -Infinity, domainMax: Infinity, rangeMin: -Infinity, rangeMax: Infinity };
+  // Return cached result if already computed this frame
+  if (_domainRangeCacheFrame === frameCount && _domainRangeCache) return _domainRangeCache;
   const { minX, maxX } = getVisibleWorldBounds();
   // Sample over a wide domain to capture the function's full range,
   // not just the visible portion — ensures y-axis covers all reachable values.
@@ -418,7 +439,9 @@ function computeVisibleDomainRange() {
     if (y < rangeMin) rangeMin = y;
     if (y > rangeMax) rangeMax = y;
   }
-  return { domainMin, domainMax, rangeMin, rangeMax };
+  _domainRangeCache = { domainMin, domainMax, rangeMin, rangeMax };
+  _domainRangeCacheFrame = frameCount;
+  return _domainRangeCache;
 }
 
 function drawAxesAndLabels(majorStep) {
@@ -792,8 +815,20 @@ const OP_COLORS = {
   trig: "#a064c8",   // sin, cos, tan, asin, acos, atan
   misc: "#8892a8",   // abs, floor, ceil, round
   curve: "#5ac878",
+  delete: "#ff4444", // trash / delete action
 };
 const OP_COLORS_ORIG = { ...OP_COLORS };
+
+// Per-role arm colors — every category uses per-role keys so colours
+// follow the arm labels through swaps.
+//   addSub: roles "1", "2", "3"  (addend + addend = sum)
+//   mulDiv: roles "2", "4", "8"  (factor × factor = product)
+//   exp:    roles "base", "exponent", "power"
+const ARM_COLORS = {
+  addSub: { "1": "#e84848", "2": "#e84848", "3": "#ff0010" },
+  mulDiv: { "2": "#e88020", "4": "#e88020", "8": "#ff4a00" },
+  exp: { base: "#c8a028", exponent: "#c0d038", power: "#ffb800" },
+};
 
 /** Equalize all OP_COLORS to a uniform perceptual lightness in OKLCH */
 function equalizeOpColors(on, targetL) {
@@ -826,12 +861,14 @@ const EXP_FNS = new Set(["exp", "ln", "log"]);
 function getOpCategory(op) {
   if (op.type === "add" || op.type === "sub") return "addSub";
   if (op.type === "mul" || op.type === "div") return "mulDiv";
+  if (op.type === "power") return "exp";
   const fn = getFunctionName(op);
   if (fn) {
     if (TRIG_FNS.has(fn)) return "trig";
     if (EXP_FNS.has(fn)) return "exp";
     return "misc";
   }
+  if (op.label === "x\u00B2") return "exp";
   if (getPowerExponent(op) !== null) return "exp";
   if (getRootN(op) !== null) return "exp";
   if (getExpBase(op) !== null) return "exp";
@@ -846,6 +883,75 @@ function resolveTypeToCategory(type) {
   if (type === "add" || type === "sub") return "addSub";
   if (type === "mul" || type === "div") return "mulDiv";
   return "misc";
+}
+
+/** Blend a hex colour toward the page background to simulate opacity.
+ *  Returns a new #rrggbb hex string. */
+function dimHexColor(hex, opacity) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  const dark = document.body.classList.contains('dark-mode');
+  const bg = dark ? { r: 28, g: 30, b: 46 } : { r: 247, g: 247, b: 249 };
+  const mr = Math.round(r * opacity + bg.r * (1 - opacity));
+  const mg = Math.round(g * opacity + bg.g * (1 - opacity));
+  const mb = Math.round(b * opacity + bg.b * (1 - opacity));
+  return `#${mr.toString(16).padStart(2, '0')}${mg.toString(16).padStart(2, '0')}${mb.toString(16).padStart(2, '0')}`;
+}
+
+// Arm role opacities (semantic, not positional)
+const ARM_OP = { IN: 0.3, OPERAND: 1.0, OUT: 0.6 };
+
+/**
+ * Get the function (output-arm) and operand (top-arm) colors for an op.
+ * For 3-arm junctions the colors reflect the current rotation state.
+ * For 2-arm junctions (no operand) opndColor equals the base hex.
+ */
+function getOpArmColors(op) {
+  const colorHex = OP_COLORS[getColorKeyForOp(op)] || OP_COLORS.misc;
+  const { IN, OPERAND: OP, OUT } = ARM_OP;
+  // arm order is [BL, T, BR]; output=BR, operand=T
+  let brOpacity = OUT, tOpacity = OP;
+  if (getExpFamilyState(op) >= 0) {
+    const st = getExpFamilyState(op);
+    if (st === 1) { brOpacity = OP; tOpacity = IN; }   // log
+    else if (st === 2) { brOpacity = IN; tOpacity = OUT; } // root
+  } else {
+    // add/sub, mul/div: state 1 (sub, div) = one CW rotation
+    const info = getRotationInfo(op);
+    if (info && info.curState === 1) { brOpacity = OP; tOpacity = IN; }
+  }
+  return {
+    fnColor: dimHexColor(colorHex, brOpacity),
+    opndColor: dimHexColor(colorHex, tOpacity),
+    colorHex,
+  };
+}
+
+/**
+ * Get fn/operand colors for an AST binary operator character.
+ * Maps +,-,*,/,%,** → same arm-derived colors as getOpArmColors.
+ * Single source of truth for both sequential and traditional LaTeX.
+ */
+function getAstBinaryColors(opChar) {
+  const { IN, OPERAND: OP, OUT } = ARM_OP;
+  const families = {
+    '+': { hex: OP_COLORS.addSub, state: 0 },
+    '-': { hex: OP_COLORS.addSub, state: 1 },
+    '*': { hex: OP_COLORS.mulDiv, state: 0 },
+    '/': { hex: OP_COLORS.mulDiv, state: 1 },
+    '%': { hex: OP_COLORS.mulDiv, state: 0 },
+    '**': { hex: OP_COLORS.exp, state: 0 },
+  };
+  const info = families[opChar];
+  if (!info) return { fnColor: OP_COLORS.misc, opndColor: OP_COLORS.misc };
+  let brOp = OUT, tOp = OP;
+  if (info.state === 1) { brOp = OP; tOp = IN; }
+  return {
+    fnColor: dimHexColor(info.hex, brOp),
+    opndColor: dimHexColor(info.hex, tOp),
+  };
 }
 
 // ---- Step colors (for arrows and boxes): use OP_COLORS single source of truth ----
@@ -883,6 +989,65 @@ function getGlowRGBA(key) {
 }
 
 // ---- Expression parser: tokenize -> AST -> linearized steps ----
+/**
+ * Pre-process log_base(value) notation → (ln(value)/ln(base)).
+ * Handles balanced parentheses in the argument so log_2(x+sin(x)) works.
+ * Only fires when the base is a simple token (identifier/number); complex
+ * base expressions like (x+1) are not matched and should use ln form directly.
+ */
+function expandLogBase(expr) {
+  let result = '';
+  let i = 0;
+  while (i < expr.length) {
+    const m = expr.slice(i).match(/^log_([a-zA-Z][a-zA-Z0-9_]*|[0-9]+(?:\.[0-9]+)?)\(/);
+    if (m) {
+      const base = m[1];
+      const openIdx = i + m[0].length; // first char after '('
+      let depth = 1, j = openIdx;
+      while (j < expr.length && depth > 0) {
+        if (expr[j] === '(') depth++;
+        else if (expr[j] === ')') depth--;
+        j++;
+      }
+      if (depth === 0) {
+        const arg = expr.slice(openIdx, j - 1);
+        result += `(ln(${arg})/ln(${base}))`;
+        i = j;
+      } else { result += expr[i]; i++; }
+    } else { result += expr[i]; i++; }
+  }
+  return result;
+}
+
+/**
+ * Pre-process nthrt_n(value) notation → ((value)^(1/(n))).
+ * nthrt_2(x) = sqrt(x), nthrt_3(x) = cube root, etc.
+ * Handles balanced parentheses in the argument.
+ */
+function expandNthRoot(expr) {
+  let result = '';
+  let i = 0;
+  while (i < expr.length) {
+    const m = expr.slice(i).match(/^nthrt_([a-zA-Z][a-zA-Z0-9_]*|[0-9]+(?:\.[0-9]+)?)\(/);
+    if (m) {
+      const index = m[1];
+      const openIdx = i + m[0].length;
+      let depth = 1, j = openIdx;
+      while (j < expr.length && depth > 0) {
+        if (expr[j] === '(') depth++;
+        else if (expr[j] === ')') depth--;
+        j++;
+      }
+      if (depth === 0) {
+        const arg = expr.slice(openIdx, j - 1);
+        result += `((${arg})^(1/(${index})))`;
+        i = j;
+      } else { result += expr[i]; i++; }
+    } else { result += expr[i]; i++; }
+  }
+  return result;
+}
+
 const TOK = {
   NUM: "NUM",
   VAR_X: "VAR_X",
@@ -1072,6 +1237,836 @@ function precedence(op) {
   if (op === "*" || op === "/" || op === "%") return 2;
   if (op === "**") return 3;
   return 0;
+}
+
+/* ======= AST → color-coded LaTeX (for KaTeX rendering) ======= */
+
+/** Return the current LaTeX multiplication symbol based on user toggle. */
+function latexMulSym() {
+  return state.latexMulSymbol === 'times' ? '\\times' : '\\cdot';
+}
+
+/** Check if the leftmost displayed leaf of an AST subtree is (or renders as) a number.
+ *  Used for juxtaposition: 5·x² → 5x² (starts with var, no parens)
+ *  vs 5·2^x → 5(2^x) (starts with digit, needs parens).
+ *  When hasX=true, x/t are replaced by a number, so they also count as digits. */
+function _astStartsWithDigit(node, hasX) {
+  if (!node) return false;
+  if (node.type === "num") return true;
+  if (node.type === "var") return !!hasX; // x renders as a number when live
+  if (node.type === "ident" || node.type === "call") return false;
+  if (node.type === "unary") return false;
+  if (node.type === "binary") return _astStartsWithDigit(node.left, hasX);
+  return false;
+}
+
+/**
+ * Convert an AST node to a LaTeX string with \textcolor{hex}{...} wrapping
+ * for each semantically-meaningful piece (operators, functions, variables).
+ * Color assignments match colorizeRawExpr / OP_COLORS.
+ * When xVal is a finite number, x is replaced by its numeric value.
+ */
+function astToColoredLatex(node, xVal, parentOpndColor) {
+  if (!node) return "";
+  const hasX = xVal !== undefined && xVal !== null && Number.isFinite(xVal);
+
+  switch (node.type) {
+    case "num": {
+      const v = node.value;
+      let str;
+      if (Number.isInteger(v) && Math.abs(v) < 1e15) str = String(v);
+      else str = parseFloat(v.toPrecision(10)).toString();
+      // If a parent binary op supplied an operand colour, apply it
+      return parentOpndColor ? `\\textcolor{${parentOpndColor}}{${str}}` : str;
+    }
+
+    case "var":
+      if (hasX) return `\\textcolor{${OP_COLORS.x}}{${formatLatexNumber(xVal)}}`;
+      return `\\textcolor{${OP_COLORS.x}}{x}`;
+
+    case "ident": {
+      const id = node.value;
+      if (id === "pi" || id === "PI")
+        return `\\textcolor{${OP_COLORS.misc}}{\\pi}`;
+      if (id === "tau" || id === "TAU")
+        return `\\textcolor{${OP_COLORS.misc}}{\\tau}`;
+      if (id === "e")
+        return `\\textcolor{${OP_COLORS.misc}}{e}`;
+      if (id === "t")
+        return `\\textcolor{${OP_COLORS.misc}}{t}`;
+      return `\\text{${id}}`;
+    }
+
+    case "call": {
+      const fn = node.fn;
+      const inner = astToColoredLatex(node.arg, xVal);
+      let color = OP_COLORS.misc;
+      if (TRIG_FNS.has(fn)) color = OP_COLORS.trig;
+      else if (EXP_FNS.has(fn) || fn === "sqrt" || fn.startsWith("log_") || fn.startsWith("nthrt_")) color = OP_COLORS.exp;
+      const fnColor = dimHexColor(color, ARM_OP.OUT);
+
+      /* sqrt → radical sign */
+      if (fn === "sqrt")
+        return `\\textcolor{${fnColor}}{\\sqrt{${inner}}}`;
+
+      /* abs → vertical bars */
+      if (fn === "abs")
+        return `\\textcolor{${fnColor}}{\\lvert}${inner}\\textcolor{${fnColor}}{\\rvert}`;
+
+      /* floor / ceil → bracket delimiters */
+      if (fn === "floor")
+        return `\\textcolor{${fnColor}}{\\lfloor}${inner}\\textcolor{${fnColor}}{\\rfloor}`;
+      if (fn === "ceil")
+        return `\\textcolor{${fnColor}}{\\lceil}${inner}\\textcolor{${fnColor}}{\\rceil}`;
+
+      /* nthrt_n: nth root → \sqrt[n]{…} */
+      const nthrtMatch = fn.match(/^nthrt_(.+)$/);
+      if (nthrtMatch) {
+        const idx = nthrtMatch[1];
+        const idxLatex = idx === "x"
+          ? `\\textcolor{${OP_COLORS.x}}{x}`
+          : `\\textcolor{${color}}{${idx}}`;
+        if (idx === "2")
+          return `\\textcolor{${fnColor}}{\\sqrt{${inner}}}`;
+        return `\\textcolor{${fnColor}}{\\sqrt[${idxLatex}]{${inner}}}`;
+      }
+
+      /* log with a base: log_2, log_x, etc. → \log_{base}(…) */
+      const logBaseMatch = fn.match(/^log_(.+)$/);
+      if (logBaseMatch) {
+        const base = logBaseMatch[1];
+        // Color variable bases like x with OP_COLORS.x, others with exp color
+        const baseLatex = base === "x"
+          ? `\\textcolor{${OP_COLORS.x}}{x}`
+          : `\\textcolor{${color}}{${base}}`;
+        return `{\\textcolor{${fnColor}}{\\log}}_{${baseLatex}}\\textcolor{${fnColor}}{(}${inner}\\textcolor{${fnColor}}{)}`;
+      }
+
+      /* Standard named functions: sin, cos, tan, arcXXX, ln, log, exp, round */
+      const latexFnMap = {
+        sin: "\\sin", cos: "\\cos", tan: "\\tan",
+        asin: "\\arcsin", acos: "\\arccos", atan: "\\arctan",
+        ln: "\\ln", log: "\\log", exp: "\\exp",
+        round: "\\text{round}",
+      };
+      const latexFn = latexFnMap[fn] || `\\text{${fn}}`;
+      return `\\textcolor{${fnColor}}{${latexFn}}\\textcolor{${fnColor}}{(}${inner}\\textcolor{${fnColor}}{)}`;
+    }
+
+    case "binary": {
+      const { op, left, right } = node;
+
+      /* ── addition / subtraction ────────────────────── */
+      if (op === "+") {
+        const { fnColor: fn, opndColor: opC } = getAstBinaryColors('+');
+        return `${astToColoredLatex(left, xVal, opC)} \\textcolor{${fn}}{+} ${astToColoredLatex(right, xVal, opC)}`;
+      }
+      if (op === "-") {
+        const { fnColor: fn, opndColor: opC } = getAstBinaryColors('-');
+        // Unary minus: parser encodes as 0 - rhs
+        if (left.type === "num" && left.value === 0) {
+          const rLatex = astToColoredLatex(right, xVal, opC);
+          const needP = right.type === "binary" && (right.op === "+" || right.op === "-");
+          return needP
+            ? `\\textcolor{${fn}}{-}\\!\\left(${rLatex}\\right)`
+            : `\\textcolor{${fn}}{-}${rLatex}`;
+        }
+        return `${astToColoredLatex(left, xVal, opC)} \\textcolor{${fn}}{-} ${astToColoredLatex(right, xVal, opC)}`;
+      }
+
+      /* ── multiplication ────────────────────────────── */
+      if (op === "*") {
+        const { fnColor: fn, opndColor: opC } = getAstBinaryColors('*');
+        // Normalise: put number/constant coefficients before variable expressions
+        // e.g. x^2 * 5 → show as 5x^2 in traditional LaTeX
+        let effL = left, effR = right;
+        if ((right.type === "num" || right.type === "ident")
+          && left.type !== "num" && left.type !== "ident") {
+          effL = right; effR = left;
+        }
+        let lLatex = astToColoredLatex(effL, xVal, opC);
+        let rLatex = astToColoredLatex(effR, xVal, opC);
+        // Wrap lower-precedence children
+        if (effL.type === "binary" && precedence(effL.op) < 2)
+          lLatex = `\\left(${lLatex}\\right)`;
+        if (effR.type === "binary" && precedence(effR.op) < 2)
+          rLatex = `\\left(${rLatex}\\right)`;
+
+        // Use implicit multiplication (juxtaposition) when unambiguous:
+        //   number · call, number · var, call · var, etc.
+        const lSimple = effL.type === "num" || effL.type === "ident";
+        const rIsCallOrVar = effR.type === "call" || effR.type === "var";
+        if (lSimple && rIsCallOrVar) {
+          // When x is live and renders as a digit, need parens: 2(3) not 23
+          if (hasX && effR.type === "var") return `${lLatex}(${rLatex})`;
+          // e.g. 5\sin(x) or 2x — juxtaposition, no space
+          return `${lLatex}${rLatex}`;
+        }
+        // number · complex-expr: parens only when expr starts with a digit
+        // e.g. 5(2^x) needs parens, but 5x² doesn't (unless x is live → 5(3²))
+        if (lSimple && (effR.type === "binary" || effR.type === "call")) {
+          if (_astStartsWithDigit(effR, hasX)) return `${lLatex}(${rLatex})`;
+          return `${lLatex}${rLatex}`;
+        }
+        return `${lLatex} \\textcolor{${fn}}{${latexMulSym()}} ${rLatex}`;
+      }
+
+      /* ── division → fraction ───────────────────────── */
+      if (op === "/") {
+        const { fnColor: fn, opndColor: opC } = getAstBinaryColors('/');
+        return `\\textcolor{${fn}}{\\frac{${astToColoredLatex(left, xVal, opC)}}{${astToColoredLatex(right, xVal, opC)}}}`;
+      }
+
+      /* ── modulo ────────────────────────────────────── */
+      if (op === "%") {
+        const { fnColor: fn, opndColor: opC } = getAstBinaryColors('%');
+        return `${astToColoredLatex(left, xVal, opC)} \\textcolor{${fn}}{\\bmod} ${astToColoredLatex(right, xVal, opC)}`;
+      }
+
+      /* ── exponentiation ────────────────────────────── */
+      if (op === "**") {
+        const { fnColor, opndColor: expOpC } = getAstBinaryColors('**');
+        const lLatex = astToColoredLatex(left, xVal);
+        const rLatex = astToColoredLatex(right, xVal, expOpC);
+        let base = lLatex;
+        if (left.type === "binary")
+          base = `\\left(${lLatex}\\right)`;
+
+        // x^(1/2) → √x , x^(1/n) → ⁿ√x
+        if (right.type === "binary" && right.op === "/"
+          && right.left.type === "num" && right.left.value === 1
+          && right.right.type === "num") {
+          const n = right.right.value;
+          if (n === 2)
+            return `\\textcolor{${fnColor}}{\\sqrt{${lLatex}}}`;
+          return `\\textcolor{${fnColor}}{\\sqrt[${n}]{${lLatex}}}`;
+        }
+
+        // Colour the exponent in exp colour
+        return `{${base}}^{\\textcolor{${OP_COLORS.exp}}{${rLatex}}}`;
+      }
+      break;
+    }
+  }
+  return "";
+}
+
+/**
+ * Convenience: parse raw expression string → colored LaTeX.
+ * Returns empty string on failure (partial / invalid input).
+ * When xVal is a finite number, substitutes it for x and appends = result.
+ */
+function exprToColoredLatex(raw, xVal) {
+  try {
+    const _isDark = !document.body.classList.contains('light');
+    const eqSign = _isDark ? `\\textcolor{white}{=}` : `\\textcolor{black}{=}`;
+
+    // When equalsEdge is active, build LaTeX from displaySpans (LHS = RHS)
+    if (state.equalsEdge && state.displaySpans && state.displaySpans.length) {
+      const eqLatex = _spansToLatex(state.displaySpans, xVal);
+      if (xVal !== undefined && xVal !== null && Number.isFinite(xVal)) {
+        let yVal;
+        try { yVal = state.fn ? state.fn(xVal) : NaN; } catch { yVal = NaN; }
+        const resultStr = Number.isFinite(yVal)
+          ? `\\textcolor{${OP_COLORS.y}}{${formatLatexNumber(yVal)}}`
+          : `\\textcolor{${OP_COLORS.misc}}{\\text{undef}}`;
+        return { main: eqLatex, tail: null };
+      }
+      return { main: eqLatex, tail: null };
+    }
+
+    const yPrefix = `\\textcolor{${OP_COLORS.y}}{y}`;
+
+    // Pipe layout → traditional (tree) LaTeX; ops sequence → sequential LaTeX
+    const hasPipe = state.pipeLayout && state.pipeLayout.nodes && state.pipeLayout.mainPath;
+    const usePipe = hasPipe && !state.latexOpsOrder;          // traditional mode
+    const useOps = state.latexOpsOrder && state.ops && state.ops.length > 0; // sequential mode
+
+    function getExprLatex(xv) {
+      if (usePipe) return pipeLayoutToColoredLatex(state.pipeLayout, xv);
+      if (useOps) return opsToColoredLatex(state.ops, xv);
+      const tokens = tokenize(raw);
+      const ast = parseExpression(tokens);
+      return astToColoredLatex(ast, xv);
+    }
+
+    if (xVal !== undefined && xVal !== null && Number.isFinite(xVal)) {
+      const exprLatex = getExprLatex(xVal);
+      let yVal;
+      try { yVal = state.fn ? state.fn(xVal) : NaN; } catch { yVal = NaN; }
+      const resultStr = Number.isFinite(yVal)
+        ? `\\textcolor{${OP_COLORS.y}}{${formatLatexNumber(yVal)}}`
+        : `\\textcolor{${OP_COLORS.misc}}{\\text{undef}}`;
+      return {
+        main: `${resultStr} ${eqSign} ${exprLatex}`,
+        tail: null,
+      };
+    }
+    const body = getExprLatex(undefined);
+    return { main: `${yPrefix} ${eqSign} ${body}`, tail: null };
+  } catch {
+    return "";
+  }
+}
+
+/** Convert displaySpans [{text, color}] into colored LaTeX.
+ *  When xVal is finite, 'x' spans are replaced with their numeric value,
+ *  and parentheses are inserted for juxtaposition disambiguation. */
+function _spansToLatex(spans, xVal) {
+  const hasX = xVal !== undefined && xVal !== null && Number.isFinite(xVal);
+  // Resolve CSS variables to actual computed colors for KaTeX
+  const isDark = !document.body.classList.contains('light');
+  const cssVarMap = {
+    'var(--text)': isDark ? '#e0e0e0' : '#1a1a1a',
+    'var(--muted)': isDark ? '#888888' : '#666666',
+    'var(--bg)': isDark ? '#1a1a2e' : '#ffffff',
+  };
+
+  function resolveHex(c) {
+    if (!c) return 'white';
+    if (c.startsWith('var(')) return cssVarMap[c] || (isDark ? '#e0e0e0' : '#1a1a1a');
+    return c;
+  }
+  function convertText(t) {
+    const ms = latexMulSym();
+    // Replace * or × (with optional surrounding spaces) in one pass
+    t = t.replace(/\s*[\*\u00d7]\s*/g, `\\;${ms}\\;`);
+    t = t.replace(/\//g, '\\div ');
+    // Greek letters → LaTeX commands
+    t = t.replace(/\u03c4/g, '\\tau ');
+    t = t.replace(/\u03c0/g, '\\pi ');
+    t = t.replace(/ /g, '\\;');
+    t = t.replace(/_/g, '\\_');
+    return t;
+  }
+
+  let out = '';
+  let i = 0;
+  while (i < spans.length) {
+    const s = spans[i];
+    const t = s.text.trim();
+    const hex = resolveHex(s.color);
+
+    // Handle nthrt_ pseudo-function → \sqrt[index]{argument}
+    if (t === 'nthrt_') {
+      const fnHex = hex;
+      // Gather index spans (between nthrt_ and the opening paren)
+      let indexLatex = '';
+      let j = i + 1;
+      while (j < spans.length && spans[j].text.trim() !== '(') {
+        indexLatex += `\\textcolor{${resolveHex(spans[j].color)}}{${convertText(spans[j].text)}}`;
+        j++;
+      }
+      // Skip the '('
+      if (j < spans.length && spans[j].text.trim() === '(') j++;
+      // Gather argument spans until matching ')'
+      let argLatex = '';
+      let depth = 1;
+      while (j < spans.length && depth > 0) {
+        const st = spans[j].text.trim();
+        if (st === '(') depth++;
+        if (st === ')') { depth--; if (depth === 0) { j++; break; } }
+        argLatex += `\\textcolor{${resolveHex(spans[j].color)}}{${convertText(spans[j].text)}}`;
+        j++;
+      }
+      // Check if index is "2" → simple \sqrt
+      const rawIndex = spans.slice(i + 1, i + 1 + (j - i - 1)).map(sp => sp.text.trim()).join('');
+      const indexOnly = rawIndex.replace(/\(.*/, '');
+      if (indexOnly === '2') {
+        out += `\\textcolor{${fnHex}}{\\sqrt{${argLatex}}}`;
+      } else {
+        out += `\\textcolor{${fnHex}}{\\sqrt[${indexLatex}]{${argLatex}}}`;
+      }
+      i = j;
+      continue;
+    }
+
+    // Handle log_ pseudo-function → \log_{base}(argument)
+    if (t === 'log_') {
+      const fnHex = hex;
+      // Gather base spans (between log_ and the opening paren)
+      let baseLatex = '';
+      let j = i + 1;
+      while (j < spans.length && spans[j].text.trim() !== '(') {
+        baseLatex += `\\textcolor{${resolveHex(spans[j].color)}}{${convertText(spans[j].text)}}`;
+        j++;
+      }
+      // Skip the '('
+      if (j < spans.length && spans[j].text.trim() === '(') j++;
+      // Gather argument spans until matching ')'
+      let argLatex = '';
+      let depth = 1;
+      while (j < spans.length && depth > 0) {
+        const st = spans[j].text.trim();
+        if (st === '(') depth++;
+        if (st === ')') { depth--; if (depth === 0) { j++; break; } }
+        argLatex += `\\textcolor{${resolveHex(spans[j].color)}}{${convertText(spans[j].text)}}`;
+        j++;
+      }
+      out += `\\textcolor{${fnHex}}{\\log}_{${baseLatex}}\\textcolor{${fnHex}}{(}${argLatex}\\textcolor{${fnHex}}{)}`;
+      i = j;
+      continue;
+    }
+
+    // Handle ^ as a proper LaTeX superscript: base^{exponent}
+    if (t === '^' && i + 1 < spans.length) {
+      const next = spans[i + 1];
+      const nhex = resolveHex(next.color);
+      let nt = convertText(next.text);
+      // Check if the exponent is wrapped in parens — if so, include them inside the superscript
+      if (nt === '(' && i + 3 < spans.length) {
+        // Gather everything until the matching ')'
+        let inner = '';
+        let j = i + 2;
+        let depth = 1;
+        while (j < spans.length && depth > 0) {
+          const st = spans[j].text;
+          if (st === '(') depth++;
+          if (st === ')') depth--;
+          if (depth > 0) {
+            inner += `\\textcolor{${resolveHex(spans[j].color)}}{${convertText(st)}}`;
+          }
+          j++;
+        }
+        out += `^{${inner}}`;
+        i = j;
+      } else {
+        out += `^{\\textcolor{${nhex}}{${nt}}}`;
+        i += 2;
+      }
+      continue;
+    }
+
+    // x → numeric value when live
+    if (hasX && (t === 'x' || t === 't')) {
+      const numStr = formatLatexNumber(xVal);
+      out += `\\textcolor{${hex}}{${numStr}}`;
+      i++;
+      continue;
+    }
+
+    out += `\\textcolor{${hex}}{${convertText(s.text)}}`;
+    i++;
+  }
+  return out;
+}
+
+/** Format a number for LaTeX display (1 dp max, matching the rest of the UI). */
+function formatLatexNumber(v) {
+  if (!Number.isFinite(v)) return "\\text{undef}";
+  const av = Math.abs(v);
+  if (av >= 1e4 || (av !== 0 && av < 0.01)) return v.toExponential(1);
+  // Up to 1 decimal place, strip trailing zeros
+  return parseFloat(v.toFixed(1)).toString();
+}
+
+/** Scale the KaTeX output to fill the latex-display container */
+function scaleLatexToFit(el) {
+  if (!el) return;
+  const katexHtml = el.querySelector('.katex-html');
+  if (!katexHtml) return;
+
+  // Reset previous scale so we can measure natural size
+  katexHtml.style.transform = 'none';
+
+  // Force layout reflow after reset
+  void katexHtml.offsetHeight;
+
+  // Get the section body that has the explicit resized height
+  const sectionBody = el.closest('.ew-section__body');
+  if (!sectionBody) return;
+  const containerH = sectionBody.clientHeight;
+  const containerW = sectionBody.clientWidth;
+  if (containerH <= 0 || containerW <= 0) return;
+
+  // Measure content at natural size
+  const contentRect = katexHtml.getBoundingClientRect();
+  const contentH = contentRect.height;
+  const contentW = contentRect.width;
+  if (contentH <= 0 || contentW <= 0) return;
+
+  // Scale to fit both dimensions with padding.
+  // padH accounts for vertical breathing room;
+  // padW also includes .latex-row's 8px left+right CSS padding (16px total)
+  const padH = 12;
+  const padW = 12 + 16;
+  const scaleH = (containerH - padH) / contentH;
+  const scaleW = (containerW - padW) / contentW;
+  const scale = Math.min(scaleH, scaleW, 5); // cap at 5x
+
+  if (scale > 1.05 || scale < 0.95) {
+    katexHtml.style.transform = `scale(${scale})`;
+    katexHtml.style.transformOrigin = 'center center';
+  }
+}
+
+/** Render the color-coded LaTeX into the #latex-display element via KaTeX */
+function updateLatexDisplay(raw, xVal) {
+  const el = ui.latexEl;
+  if (!el || typeof katex === "undefined") return;
+  _lastLatexLiveKey = "__force__"; // invalidate live cache
+  const result = exprToColoredLatex(raw || "", xVal);
+  if (!result) {
+    el.style.opacity = "0";
+    return;
+  }
+  // result is { main, tail } where tail is the "= value" part (or null)
+  // \mathrlap renders the tail at zero width so only 'main' affects centering.
+  // The container has overflow:visible so the tail remains readable.
+  const latex = result.tail
+    ? `${result.main} \\mathrlap{\\;${result.tail}}`
+    : result.main;
+  try {
+    katex.render(latex, el, {
+      throwOnError: false,
+      displayMode: true,
+      output: "html",
+    });
+    el.style.opacity = "1";
+    scaleLatexToFit(el);
+  } catch {
+    el.style.opacity = "0";
+  }
+}
+
+/**
+ * Throttled live-update for cursor hover.
+ * Only re-renders KaTeX when the displayed x-value string changes.
+ * When xVal is null (cursor off canvas), reverts to the symbolic equation.
+ */
+let _lastLatexLiveKey = null;
+function updateLatexDisplayLive(xVal) {
+  const raw = ui.exprEl?.value ?? "";
+  // Build a cheap cache key — formatted x value (or null for symbolic mode)
+  const key = (xVal !== null && xVal !== undefined && Number.isFinite(xVal))
+    ? formatLatexNumber(xVal)
+    : null;
+  if (key === _lastLatexLiveKey) return;
+  _lastLatexLiveKey = key;
+  updateLatexDisplay(raw, xVal);
+}
+
+/* ======= Ops-order LaTeX: mirror the step-flow sequence ======= */
+
+/**
+ * Build LaTeX that mirrors the operations toolbox sequence.
+ * e.g. for "5*x^2": ops = [{type:"other",label:"x²"}, {type:"mul",operand:"5"}]
+ * produces  (x^{2}) \cdot 5   instead of conventional  5x^{2}
+ */
+function opsToColoredLatex(ops, xVal) {
+  if (!ops || ops.length === 0) return `\\textcolor{${OP_COLORS.x}}{x}`;
+  const hasX = xVal !== undefined && xVal !== null && Number.isFinite(xVal);
+
+  let latex = hasX
+    ? `\\textcolor{${OP_COLORS.x}}{${formatLatexNumber(xVal)}}`
+    : `\\textcolor{${OP_COLORS.x}}{x}`;
+  let prevPrec = 999;
+
+  for (const op of ops) {
+    const { fnColor, opndColor } = getOpArmColors(op);
+    const c = (s) => `\\textcolor{${fnColor}}{${s}}`;
+    const cOp = (s) => `\\textcolor{${opndColor}}{${s}}`;
+
+    // Color a complex operand recursively: try to parse it as an AST
+    // so sub-expressions like "2*x" keep their internal colours instead
+    // of being wrapped in a single parent-operand colour.
+    function coloredOperand(raw) {
+      if (!raw) return cOp("");
+      // Simple number or single-char variable → just use parent operand colour
+      if (/^-?\d+(\.\d+)?$/.test(raw) || /^[a-zA-Z]$/.test(raw)) {
+        if (raw === "x") return `\\textcolor{${OP_COLORS.x}}{${hasX ? formatLatexNumber(xVal) : "x"}}`;
+        return cOp(raw);
+      }
+      // Complex expression → parse and recursively colour
+      try {
+        const tokens = tokenize(raw);
+        const ast = parseExpression(tokens);
+        return astToColoredLatex(ast, xVal, opndColor);
+      } catch {
+        return cOp(raw);
+      }
+    }
+
+    if (op.type === "add" || op.type === "sub") {
+      const sym = op.type === "add" ? "+" : "-";
+      latex = `${latex} ${c(sym)} ${coloredOperand(op.operand || "")}`;
+      prevPrec = 1;
+    } else if (op.type === "mul" || op.type === "div") {
+      if (prevPrec < 2) latex = `${c("(")}${latex}${c(")")}`;
+      if (op.type === "div") {
+        latex = c(`\\frac{${latex}}{${coloredOperand(op.operand || "")}}`);
+      } else {
+        const operand = op.operand || "";
+        if (/[+\-]/.test(operand) && !/^\d/.test(operand)) {
+          latex = `${latex} ${c(latexMulSym())} ${c("(")}${coloredOperand(operand)}${c(")")}`;
+        } else {
+          latex = `${latex} ${c(latexMulSym())} ${coloredOperand(operand)}`;
+        }
+      }
+      prevPrec = 2;
+    } else {
+      const fnName = getFunctionName(op);
+      if (fnName) {
+        if (fnName === "sqrt") {
+          latex = c(`\\sqrt{${latex}}`);
+        } else if (fnName === "abs") {
+          latex = `${c("\\lvert")}${latex}${c("\\rvert")}`;
+        } else if (fnName === "floor") {
+          latex = `${c("\\lfloor")}${latex}${c("\\rfloor")}`;
+        } else if (fnName === "ceil") {
+          latex = `${c("\\lceil")}${latex}${c("\\rceil")}`;
+        } else {
+          const latexFnMap = {
+            sin: "\\sin", cos: "\\cos", tan: "\\tan",
+            asin: "\\arcsin", acos: "\\arccos", atan: "\\arctan",
+            ln: "\\ln", log: "\\log", exp: "\\exp",
+            round: "\\text{round}",
+          };
+          const ltx = latexFnMap[fnName] || `\\text{${fnName}}`;
+          latex = `${c(`${ltx}`)}${c("(")}${latex}${c(")")}`;
+        }
+        prevPrec = 999;
+      } else if (op.label === "x\u00B2") {
+        if (prevPrec < 3) latex = `${c("(")}${latex}${c(")")}`;
+        latex = `{${latex}}^{${cOp("2")}}`;
+        prevPrec = 3;
+      } else if (getExpBase(op) !== null) {
+        const base = op.operand || getExpBase(op);
+        latex = `{${coloredOperand(base)}}^{${latex}}`;
+        prevPrec = 999;
+      } else if (getLogBase(op) !== null) {
+        const base = op.operand || getLogBase(op);
+        latex = `{${c("\\log")}}_{${coloredOperand(base)}}${c("(")}${latex}${c(")")}`;
+        prevPrec = 999;
+      } else if (op.label === "^ \u22121" || op.label === "^ -1") {
+        if (prevPrec < 3) latex = `${c("(")}${latex}${c(")")}`;
+        latex = `{${latex}}^{${c("-1")}}`;
+        prevPrec = 3;
+      } else if (getPowerExponent(op) !== null) {
+        const expStr = op.operand || getPowerExponent(op);
+        if (prevPrec < 3) latex = `${c("(")}${latex}${c(")")}`;
+        latex = `{${latex}}^{${coloredOperand(expStr)}}`;
+        prevPrec = 3;
+      } else if (getRootN(op) !== null) {
+        const rootN = op.operand || getRootN(op);
+        if (prevPrec < 3) latex = `${c("(")}${latex}${c(")")}`;
+        latex = `{${latex}}^{${c("1/")}${coloredOperand(rootN)}}`;
+        prevPrec = 3;
+      } else if (getModOperand(op) !== null) {
+        const modVal = op.operand || getModOperand(op);
+        if (prevPrec < 2) latex = `${c("(")}${latex}${c(")")}`;
+        latex = `${latex} ${c("\\bmod")} ${coloredOperand(modVal)}`;
+        prevPrec = 2;
+      } else {
+        latex += ` ${c(op.label)}`;
+        prevPrec = 0;
+      }
+    }
+  }
+  return latex;
+}
+
+/* ======= LaTeX \u2192 expression string converter (for paste-in) ======= */
+
+/**
+ * Convert a LaTeX string to an expression string that the calculator can parse.
+ * Returns null if conversion fails or result is invalid.
+ */
+function latexToExpr(latex) {
+  if (!latex || typeof latex !== "string") return null;
+  let s = latex.trim();
+
+  // Strip leading y= or f(x)= prefix
+  s = s.replace(/^\\?[yf]\s*(?:\\\(?\s*x\s*\\?\))?\s*=\s*/i, "");
+
+  // Remove \\textcolor{...}{content} \u2192 keep content
+  s = s.replace(/\\textcolor\{[^}]*\}\{([^}]*)\}/g, "$1");
+
+  // Remove display-mode wrappers
+  s = s.replace(/\\displaystyle\s*/g, "");
+  s = s.replace(/\\left\s*/g, "");
+  s = s.replace(/\\right\s*/g, "");
+  s = s.replace(/\\,/g, " ");
+  s = s.replace(/\\!/g, "");
+  s = s.replace(/\\;\s*/g, " ");
+  s = s.replace(/\\quad\s*/g, " ");
+
+  // \\frac{a}{b} \u2192 ((a)/(b))
+  for (let i = 0; i < 10 && /\\frac\{/.test(s); i++) {
+    s = s.replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "(($1)/($2))");
+  }
+
+  // \\sqrt[n]{expr} \u2192 (expr)^(1/(n))
+  s = s.replace(/\\sqrt\[([^\]]+)\]\{([^}]*)\}/g, "(($2))^(1/($1))");
+  // \\sqrt{expr} \u2192 sqrt(expr)
+  s = s.replace(/\\sqrt\{([^}]*)\}/g, "sqrt($1)");
+
+  // Named functions
+  const fnMap = {
+    "\\\\sin": "sin", "\\\\cos": "cos", "\\\\tan": "tan",
+    "\\\\arcsin": "asin", "\\\\arccos": "acos", "\\\\arctan": "atan",
+    "\\\\ln": "ln", "\\\\log": "log", "\\\\exp": "exp",
+  };
+  for (const [ltx, fn] of Object.entries(fnMap)) {
+    s = s.replace(new RegExp(ltx + "\\s*\\{([^}]*)\\}", "g"), fn + "($1)");
+    s = s.replace(new RegExp(ltx + "\\s*\\(", "g"), fn + "(");
+    s = s.replace(new RegExp(ltx + "(?=\\s|[^a-zA-Z])", "g"), fn);
+  }
+
+  // Delimiters \u2192 function calls
+  s = s.replace(/\\lvert\s*(.*?)\\rvert/g, "abs($1)");
+  s = s.replace(/\\lfloor\s*(.*?)\\rfloor/g, "floor($1)");
+  s = s.replace(/\\lceil\s*(.*?)\\rceil/g, "ceil($1)");
+
+  // Constants and operators
+  s = s.replace(/\\bmod/g, "%");
+  s = s.replace(/\\pi/g, "pi");
+  s = s.replace(/\\tau/g, "tau");
+  s = s.replace(/\\cdot/g, "*");
+  s = s.replace(/\\times/g, "*");
+
+  // ^{expr} \u2192 ^(expr)
+  s = s.replace(/\^\{([^}]*)\}/g, "^($1)");
+
+  // Remove remaining braces/backslashes
+  s = s.replace(/\\text\{([^}]*)\}/g, "$1");
+  s = s.replace(/\{/g, "(").replace(/\}/g, ")");
+  s = s.replace(/\\/g, "");
+  s = s.replace(/\s+/g, "");
+
+  // Validate
+  try {
+    const tokens = tokenize(s);
+    parseExpression(tokens);
+    compileExpression(s);
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get the raw (uncolored) LaTeX string for the current expression.
+ */
+function getRawLatex() {
+  const raw = ui.exprEl?.value ?? "";
+  if (!raw.trim()) return "";
+
+  // When equalsEdge is active and displaySpans exist, use spans for the equation
+  if (state.equalsEdge && state.displaySpans && state.displaySpans.length) {
+    return state.displaySpans.map(s => s.text).join('');
+  }
+
+  try {
+    const tokens = tokenize(raw);
+    const ast = parseExpression(tokens);
+    if (state.latexOpsOrder && state.ops.length > 0) {
+      return "y = " + _opsToPlainLatex(state.ops);
+    }
+    return "y = " + _astToPlainLatex(ast);
+  } catch {
+    return "";
+  }
+}
+
+/** AST \u2192 plain LaTeX (no \\textcolor) */
+function _astToPlainLatex(node) {
+  if (!node) return "";
+  switch (node.type) {
+    case "num": {
+      const v = node.value;
+      if (Number.isInteger(v) && Math.abs(v) < 1e15) return String(v);
+      return parseFloat(v.toPrecision(10)).toString();
+    }
+    case "var": return "x";
+    case "ident": {
+      const id = node.value;
+      if (id === "pi" || id === "PI") return "\\pi";
+      if (id === "tau" || id === "TAU") return "\\tau";
+      return id;
+    }
+    case "call": {
+      const fn = node.fn, inner = _astToPlainLatex(node.arg);
+      if (fn === "sqrt") return `\\sqrt{${inner}}`;
+      if (fn === "abs") return `\\lvert ${inner} \\rvert`;
+      if (fn === "floor") return `\\lfloor ${inner} \\rfloor`;
+      if (fn === "ceil") return `\\lceil ${inner} \\rceil`;
+      const map = { sin: "\\sin", cos: "\\cos", tan: "\\tan", asin: "\\arcsin", acos: "\\arccos", atan: "\\arctan", ln: "\\ln", log: "\\log", exp: "\\exp" };
+      return `${map[fn] || fn}(${inner})`;
+    }
+    case "binary": {
+      const { op, left, right } = node;
+      if (op === "+") return `${_astToPlainLatex(left)} + ${_astToPlainLatex(right)}`;
+      if (op === "-") {
+        if (left.type === "num" && left.value === 0) return `-${_astToPlainLatex(right)}`;
+        return `${_astToPlainLatex(left)} - ${_astToPlainLatex(right)}`;
+      }
+      if (op === "*") {
+        let l = _astToPlainLatex(left), r = _astToPlainLatex(right);
+        if (left.type === "binary" && precedence(left.op) < 2) l = `(${l})`;
+        if (right.type === "binary" && precedence(right.op) < 2) r = `(${r})`;
+        const lSimple = left.type === "num" || left.type === "ident";
+        const rCallOrVar = right.type === "call" || right.type === "var";
+        if (lSimple && rCallOrVar) return `${l}${r}`;
+        // number · complex-expr: parens only when expr starts with a digit
+        const rNeedsParen = (right.type === "binary" || right.type === "call") && _astStartsWithDigit(right);
+        if (lSimple && rNeedsParen) return `${l}(${r})`;
+        // number · complex-expr starting with var: juxtaposition (e.g. 5x²)
+        if (lSimple && (right.type === "binary" || right.type === "call")) return `${l}${r}`;
+        return `${l} ${latexMulSym()} ${r}`;
+      }
+      if (op === "/") return `\\frac{${_astToPlainLatex(left)}}{${_astToPlainLatex(right)}}`;
+      if (op === "%") return `${_astToPlainLatex(left)} \\bmod ${_astToPlainLatex(right)}`;
+      if (op === "**") {
+        let base = _astToPlainLatex(left);
+        if (left.type === "binary") base = `(${base})`;
+        if (right.type === "binary" && right.op === "/" && right.left.type === "num" && right.left.value === 1 && right.right.type === "num") {
+          const n = right.right.value;
+          return n === 2 ? `\\sqrt{${_astToPlainLatex(left)}}` : `\\sqrt[${n}]{${_astToPlainLatex(left)}}`;
+        }
+        return `{${base}}^{${_astToPlainLatex(right)}}`;
+      }
+    }
+  }
+  return "";
+}
+
+/** Ops \u2192 plain LaTeX (no \\textcolor) */
+function _opsToPlainLatex(ops) {
+  let latex = "x", prevPrec = 999;
+  for (const op of ops) {
+    if (op.type === "add" || op.type === "sub") {
+      latex = `${latex} ${op.type === "add" ? "+" : "-"} ${op.operand || ""}`;
+      prevPrec = 1;
+    } else if (op.type === "mul" || op.type === "div") {
+      if (prevPrec < 2) latex = `(${latex})`;
+      latex = op.type === "div" ? `\\frac{${latex}}{${op.operand || ""}}` : `${latex} ${latexMulSym()} ${op.operand || ""}`;
+      prevPrec = 2;
+    } else {
+      const fnName = getFunctionName(op);
+      if (fnName) {
+        if (fnName === "sqrt") latex = `\\sqrt{${latex}}`;
+        else if (fnName === "abs") latex = `\\lvert ${latex} \\rvert`;
+        else if (fnName === "floor") latex = `\\lfloor ${latex} \\rfloor`;
+        else if (fnName === "ceil") latex = `\\lceil ${latex} \\rceil`;
+        else { const m = { sin: "\\sin", cos: "\\cos", tan: "\\tan", asin: "\\arcsin", acos: "\\arccos", atan: "\\arctan", ln: "\\ln", log: "\\log", exp: "\\exp" }; latex = `${m[fnName] || fnName}(${latex})`; }
+        prevPrec = 999;
+      } else if (op.label === "x\u00B2") {
+        if (prevPrec < 3) latex = `(${latex})`;
+        latex = `{${latex}}^{2}`; prevPrec = 3;
+      } else if (getPowerExponent(op) !== null) {
+        if (prevPrec < 3) latex = `(${latex})`;
+        latex = `{${latex}}^{${op.operand || getPowerExponent(op)}}`; prevPrec = 3;
+      } else if (getRootN(op) !== null) {
+        if (prevPrec < 3) latex = `(${latex})`;
+        latex = `{${latex}}^{1/${op.operand || getRootN(op)}}`; prevPrec = 3;
+      } else if (getModOperand(op) !== null) {
+        if (prevPrec < 2) latex = `(${latex})`;
+        latex = `${latex} \\bmod ${op.operand || getModOperand(op)}`; prevPrec = 2;
+      } else { latex += ` ${op.label}`; prevPrec = 0; }
+    }
+  }
+  return latex;
 }
 
 const ALLOWED_IDS = new Set([
@@ -1309,27 +2304,203 @@ function compileNormalizedExpr(normalized) {
 
 function parseAndLinearize(exprRaw) {
   const expr = (exprRaw ?? "").trim();
-  if (!expr) return { steps: [], ops: [], fullExpr: "" };
+  if (!expr) return { steps: [], ops: [], fullExpr: "", pipeLayout: null };
   const normalized = expr.replace(/\s+/g, "").replace(/\^/g, "**");
-  const identifiers = normalized.match(/[a-zA-Z_]+/g) || [];
+  // Pre-process log_base(value) and nthrt_n(value) → expanded form before identifier validation
+  let expanded = expandLogBase(normalized);
+  expanded = expandNthRoot(expanded);
+  const identifiers = expanded.match(/[a-zA-Z_]+/g) || [];
   for (const id of identifiers) {
-    if (id !== "x" && !ALLOWED_IDS.has(id)) return { steps: [], ops: [], fullExpr: normalized };
+    if (id !== "x" && !ALLOWED_IDS.has(id)) return { steps: [], ops: [], fullExpr: normalized, pipeLayout: null };
   }
   try {
-    const tokens = tokenize(expr);
+    // Tokenize/parse the EXPANDED form so log_x(2)/nthrt_n(x) are resolved in the AST
+    const tokens = tokenize(expandNthRoot(expandLogBase(expr)));
     const ast = parseExpression(tokens);
     const steps = linearize(ast);
     const fullExpr = steps.length > 0 ? steps[steps.length - 1].expr : normalized;
     const fns = steps.map((s) => ({ ...s, fn: compileNormalizedExpr(s.expr) }));
-    // Extract ops (skip leading x step)
     const ops = fns.filter((s) => s.type !== "x").map((s) => ({
       type: s.type, label: s.label, operand: s.operand,
       applyToExpr: s.applyToExpr,
     }));
-    return { steps: fns, ops, fullExpr };
+    const pipeLayout = astToPipeLayout(ast);
+    return { steps: fns, ops, fullExpr, pipeLayout };
   } catch {
-    return { steps: [], ops: [], fullExpr: normalized };
+    return { steps: [], ops: [], fullExpr: normalized, pipeLayout: null };
   }
+}
+
+/**
+ * Build a DAG layout for the pipe diagram from the AST.
+ * Returns { nodes, mainPath: { valueIds, opIds }, branches } or null if invalid/empty.
+ * nodes: [ { id, type: 'value', value } | { id, type: 'op', opType, leftId, rightId, operand, symbol } ]
+ * mainPath: path from x to root (valueIds = [xId, ...], opIds = main path op node ids in order)
+ * branches: [ { feedsIntoMainOpIndex, opId, inputLeftId, inputRightId } ]
+ */
+function astToPipeLayout(ast) {
+  if (!ast) return null;
+  const nodes = [];
+
+  function pushValue(v) {
+    const id = nodes.length;
+    nodes.push({ id, type: "value", value: v });
+    return id;
+  }
+
+  function opTypeFromAst(n) {
+    if (n.type === "binary") {
+      if (n.op === "+") return "add";
+      if (n.op === "-") return "sub";
+      if (n.op === "*") return "mul";
+      if (n.op === "/") return "div";
+      if (n.op === "**") return "power";
+      if (n.op === "%") return "mod";
+    }
+    if (n.type === "call") return "call";
+    return "other";
+  }
+
+  function operandString(n) {
+    if (!n) return null;
+    if (n.type === "num") return String(n.value);
+    if (n.type === "var") return "x";
+    if (n.type === "ident") return n.value;
+    return exprString(n);
+  }
+
+  function symbolFromOp(n) {
+    if (n.type === "binary") {
+      if (n.op === "+") return "+";
+      if (n.op === "-") return "\u2212";
+      if (n.op === "*") return "\u00d7";
+      if (n.op === "/") return "\u00f7";
+      if (n.op === "**") return "^";
+      if (n.op === "%") return "%";
+    }
+    if (n.type === "call") {
+      const fn = n.fn || "?";
+      // Use bracket symbols for ceil, floor, abs
+      if (fn === "ceil") return "\u2308\u2309";  // ⌈⌉
+      if (fn === "floor") return "\u230a\u230b";  // ⌊⌋
+      if (fn === "abs") return "|\u00b7|";       // |·|
+      return fn;  // just the function name, no ()
+    }
+    return "";
+  }
+
+  function go(n) {
+    if (!n) return -1;
+    if (n.type === "num") return pushValue(String(n.value));
+    if (n.type === "var") return pushValue("x");
+    if (n.type === "ident") {
+      if (!ALLOWED_IDS.has(n.value)) return -1;
+      return pushValue(n.value);
+    }
+    if (n.type === "binary") {
+      let leftId = go(n.left);
+      let rightId = go(n.right);
+      if (leftId < 0 || rightId < 0) return -1;
+      if (leftId === rightId) {
+        const dup = nodes[leftId];
+        rightId = pushValue(dup && dup.type === "value" ? dup.value : "?");
+      }
+      const id = nodes.length;
+      const opType = opTypeFromAst(n);
+      const operand = operandString(n.right);
+      nodes.push({
+        id, type: "op", opType, leftId, rightId,
+        operand: opType === "power" || opType === "mul" || opType === "add" || opType === "sub" || opType === "div" ? operand : null,
+        symbol: symbolFromOp(n), ast: n,
+      });
+      return id;
+    }
+    if (n.type === "call") {
+      const argId = go(n.arg);
+      if (argId < 0) return -1;
+      const id = nodes.length;
+      nodes.push({
+        id, type: "op", opType: "call", leftId: argId, rightId: null,
+        operand: null, symbol: symbolFromOp(n), fn: n.fn, ast: n,
+      });
+      return id;
+    }
+    return -1;
+  }
+
+  const rootId = go(ast);
+  if (rootId < 0 || nodes[rootId].type !== "op") return null;
+
+  function pathFromRootToX(nodeId) {
+    const node = nodes[nodeId];
+    if (!node) return [];
+    if (node.type === "value") return node.value === "x" ? [nodeId] : [];
+    if (node.type === "op") {
+      const leftPath = pathFromRootToX(node.leftId);
+      if (leftPath.length) return [nodeId, ...leftPath];
+      if (node.rightId != null) {
+        const rightPath = pathFromRootToX(node.rightId);
+        if (rightPath.length) return [nodeId, ...rightPath];
+      }
+    }
+    return [];
+  }
+
+  const pathToX = pathFromRootToX(rootId);
+  if (pathToX.length === 0) return null;
+  const mainOpIds = pathToX.filter((id) => nodes[id].type === "op");
+  const xId = pathToX[pathToX.length - 1];
+
+  // Create intermediate value nodes for ALL op→op parent-child connections.
+  // Each intermediate represents the OUTPUT of a child operator feeding INTO its parent.
+  const intermediates = [];
+  const opToIntermediateId = new Map();
+  const nodeCount = nodes.length; // snapshot before adding intermediates
+  for (let i = 0; i < nodeCount; i++) {
+    if (nodes[i].type !== "op") continue;
+    const node = nodes[i];
+    for (const side of ["leftId", "rightId"]) {
+      const childId = node[side];
+      if (childId == null) continue;
+      if (side === "rightId" && node.rightId === node.leftId) continue;
+      const child = nodes[childId];
+      if (!child || child.type !== "op") continue;
+
+      const intId = nodeCount + intermediates.length;
+      intermediates.push({
+        id: intId,
+        type: "intermediate",
+        sourceOpId: childId,
+        connectsToOpId: childId,
+        value: null,
+      });
+      opToIntermediateId.set(childId, intId);
+      node[side] = intId; // rewire parent to point to intermediate
+    }
+  }
+  const allNodes = [...nodes, ...intermediates];
+
+  const mainPath = { valueIds: [xId, ...mainOpIds], opIds: mainOpIds };
+
+  const mainOpSet = new Set(mainOpIds);
+  const branches = [];
+  for (let i = 0; i < allNodes.length; i++) {
+    if (allNodes[i].type !== "op" || mainOpSet.has(i)) continue;
+    for (let j = 0; j < mainOpIds.length; j++) {
+      const mainOp = allNodes[mainOpIds[j]];
+      if (mainOp.leftId === i || mainOp.rightId === i) {
+        branches.push({
+          feedsIntoMainOpIndex: j,
+          opId: i,
+          inputLeftId: allNodes[i].leftId,
+          inputRightId: allNodes[i].rightId,
+        });
+        break;
+      }
+    }
+  }
+
+  return { nodes: allNodes, mainPath, branches, opToIntermediateId };
 }
 
 function rebuildStepsFromOps(ops) {
@@ -1340,6 +2511,3745 @@ function rebuildStepsFromOps(ops) {
     steps.push({ ...op, expr, fn: compileNormalizedExpr(expr) });
   }
   return steps;
+}
+
+/** Rotate vector (x,y) by angleDeg degrees (CCW). */
+function rotateVec(x, y, angleDeg) {
+  const rad = (angleDeg * Math.PI) / 180;
+  const c = Math.cos(rad), s = Math.sin(rad);
+  return { x: x * c - y * s, y: x * s + y * c };
+}
+
+/**
+ * Assign (x, y) positions to all nodes in the DAG.
+ * Structure per operator:
+ *   - Operator has output arm going south (toward y / parent intermediate)
+ *   - Operator branches into two children at 120° from the output arm (NW and NE)
+ *   - Children may be values, x, or intermediate nodes
+ *   - Intermediate nodes connect vertically (north) to the next operator above them
+ */
+function computeDagPositions(layout) {
+  if (!layout || !layout.nodes || !layout.mainPath || !layout.mainPath.opIds.length) return null;
+  const { nodes } = layout;
+  const rootOpId = layout.mainPath.opIds[0];
+  const NODE_R = 26;
+  const PIPE = Math.round(Math.max(80, 2 * NODE_R * 2) * 2 / 3);
+  const Y_OFF = PIPE;
+  const opToIntermediateId = layout.opToIntermediateId || new Map();
+
+  // Build parent map for ancestor lookups
+  const parentOf = {};
+  function buildParents(nodeId, visited) {
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
+    const node = nodes[nodeId];
+    if (!node) return;
+    if (node.type === "intermediate" && node.connectsToOpId != null) {
+      if (!(node.connectsToOpId in parentOf)) {
+        parentOf[node.connectsToOpId] = nodeId;
+        buildParents(node.connectsToOpId, visited);
+      }
+    }
+    if (node.type === "op") {
+      if (node.leftId != null && !(node.leftId in parentOf)) {
+        parentOf[node.leftId] = nodeId;
+        buildParents(node.leftId, visited);
+      }
+      if (node.rightId != null && node.rightId !== node.leftId && !(node.rightId in parentOf)) {
+        parentOf[node.rightId] = nodeId;
+        buildParents(node.rightId, visited);
+      }
+    }
+  }
+  buildParents(rootOpId, new Set());
+
+  // Find the deepest common operator ancestor of two nodes
+  function findCommonAncestorOp(a, b) {
+    const ancestors = new Set();
+    let curr = a;
+    while (curr != null) { ancestors.add(curr); curr = parentOf[curr]; }
+    curr = b;
+    while (curr != null) {
+      if (ancestors.has(curr) && nodes[curr] && nodes[curr].type === "op") return curr;
+      curr = parentOf[curr];
+    }
+    return rootOpId;
+  }
+
+  // Which direct child of ancestor leads to descendant? Returns 'left' or 'right'
+  function whichSide(ancId, descId) {
+    let curr = descId;
+    while (curr != null && parentOf[curr] !== ancId) curr = parentOf[curr];
+    if (curr == null) return null;
+    const anc = nodes[ancId];
+    if (anc.leftId === curr) return 'left';
+    if (anc.rightId === curr) return 'right';
+    return null;
+  }
+
+  // Per-edge connector length multiplier: edgeMult['opId-left'] or edgeMult['opId-right']
+  const edgeMult = {};
+  const leftDir = rotateVec(0, 1, -120);   // NE
+  const rightDir = rotateVec(0, 1, 120);   // NW
+
+  function placeSubtree(nodeId, x, y) {
+    const node = nodes[nodeId];
+    if (!node || node.x != null) return;
+    node.x = x;
+    node.y = y;
+
+    if (node.type === "value") return;
+
+    if (node.type === "intermediate") {
+      if (node.connectsToOpId != null) {
+        placeSubtree(node.connectsToOpId, x, y - PIPE);
+      }
+      return;
+    }
+
+    if (node.type === "op") {
+      const lMult = edgeMult[nodeId + '-left'] || 1;
+      const rMult = edgeMult[nodeId + '-right'] || 1;
+      if (node.leftId != null) {
+        placeSubtree(node.leftId, x + PIPE * lMult * leftDir.x, y + PIPE * lMult * leftDir.y);
+      }
+      if (node.rightId != null && node.rightId !== node.leftId) {
+        placeSubtree(node.rightId, x + PIPE * rMult * rightDir.x, y + PIPE * rMult * rightDir.y);
+      }
+    }
+  }
+
+  // Iterative overlap resolution with per-edge multipliers.
+  // Each iteration: find overlaps, increase only the specific arm of the common
+  // ancestor that leads to the more "inward" overlapping node.
+  const MIN_DIST = 2 * NODE_R + 8;
+  for (let iter = 0; iter < 15; iter++) {
+    for (const n of nodes) { n.x = null; n.y = null; }
+    placeSubtree(rootOpId, 0, 0);
+
+    // Find worst overlap per ancestor
+    const ancOverlaps = new Map(); // ancId -> { sideA, sideB, dist }
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].x == null) continue;
+      for (let j = i + 1; j < nodes.length; j++) {
+        if (nodes[j].x == null) continue;
+        const dist = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
+        if (dist >= MIN_DIST) continue;
+        const anc = findCommonAncestorOp(i, j);
+        if (anc == null) continue;
+        const sideI = whichSide(anc, i);
+        const sideJ = whichSide(anc, j);
+        if (sideI && sideJ && sideI !== sideJ) {
+          // They're on opposite sides — expand BOTH sides to resolve
+          const keyL = anc + '-left';
+          const keyR = anc + '-right';
+          if (!ancOverlaps.has(keyL) || dist < ancOverlaps.get(keyL)) {
+            ancOverlaps.set(keyL, dist);
+          }
+          if (!ancOverlaps.has(keyR) || dist < ancOverlaps.get(keyR)) {
+            ancOverlaps.set(keyR, dist);
+          }
+        }
+      }
+    }
+    if (ancOverlaps.size === 0) break;
+    for (const key of ancOverlaps.keys()) {
+      edgeMult[key] = (edgeMult[key] || 1) + 1;
+    }
+  }
+
+  // Relaxation pass: try to reduce each multiplier by 1 if no overlaps result
+  const multKeys = Object.keys(edgeMult).filter(k => edgeMult[k] > 1);
+  for (const key of multKeys) {
+    const orig = edgeMult[key];
+    edgeMult[key] = orig - 1;
+    // Re-place all nodes
+    for (const n of nodes) { n.x = null; n.y = null; }
+    placeSubtree(rootOpId, 0, 0);
+    // Check for overlaps
+    let hasOverlap = false;
+    for (let i = 0; i < nodes.length && !hasOverlap; i++) {
+      if (nodes[i].x == null) continue;
+      for (let j = i + 1; j < nodes.length; j++) {
+        if (nodes[j].x == null) continue;
+        const dist = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
+        if (dist < MIN_DIST) { hasOverlap = true; break; }
+      }
+    }
+    if (hasOverlap) edgeMult[key] = orig; // revert
+  }
+  // Final placement with relaxed multipliers
+  for (const n of nodes) { n.x = null; n.y = null; }
+  placeSubtree(rootOpId, 0, 0);
+
+  return { rootOpId, yX: 0, yY: Y_OFF, PIPE, opToIntermediateId };
+}
+
+/**
+ * Shared tree walker for exprFromPipeLayout and pipeLayoutToColoredSpans.
+ * Produces BOTH a plain-text expression string and colored overlay spans with
+ * identical text content, using precedence-aware parenthesization.
+ *
+ * Returns { text, spans } or null if layout is invalid.
+ * Spans: array of { text, color, opacity? }.
+ * Numbers get color:null from leaves; the parent operation overrides null with
+ * the arm-role color so only plain numbers inherit arm coloring while x, pi,
+ * trig functions etc. keep their own specific colours.
+ */
+function _walkPipeTree(layout) {
+  if (!layout || !layout.nodes || !layout.mainPath) return null;
+  const nodes = layout.nodes;
+  const rootId = layout.mainPath.opIds[0];
+
+  function catFor(opType) {
+    if (opType === "add" || opType === "sub") return "addSub";
+    if (opType === "mul" || opType === "div") return "mulDiv";
+    if (opType === "power") return "exp";
+    return null;
+  }
+  function armCol(cat, roleLabel) {
+    const cc = ARM_COLORS[cat];
+    return (cc && cc[roleLabel]) || OP_COLORS[cat] || OP_COLORS.misc;
+  }
+
+  /* ── tiny helpers ─────────────────────────────────────────── */
+  function sp(text, color, opacity) {
+    const s = { text, color };
+    if (opacity !== undefined) s.opacity = opacity;
+    return s;
+  }
+  function atom(text, color) {
+    return { text, spans: [sp(text, color)], prec: 99 };
+  }
+
+  /* ── recursive tree walk ──────────────────────────────────── */
+  // Returns { text, spans, prec }
+  // prec: 1=addSub, 2=mulDiv, 3=power, 99=atomic/call
+  function nr(id) {
+    const nd = nodes[id];
+    if (!nd) return atom("?", "var(--muted)");
+
+    if (nd.type === "value") {
+      const v = String(nd.value);
+      if (nd.value === "x") return atom(v, OP_COLORS.x);
+      if (nd.value === "pi") return atom("π", OP_COLORS.misc);
+      if (nd.value === "e") return atom(v, OP_COLORS.misc);
+      if (nd.value === "t") return atom(v, OP_COLORS.misc);
+      if (nd.value === "tau" || nd.value === "TAU") return atom("τ", OP_COLORS.misc);
+      return atom(v, null); // null → inherit arm colour from parent
+    }
+    if (nd.type === "intermediate") {
+      return nd.connectsToOpId != null ? nr(nd.connectsToOpId) : atom("?", "var(--muted)");
+    }
+    if (nd.type !== "op") return atom("?", "var(--muted)");
+
+    const cat = nd.armCategory || catFor(nd.opType);
+    const roles = nd.armAssignment;
+    const Lo = nd.leftId != null ? nr(nd.leftId) : null;
+    const Ro = (nd.rightId != null && nd.rightId !== nd.leftId) ? nr(nd.rightId) : null;
+    const _ac = cat && ARM_COLORS[cat];
+    const badge = (_ac && roles && _ac[roles.output]) ? _ac[roles.output] : (cat ? (OP_COLORS[cat] || OP_COLORS.misc) : OP_COLORS.misc);
+
+    /* ── single-arg call ops (trig, sqrt, …) ──────────────── */
+    if (nd.opType === "call" && !cat) {
+      const fn = nd.fn || (nd.ast && nd.ast.fn) || "f";
+      let fnC = OP_COLORS.misc;
+      if (TRIG_FNS.has(fn)) fnC = OP_COLORS.trig;
+      else if (EXP_FNS.has(fn) || fn === "sqrt") fnC = OP_COLORS.exp;
+      const inner = Lo || atom("?", "var(--muted)");
+      return {
+        text: `${fn}(${inner.text})`,
+        spans: [sp(fn, fnC), sp("(", "var(--muted)", 0.35), ...inner.spans, sp(")", "var(--muted)", 0.35)],
+        prec: 99
+      };
+    }
+
+    /* ── fallback for ops without arm assignment ──────────── */
+    if (!roles || !cat) {
+      if (nd.ast && nd.ast.type === "binary" && Lo && Ro) {
+        const p = nd.ast.op === "**" ? "^" : nd.ast.op;
+        return {
+          text: `(${Lo.text}${p}${Ro.text})`,
+          spans: [sp("(", "var(--muted)", 0.35), ...Lo.spans, sp(p, badge), ...Ro.spans, sp(")", "var(--muted)", 0.35)],
+          prec: 0
+        };
+      }
+      return Lo || atom("?", "var(--muted)");
+    }
+
+    /* ── role mapping ─────────────────────────────────────── */
+    const byRole = {};
+    byRole[roles.left] = Lo;
+    byRole[roles.right] = Ro;
+
+    /** Wrap child in parens when its precedence is too low for context.
+     *  Parens are colored to the *parent* operation's badge colour. */
+    function w(role, minPrec) {
+      const o = byRole[role];
+      if (!o) return atom("?", "var(--muted)");
+      if (o.prec >= minPrec) return o;
+      return {
+        text: `(${o.text})`,
+        spans: [sp("(", badge, 0.5), ...o.spans, sp(")", badge, 0.5)],
+        prec: 99
+      };
+    }
+
+    /** Colour child spans: override null (numbers) with the arm-role colour. */
+    function col(role, result) {
+      const ac = armCol(cat, role);
+      return result.spans.map(s => s.color === null ? { ...s, color: ac } : s);
+    }
+
+    /* ── addSub  (arm1 + arm2 = arm3) ─────────────────────── */
+    if (cat === "addSub") {
+      if (roles.output === "3") {
+        const a = w("1", 1), b = w("2", 1);
+        return {
+          text: `${a.text} + ${b.text}`, prec: 1,
+          spans: [...col("1", a), sp(" + ", badge), ...col("2", b)]
+        };
+      }
+      if (roles.output === "1") {
+        const a = w("3", 1), b = w("2", 2);
+        return {
+          text: `${a.text} - ${b.text}`, prec: 1,
+          spans: [...col("3", a), sp(" - ", badge), ...col("2", b)]
+        };
+      }
+      if (roles.output === "2") {
+        const a = w("3", 1), b = w("1", 2);
+        return {
+          text: `${a.text} - ${b.text}`, prec: 1,
+          spans: [...col("3", a), sp(" - ", badge), ...col("1", b)]
+        };
+      }
+    }
+
+    /* ── mulDiv  (arm2 × arm4 = arm8) ─────────────────────── */
+    if (cat === "mulDiv") {
+      if (roles.output === "8") {
+        const a = w("2", 2), b = w("4", 2);
+        return {
+          text: `${a.text}*${b.text}`, prec: 2,
+          spans: [...col("2", a), sp("*", badge), ...col("4", b)]
+        };
+      }
+      if (roles.output === "2") {
+        const a = w("8", 2), b = w("4", 3);
+        return {
+          text: `${a.text}/${b.text}`, prec: 2,
+          spans: [...col("8", a), sp("/", badge), ...col("4", b)]
+        };
+      }
+      if (roles.output === "4") {
+        const a = w("8", 2), b = w("2", 3);
+        return {
+          text: `${a.text}/${b.text}`, prec: 2,
+          spans: [...col("8", a), sp("/", badge), ...col("2", b)]
+        };
+      }
+    }
+
+    /* ── exp  (base ^ exponent = power) ───────────────────── */
+    if (cat === "exp") {
+      const base = byRole.base;
+      const exp = byRole.exponent;
+      const pow = byRole.power;
+      const baseT = base ? base.text : "?";
+      const expT = exp ? exp.text : "?";
+      const powT = pow ? pow.text : "?";
+
+      if (roles.output === "power") {
+        // base^exponent
+        const baseNP = base && base.prec < 99;
+        const expNP = /[+\-*/^()]/.test(expT);
+        const bW = baseNP
+          ? { text: `(${baseT})`, spans: [sp("(", "var(--muted)", 0.35), ...col("base", base), sp(")", "var(--muted)", 0.35)] }
+          : { text: baseT, spans: col("base", base) };
+        const eW = expNP
+          ? { text: `(${expT})`, spans: [sp("(", "var(--muted)", 0.35), ...col("exponent", exp), sp(")", "var(--muted)", 0.35)] }
+          : { text: expT, spans: col("exponent", exp) };
+        return {
+          text: `${bW.text}^${eW.text}`, prec: 3,
+          spans: [...bW.spans, sp("^", badge), ...eW.spans]
+        };
+      }
+
+      if (roles.output === "base") {
+        // nthrt_index(radicand) when index is a simple token
+        if (/^[a-zA-Z][a-zA-Z0-9]*$/.test(expT) || /^\d+(\.\d+)?$/.test(expT)) {
+          const expC = expT === "x" ? OP_COLORS.x : armCol(cat, "exponent");
+          return {
+            text: `nthrt_${expT}(${powT})`, prec: 99,
+            spans: [sp("nthrt_", badge), sp(expT, expC), sp("(", "var(--muted)", 0.35), ...col("power", pow), sp(")", "var(--muted)", 0.35)]
+          };
+        }
+        return {
+          text: `(${powT})^(1/(${expT}))`, prec: 3,
+          spans: [
+            sp("(", "var(--muted)", 0.35), ...col("power", pow), sp(")", "var(--muted)", 0.35),
+            sp("^", badge), sp("(1/", badge),
+            sp("(", "var(--muted)", 0.35), ...col("exponent", exp), sp(")", "var(--muted)", 0.35),
+            sp(")", "var(--muted)", 0.35),
+          ]
+        };
+      }
+
+      if (roles.output === "exponent") {
+        if (/^[a-zA-Z][a-zA-Z0-9]*$/.test(baseT) || /^\d+(\.\d+)?$/.test(baseT)) {
+          const baseC = baseT === "x" ? OP_COLORS.x : armCol(cat, "base");
+          return {
+            text: `log_${baseT}(${powT})`, prec: 99,
+            spans: [sp("log_", badge), sp(baseT, baseC), sp("(", "var(--muted)", 0.35), ...col("power", pow), sp(")", "var(--muted)", 0.35)]
+          };
+        }
+        return {
+          text: `ln(${powT})/ln(${baseT})`, prec: 2,
+          spans: [
+            sp("ln", badge), sp("(", "var(--muted)", 0.35), ...col("power", pow), sp(")", "var(--muted)", 0.35),
+            sp("/", badge),
+            sp("ln", badge), sp("(", "var(--muted)", 0.35), ...col("base", base), sp(")", "var(--muted)", 0.35),
+          ]
+        };
+      }
+    }
+
+    return atom("?", "var(--muted)");
+  }
+
+  const result = nr(rootId);
+  // Clean up: replace any remaining null colours with default text colour
+  const spans = result.spans.map(s => s.color === null ? { ...s, color: "var(--text)" } : s);
+  return { text: result.text, spans };
+}
+
+/**
+ * Build a mathematical expression string from the pipe-layout tree.
+ * Delegates to _walkPipeTree for precedence-aware generation.
+ */
+function exprFromPipeLayout(layout) {
+  const r = _walkPipeTree(layout);
+  return r ? r.text : null;
+}
+
+/**
+ * Walk a subtree of the pipe layout starting from an arbitrary node.
+ * Returns { text, spans } like _walkPipeTree, but rooted at nodeId.
+ */
+function _walkSubtree(layout, nodeId) {
+  if (!layout || !layout.nodes || nodeId == null) return null;
+  // Temporarily override mainPath to trick _walkPipeTree into starting at nodeId
+  // Actually, we need to factor out the inner recursive walker. 
+  // For now, re-use the same logic by traversing from nodeId.
+  const nodes = layout.nodes;
+
+  function catFor(opType) {
+    if (opType === "add" || opType === "sub") return "addSub";
+    if (opType === "mul" || opType === "div") return "mulDiv";
+    if (opType === "power") return "exp";
+    return null;
+  }
+  function armCol(cat, roleLabel) {
+    const cc = ARM_COLORS[cat];
+    return (cc && cc[roleLabel]) || OP_COLORS[cat] || OP_COLORS.misc;
+  }
+  function sp(text, color, opacity) {
+    const s = { text, color };
+    if (opacity !== undefined) s.opacity = opacity;
+    return s;
+  }
+  function atom(text, color) {
+    return { text, spans: [sp(text, color)], prec: 99 };
+  }
+
+  // Re-use the inner walker from _walkPipeTree
+  // This is a simplified duplicate; ideally we'd refactor to share code
+  function nr(id) {
+    const nd = nodes[id];
+    if (!nd) return atom("?", "var(--muted)");
+    if (nd.type === "value") {
+      const v = String(nd.value);
+      if (nd.value === "x") return atom(v, OP_COLORS.x);
+      if (nd.value === "pi" || nd.value === "e" || nd.value === "t") return atom(v, OP_COLORS.misc);
+      if (nd.value === "tau" || nd.value === "TAU") return atom("τ", OP_COLORS.misc);
+      return atom(v, null);
+    }
+    if (nd.type === "intermediate") {
+      return nd.connectsToOpId != null ? nr(nd.connectsToOpId) : atom("?", "var(--muted)");
+    }
+    if (nd.type !== "op") return atom("?", "var(--muted)");
+
+    const cat = nd.armCategory || catFor(nd.opType);
+    const roles = nd.armAssignment;
+    const Lo = nd.leftId != null ? nr(nd.leftId) : null;
+    const Ro = (nd.rightId != null && nd.rightId !== nd.leftId) ? nr(nd.rightId) : null;
+    const _ac = cat && ARM_COLORS[cat];
+    const badge = (_ac && roles && _ac[roles.output]) ? _ac[roles.output] : (cat ? (OP_COLORS[cat] || OP_COLORS.misc) : OP_COLORS.misc);
+
+    if (!roles || !cat) {
+      return Lo || atom("?", "var(--muted)");
+    }
+
+    const byRole = {};
+    byRole[roles.left] = Lo;
+    byRole[roles.right] = Ro;
+
+    function w(role, minPrec) {
+      const o = byRole[role];
+      if (!o) return atom("?", "var(--muted)");
+      if (o.prec >= minPrec) return o;
+      return { text: `(${o.text})`, spans: [sp("(", badge, 0.5), ...o.spans, sp(")", badge, 0.5)], prec: 99 };
+    }
+    function col(role, result) {
+      const ac = armCol(cat, role);
+      return result.spans.map(s => s.color === null ? { ...s, color: ac } : s);
+    }
+
+    if (cat === "addSub") {
+      if (roles.output === "3") {
+        const a = w("1", 1), b = w("2", 1);
+        return { text: `${a.text} + ${b.text}`, prec: 1, spans: [...col("1", a), sp(" + ", badge), ...col("2", b)] };
+      }
+      if (roles.output === "1") {
+        const a = w("3", 1), b = w("2", 2);
+        return { text: `${a.text} - ${b.text}`, prec: 1, spans: [...col("3", a), sp(" - ", badge), ...col("2", b)] };
+      }
+      if (roles.output === "2") {
+        const a = w("3", 1), b = w("1", 2);
+        return { text: `${a.text} - ${b.text}`, prec: 1, spans: [...col("3", a), sp(" - ", badge), ...col("1", b)] };
+      }
+    }
+    if (cat === "mulDiv") {
+      if (roles.output === "8") {
+        const a = w("2", 2), b = w("4", 2);
+        return { text: `${a.text}*${b.text}`, prec: 2, spans: [...col("2", a), sp("*", badge), ...col("4", b)] };
+      }
+      if (roles.output === "2") {
+        const a = w("8", 2), b = w("4", 3);
+        return { text: `${a.text}/${b.text}`, prec: 2, spans: [...col("8", a), sp("/", badge), ...col("4", b)] };
+      }
+      if (roles.output === "4") {
+        const a = w("8", 2), b = w("2", 3);
+        return { text: `${a.text}/${b.text}`, prec: 2, spans: [...col("8", a), sp("/", badge), ...col("2", b)] };
+      }
+    }
+    if (cat === "exp") {
+      const base = byRole.base, exp = byRole.exponent, pow = byRole.power;
+      if (roles.output === "power") {
+        const bt = base || atom("?", "var(--muted)"), et = exp || atom("?", "var(--muted)");
+        return { text: `${bt.text}^${et.text}`, prec: 3, spans: [...col("base", bt), sp("^", badge), ...col("exponent", et)] };
+      }
+      if (roles.output === "base") {
+        const et = exp || atom("?", "var(--muted)"), pt = pow || atom("?", "var(--muted)");
+        return { text: `nthrt_${et.text}(${pt.text})`, prec: 99, spans: [sp("nthrt_", badge), ...col("exponent", et), sp("(", "var(--muted)", 0.35), ...col("power", pt), sp(")", "var(--muted)", 0.35)] };
+      }
+      if (roles.output === "exponent") {
+        const bt = base || atom("?", "var(--muted)"), pt = pow || atom("?", "var(--muted)");
+        return { text: `log_${bt.text}(${pt.text})`, prec: 99, spans: [sp("log_", badge), ...col("base", bt), sp("(", "var(--muted)", 0.35), ...col("power", pt), sp(")", "var(--muted)", 0.35)] };
+      }
+    }
+    return atom("?", "var(--muted)");
+  }
+
+  const result = nr(nodeId);
+  const spans = result.spans.map(s => s.color === null ? { ...s, color: "var(--text)" } : s);
+  return { text: result.text, spans };
+}
+
+/**
+ * Walk the pipe-layout tree and produce **colored LaTeX** whose colors match
+ * the pipe diagram exactly — operands in their arm-role color, operator
+ * symbols in the badge (OP_COLORS[cat]) color, x in OP_COLORS.x.
+ *
+ * When xVal is finite, x is replaced by its numeric value.
+ */
+function pipeLayoutToColoredLatex(layout, xVal) {
+  if (!layout || !layout.nodes || !layout.mainPath) return null;
+  const nodes = layout.nodes;
+  const rootId = layout.mainPath.opIds[0];
+  const hasX = xVal !== undefined && xVal !== null && Number.isFinite(xVal);
+
+  function catFor(opType) {
+    if (opType === "add" || opType === "sub") return "addSub";
+    if (opType === "mul" || opType === "div") return "mulDiv";
+    if (opType === "power") return "exp";
+    return null;
+  }
+
+  function col(text, hex) { return `\\textcolor{${hex}}{${text}}`; }
+
+  /** Wrap text in a role-arm color */
+  function armCol(text, cat, roleLabel) {
+    const cc = ARM_COLORS[cat];
+    const c = cc && cc[roleLabel] ? cc[roleLabel] : OP_COLORS[cat] || OP_COLORS.misc;
+    return col(text, c);
+  }
+
+  /** Latex for a number value, optionally colored */
+  function numLatex(v, hex) {
+    let s;
+    if (Number.isInteger(v) && Math.abs(v) < 1e15) s = String(v);
+    else s = parseFloat(v.toPrecision(10)).toString();
+    return hex ? col(s, hex) : s;
+  }
+
+  /** Classify a node for juxtaposition detection. */
+  function nodeClassify(id) {
+    const n = nodes[id];
+    if (!n) return "unknown";
+    if (n.type === "intermediate" && n.connectsToOpId != null) return nodeClassify(n.connectsToOpId);
+    if (n.type === "value") {
+      if (n.value === "x" || n.value === "t") return "var";
+      if (n.value === "pi" || n.value === "e") return "const";
+      return "num";
+    }
+    if (n.type === "op") return n.opType;
+    return "unknown";
+  }
+
+  /** Check if the leftmost displayed leaf of a subtree is (or renders as) a number.
+   *  Used for juxtaposition: 5·x² → 5x² (starts with var, no parens)
+   *  vs 5·2^x → 5(2^x) (starts with digit, needs parens).
+   *  When hasX=true, x/t are replaced by a number, so they also count as digits. */
+  function nodeLeftmostIsNum(id) {
+    const n = nodes[id];
+    if (!n) return false;
+    if (n.type === "intermediate" && n.connectsToOpId != null)
+      return nodeLeftmostIsNum(n.connectsToOpId);
+    if (n.type === "value") {
+      if (n.value === "pi" || n.value === "e") return false;
+      // When showing live values, x/t render as numbers → juxtaposition is ambiguous
+      if (n.value === "x" || n.value === "t") return hasX;
+      return true; // numeric literal
+    }
+    if (n.type === "op") {
+      const roles = n.armAssignment;
+      const cat = n.armCategory || catFor(n.opType);
+      if (cat === "exp" && roles) {
+        // base^exponent — base is leftmost
+        const baseId = roles.left === "base" ? n.leftId : n.rightId;
+        return nodeLeftmostIsNum(baseId);
+      }
+      // Other ops: left child is leftmost
+      return n.leftId != null ? nodeLeftmostIsNum(n.leftId) : false;
+    }
+    return false;
+  }
+
+  /** Generate LaTeX for a node, returning { latex, role } where role is the arm-role label
+   *  this sub-expression feeds into its parent (if any). */
+  function nodeLatex(id) {
+    const nd = nodes[id];
+    if (!nd) return "?";
+    if (nd.type === "value") {
+      const v = nd.value;
+      if (v === "x") {
+        if (hasX) return col(formatLatexNumber(xVal), OP_COLORS.x);
+        return col("x", OP_COLORS.x);
+      }
+      // Numeric or constant — will be colored by parent based on arm role
+      if (v === "pi") return col("\\pi", OP_COLORS.misc);
+      if (v === "e") return col("e", OP_COLORS.misc);
+      if (v === "t") return col("t", OP_COLORS.misc);
+      return String(v);
+    }
+    if (nd.type === "intermediate") {
+      return nd.connectsToOpId != null ? nodeLatex(nd.connectsToOpId) : "?";
+    }
+    if (nd.type !== "op") return "?";
+
+    const cat = nd.armCategory || catFor(nd.opType);
+    const roles = nd.armAssignment;
+    const L = nd.leftId != null ? nodeLatex(nd.leftId) : null;
+    const R = (nd.rightId != null && nd.rightId !== nd.leftId) ? nodeLatex(nd.rightId) : null;
+    const _armCC = cat && ARM_COLORS[cat];
+    const badgeHex = (_armCC && roles && _armCC[roles.output]) ? _armCC[roles.output] : (cat ? (OP_COLORS[cat] || OP_COLORS.misc) : OP_COLORS.misc);
+
+    // Single-arg call ops (trig, etc.) — no arm system
+    if (nd.opType === "call" && !cat) {
+      const fn = nd.fn || (nd.ast && nd.ast.fn) || "f";
+      let fnColor = OP_COLORS.misc;
+      if (TRIG_FNS.has(fn)) fnColor = OP_COLORS.trig;
+      else if (EXP_FNS.has(fn) || fn === "sqrt") fnColor = OP_COLORS.exp;
+      const inner = L || "?";
+      const latexFnMap = {
+        sin: "\\sin", cos: "\\cos", tan: "\\tan",
+        asin: "\\arcsin", acos: "\\arccos", atan: "\\arctan",
+        ln: "\\ln", log: "\\log", exp: "\\exp",
+        sqrt: null, abs: null, floor: null, ceil: null, round: "\\text{round}",
+      };
+      if (fn === "sqrt") return col(`\\sqrt{${inner}}`, fnColor);
+      if (fn === "abs") return `${col("\\lvert", fnColor)}${inner}${col("\\rvert", fnColor)}`;
+      if (fn === "floor") return `${col("\\lfloor", fnColor)}${inner}${col("\\rfloor", fnColor)}`;
+      if (fn === "ceil") return `${col("\\lceil", fnColor)}${inner}${col("\\rceil", fnColor)}`;
+      const latexFn = latexFnMap[fn] || `\\text{${fn}}`;
+      return `${col(latexFn, fnColor)}${col("(", fnColor)}${inner}${col(")", fnColor)}`;
+    }
+
+    if (!roles || !cat) {
+      if (nd.ast && nd.ast.type === "binary" && L && R) {
+        const p = nd.ast.op === "**" ? "^" : nd.ast.op;
+        return `${L}${p}${R}`;
+      }
+      return L || "?";
+    }
+
+    // Color each child by its arm role
+    const byRole = {};
+    const lRole = roles.left, rRole = roles.right;
+    byRole[lRole] = L != null ? armCol(L, cat, lRole) : "?";
+    byRole[rRole] = R != null ? armCol(R, cat, rRole) : null;
+
+    if (cat === "addSub") {
+      if (roles.output === "3") {
+        return `${byRole["1"]} ${col("+", badgeHex)} ${byRole["2"]}`;
+      }
+      if (roles.output === "1") {
+        return `${byRole["3"]} ${col("-", badgeHex)} ${byRole["2"]}`;
+      }
+      if (roles.output === "2") {
+        return `${byRole["3"]} ${col("-", badgeHex)} ${byRole["1"]}`;
+      }
+    }
+    if (cat === "mulDiv") {
+      if (roles.output === "8") {
+        // Juxtaposition: coefficient × expression → implicit multiplication
+        const role2Id = roles.left === "2" ? nd.leftId : nd.rightId;
+        const role4Id = roles.left === "4" ? nd.leftId : nd.rightId;
+        const t2 = nodeClassify(role2Id);
+        const t4 = nodeClassify(role4Id);
+        const s2 = (t2 === "num" || t2 === "const");
+        const e4 = (t4 === "var" || t4 === "call");
+        const s4 = (t4 === "num" || t4 === "const");
+        const e2 = (t2 === "var" || t2 === "call");
+        // Juxtaposition only for number·variable or number·function (e.g. 3x, 3sin(x))
+        // When showing live values, x renders as a digit → need parens: 2(3) not 23
+        if (s2 && e4) {
+          if (hasX && t4 === "var") return `${byRole["2"]}${col("(", badgeHex)}${byRole["4"]}${col(")", badgeHex)}`;
+          return `${byRole["2"]}${byRole["4"]}`;
+        }
+        if (s4 && e2) {
+          if (hasX && t2 === "var") return `${byRole["4"]}${col("(", badgeHex)}${byRole["2"]}${col(")", badgeHex)}`;
+          return `${byRole["4"]}${byRole["2"]}`;
+        }
+        // number·complex-expr: parens only when expr starts with a digit (e.g. 3(2^x))
+        // but juxtaposition when expr starts with a variable (e.g. 5x²)
+        const c4 = (t4 === "power" || t4 === "mul" || t4 === "div" || t4 === "add" || t4 === "sub");
+        const c2 = (t2 === "power" || t2 === "mul" || t2 === "div" || t2 === "add" || t2 === "sub");
+        if (s2 && c4) {
+          if (nodeLeftmostIsNum(role4Id)) return `${byRole["2"]}${col("(", badgeHex)}${byRole["4"]}${col(")", badgeHex)}`;
+          return `${byRole["2"]}${byRole["4"]}`;
+        }
+        if (s4 && c2) {
+          if (nodeLeftmostIsNum(role2Id)) return `${byRole["4"]}${col("(", badgeHex)}${byRole["2"]}${col(")", badgeHex)}`;
+          return `${byRole["4"]}${byRole["2"]}`;
+        } return `${byRole["2"]} ${col(latexMulSym(), badgeHex)} ${byRole["4"]}`;
+      }
+      if (roles.output === "2") {
+        return `${col(`\\frac{${byRole["8"]}}{${byRole["4"]}}`, badgeHex)}`;
+      }
+      if (roles.output === "4") {
+        return `${col(`\\frac{${byRole["8"]}}{${byRole["2"]}}`, badgeHex)}`;
+      }
+    }
+    if (cat === "exp") {
+      const baseE = byRole.base || "?";
+      const expE = byRole.exponent || "?";
+      const powE = byRole.power || "?";
+      if (roles.output === "power") {
+        return `{${baseE}}^{${expE}}`;
+      }
+      if (roles.output === "base") {
+        // Always use root notation
+        const expNodeId = roles.right === "exponent" ? nd.rightId : nd.leftId;
+        const rawExp = nodeRawValue(expNodeId);
+        const expVal = rawExp != null ? parseFloat(rawExp) : NaN;
+        // Simple √ for square root
+        if (Number.isInteger(expVal) && expVal === 2) {
+          return col(`\\sqrt{${powE}}`, badgeHex);
+        }
+        // nth root for everything else (integer n, variable x, expression…)
+        return col(`\\sqrt[${expE}]{${powE}}`, badgeHex);
+      }
+      if (roles.output === "exponent") {
+        // log_base notation
+        const rawBase = nodeRawValue(roles.left === "base" ? nd.leftId : nd.rightId);
+        if (rawBase && (/^[a-zA-Z]$/.test(rawBase) || /^\d+(\.\d+)?$/.test(rawBase))) {
+          const baseLatex = rawBase === "x" ? col("x", OP_COLORS.x) : armCol(rawBase, cat, "base");
+          return `{${col("\\log", badgeHex)}}_{${baseLatex}}${col("(", badgeHex)}${powE}${col(")", badgeHex)}`;
+        }
+        return `${col(`\\frac{\\ln(${powE})}{\\ln(${baseE})}`, badgeHex)}`;
+      }
+    }
+    return "?";
+  }
+
+  /** Get the raw string value of a value node (for detecting integers/variables) */
+  function nodeRawValue(id) {
+    const nd = nodes[id];
+    if (!nd) return null;
+    if (nd.type === "value") return nd.value;
+    if (nd.type === "intermediate" && nd.connectsToOpId != null) return nodeRawValue(nd.connectsToOpId);
+    return null;
+  }
+
+  return nodeLatex(rootId);
+}
+
+/**
+ * Build colored text spans for the input overlay from the pipe-layout tree.
+ * Delegates to _walkPipeTree so text always matches exprFromPipeLayout.
+ */
+function pipeLayoutToColoredSpans(layout) {
+  const r = _walkPipeTree(layout);
+  return r ? r.spans : null;
+}
+
+/**
+ * After an arm swap, rebuild the expression from the layout tree,
+ * update state.fn and equation displays.
+ *
+ * IMPORTANT: We do NOT re-linearize (parseAndLinearize) or syncInputFromOps
+ * here because the linearizer walks x→root and may reorder operands (e.g.
+ * log(2)/log(x) becomes log(x)/log(2) — a different function!).  The pipe
+ * layout keeps the canonical tree structure; we just compile the expression
+ * string for state.fn and update the text/LaTeX displays.
+ */
+function applySwapToAstAndState() {
+  _swapInProgress = true;
+  try {
+    const layout = state.pipeLayout;
+    if (!layout) return;
+    const treeResult = _walkPipeTree(layout);
+    const newExpr = treeResult ? treeResult.text : null;
+    if (!newExpr || newExpr === "?") return;
+
+    // Update expression input and compile the JS function
+    if (ui.exprEl) { ui.exprEl.value = newExpr; autoSizeInput(); }
+    state.lastExpr = newExpr;
+    state.fn = compileExpression(newExpr);
+
+    // Store pipe-tree spans for the overlay (renderStepRepresentation will call updateInputOverlay)
+    state.displaySpans = treeResult.spans;
+  } catch (err) {
+    console.error("[applySwapToAstAndState]", err);
+  }
+  // Clear flag after current microtask + next frame to cover any deferred
+  // input events from programmatic .value assignment.
+  requestAnimationFrame(() => { _swapInProgress = false; });
+}
+
+/**
+ * Delete an operator node from the DAG and rebuild the expression + diagram.
+ *
+ * Rules:
+ *  - If one input is a constant and the other is an intermediate (i.e. output of
+ *    another operator), the intermediate's subtree replaces this operator.
+ *  - If one input is a constant and the other is the variable x, the variable
+ *    replaces this operator.
+ *  - If both inputs are intermediate nodes (two sub-expressions), the entire
+ *    operator and everything deeper is replaced with x (to keep x in the expr).
+ *  - For single-arg call ops (sin, cos, etc.), the single input replaces the op
+ *    (constant → x, intermediate/x → passes through).
+ *  - In all cases, if removing the operator would cause x to vanish from the
+ *    expression, we substitute x instead of a numeric constant.
+ */
+function deleteOperatorNode(opId, layout) {
+  if (!layout || !layout.nodes) return;
+  const nodes = layout.nodes;
+  const opNode = nodes[opId];
+  if (!opNode || opNode.type !== "op") return;
+
+  /** Does the subtree rooted at nodeId contain the variable x? */
+  function subtreeHasX(nodeId) {
+    const n = nodes[nodeId];
+    if (!n) return false;
+    if (n.type === "value") return n.value === "x";
+    if (n.type === "intermediate") return n.connectsToOpId != null && subtreeHasX(n.connectsToOpId);
+    if (n.type === "op") {
+      if (n.leftId != null && subtreeHasX(n.leftId)) return true;
+      if (n.rightId != null && n.rightId !== n.leftId && subtreeHasX(n.rightId)) return true;
+    }
+    return false;
+  }
+
+  /** Check if x exists somewhere in the tree OUTSIDE the subtree rooted at opId. */
+  function xExistsOutside(excludeOpId) {
+    const rootId = layout.mainPath.opIds[0];
+    function walk(nodeId) {
+      if (nodeId === excludeOpId) return false; // skip excluded subtree
+      const n = nodes[nodeId];
+      if (!n) return false;
+      if (n.type === "value") return n.value === "x";
+      if (n.type === "intermediate") return n.connectsToOpId != null && walk(n.connectsToOpId);
+      if (n.type === "op") {
+        if (n.leftId != null && walk(n.leftId)) return true;
+        if (n.rightId != null && n.rightId !== n.leftId && walk(n.rightId)) return true;
+      }
+      return false;
+    }
+    return walk(rootId);
+  }
+
+  /** Determine the fallback replacement: "x" if removing opId would lose x, else "1". */
+  function fallbackVal() {
+    return xExistsOutside(opId) ? "1" : "x";
+  }
+
+  // Classify children
+  const leftChild = opNode.leftId != null ? nodes[opNode.leftId] : null;
+  const rightChild = (opNode.rightId != null && opNode.rightId !== opNode.leftId)
+    ? nodes[opNode.rightId] : null;
+
+  function isIntermediate(n) { return n && n.type === "intermediate"; }
+  function isVariable(n) { return n && n.type === "value" && n.value === "x"; }
+  function isConstant(n) { return n && n.type === "value" && n.value !== "x"; }
+
+  // For single-arg call ops (trig etc.) — just one child
+  if (!rightChild) {
+    if (isIntermediate(leftChild) || isVariable(leftChild)) {
+      replaceOpInParent(opId, opNode.leftId, nodes, layout);
+    } else {
+      replaceOpWithConstant(opId, fallbackVal(), nodes, layout);
+    }
+    rebuildAfterDelete(layout);
+    return;
+  }
+
+  // Two-input operators
+  const leftIsIntermediate = isIntermediate(leftChild);
+  const rightIsIntermediate = isIntermediate(rightChild);
+  const leftIsVariable = isVariable(leftChild);
+  const rightIsVariable = isVariable(rightChild);
+  const leftIsConstant = isConstant(leftChild);
+  const rightIsConstant = isConstant(rightChild);
+
+  if (leftIsIntermediate && rightIsIntermediate) {
+    // Both intermediate — replace with fallback (x if x would be lost, else 1)
+    replaceOpWithConstant(opId, fallbackVal(), nodes, layout);
+  } else if (leftIsConstant && rightIsIntermediate) {
+    replaceOpInParent(opId, opNode.rightId, nodes, layout);
+  } else if (rightIsConstant && leftIsIntermediate) {
+    replaceOpInParent(opId, opNode.leftId, nodes, layout);
+  } else if (leftIsConstant && rightIsVariable) {
+    replaceOpInParent(opId, opNode.rightId, nodes, layout);
+  } else if (rightIsConstant && leftIsVariable) {
+    replaceOpInParent(opId, opNode.leftId, nodes, layout);
+  } else if (leftIsVariable && rightIsIntermediate) {
+    replaceOpInParent(opId, opNode.leftId, nodes, layout);
+  } else if (rightIsVariable && leftIsIntermediate) {
+    replaceOpInParent(opId, opNode.rightId, nodes, layout);
+  } else if (leftIsVariable && rightIsVariable) {
+    replaceOpInParent(opId, opNode.leftId, nodes, layout);
+  } else {
+    replaceOpWithConstant(opId, fallbackVal(), nodes, layout);
+  }
+
+  rebuildAfterDelete(layout);
+}
+
+/** Replace operator opId in its parent by pointing the parent to replacementId instead. */
+function replaceOpInParent(opId, replacementId, nodes, layout) {
+  // Find the parent that references this operator (or its intermediate)
+  for (const n of nodes) {
+    if (!n || n.type !== "op") continue;
+    if (n.leftId != null) {
+      const leftChild = nodes[n.leftId];
+      // Direct reference to the op
+      if (n.leftId === opId) { n.leftId = replacementId; return; }
+      // Through an intermediate that connects to this op
+      if (leftChild && leftChild.type === "intermediate" && leftChild.connectsToOpId === opId) {
+        n.leftId = replacementId;
+        return;
+      }
+    }
+    if (n.rightId != null && n.rightId !== n.leftId) {
+      const rightChild = nodes[n.rightId];
+      if (n.rightId === opId) { n.rightId = replacementId; return; }
+      if (rightChild && rightChild.type === "intermediate" && rightChild.connectsToOpId === opId) {
+        n.rightId = replacementId;
+        return;
+      }
+    }
+  }
+  // If no parent found, this was the root — replace root with the replacement node
+  // We'll handle this in rebuildAfterDelete by detecting the new root.
+}
+
+/** Replace operator opId with a new constant value node. */
+function replaceOpWithConstant(opId, val, nodes, layout) {
+  const newId = nodes.length;
+  nodes.push({ id: newId, type: "value", value: val });
+  replaceOpInParent(opId, newId, nodes, layout);
+}
+
+/** After deleting an operator, rebuild the expression + layout + re-render. */
+function rebuildAfterDelete(layout, preserveLayout) {
+  try {
+    // Rebuild expression from modified tree
+    const treeResult = _walkPipeTree(layout);
+    if (!treeResult) return;
+    const newExpr = treeResult.text;
+
+    // Update state
+    if (ui.exprEl) { ui.exprEl.value = newExpr; autoSizeInput(); }
+    state.lastExpr = newExpr;
+    state.fn = compileExpression(newExpr);
+    state.displaySpans = treeResult.spans;
+
+    if (preserveLayout) {
+      // Keep the existing layout nodes (with arm assignments, exp-family state, etc.)
+      // but recompute mainPath since nodes may have been added/rewired.
+      _refreshMainPath(layout);
+      // state.pipeLayout is already layout — no reassignment needed
+    } else {
+      // Re-parse to get a clean layout
+      const { steps, ops, pipeLayout } = parseAndLinearize(newExpr);
+      state.steps = steps;
+      state.ops = ops;
+      if (pipeLayout) state.pipeLayout = pipeLayout;
+    }
+
+    // Clear equals edge if it's stale
+    state.equalsEdge = null;
+    state.equalsLhsSpans = null;
+    state.equalsFullSpans = null;
+    state.equalsRhsExpr = null;
+
+    renderStepRepresentation();
+    updateInputOverlay();
+    updateLatexDisplay(newExpr);
+  } catch (err) {
+    console.error("[deleteOperatorNode]", err);
+  }
+}
+
+/** Recompute mainPath on an existing layout after nodes are added/rewired. */
+function _refreshMainPath(layout) {
+  const nodes = layout.nodes;
+  // Find root: the op node that is not a child of any other op
+  const childIds = new Set();
+  for (const n of nodes) {
+    if (!n || n.type !== "op") continue;
+    if (n.leftId != null) childIds.add(n.leftId);
+    if (n.rightId != null && n.rightId !== n.leftId) childIds.add(n.rightId);
+  }
+  // Also consider intermediate -> connectsToOpId
+  for (const n of nodes) {
+    if (!n || n.type !== "intermediate") continue;
+    if (n.connectsToOpId != null) childIds.add(n.connectsToOpId);
+  }
+  let rootOpId = null;
+  for (const n of nodes) {
+    if (!n || n.type !== "op") continue;
+    if (!childIds.has(n.id)) { rootOpId = n.id; break; }
+  }
+  if (rootOpId == null) return;
+
+  function pathFromRootToX(nodeId) {
+    const node = nodes[nodeId];
+    if (!node) return [];
+    if (node.type === "value") return node.value === "x" ? [nodeId] : [];
+    if (node.type === "intermediate") {
+      return node.connectsToOpId != null ? pathFromRootToX(node.connectsToOpId) : [];
+    }
+    if (node.type === "op") {
+      const leftPath = pathFromRootToX(node.leftId);
+      if (leftPath.length) return [nodeId, ...leftPath];
+      if (node.rightId != null) {
+        const rightPath = pathFromRootToX(node.rightId);
+        if (rightPath.length) return [nodeId, ...rightPath];
+      }
+    }
+    return [];
+  }
+
+  const pathToX = pathFromRootToX(rootOpId);
+  if (pathToX.length === 0) return;
+  const mainOpIds = pathToX.filter(id => nodes[id].type === "op");
+  const xId = pathToX[pathToX.length - 1];
+  layout.mainPath = { valueIds: [xId, ...mainOpIds], opIds: mainOpIds };
+}
+
+/** Derive opType and symbol from an arm category + assignment (module-level) */
+function _deriveOpInfo(cat, assignment) {
+  if (cat === "addSub") {
+    if (assignment.output === "3") return { opType: "add", symbol: "+" };
+    return { opType: "sub", symbol: "\u2212" };
+  }
+  if (cat === "mulDiv") {
+    if (assignment.output === "8") return { opType: "mul", symbol: "\u00d7" };
+    return { opType: "div", symbol: "\u00f7" };
+  }
+  if (cat === "exp") {
+    if (assignment.output === "power") return { opType: "power", symbol: "^" };
+    if (assignment.output === "base") return { opType: "call", symbol: "\u207f\u221a" };
+    return { opType: "call", symbol: "log" };
+  }
+  return null;
+}
+
+function _categoryForOpType(opType) {
+  if (opType === "add" || opType === "sub") return "addSub";
+  if (opType === "mul" || opType === "div") return "mulDiv";
+  if (opType === "power") return "exp";
+  return null;
+}
+
+/**
+ * Render the pipe diagram from the DAG: straight pipes only, 120° separation at junctions.
+ * Uses SVG layer groups for correct z-ordering: pipes → arrows → nodes → text → debug.
+ */
+function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDebug, showPipeDebug) {
+  if (!layout || !layout.nodes || !layout.mainPath || !layout.mainPath.opIds.length) {
+    const empty = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    empty.setAttribute("viewBox", "0 0 100 40");
+    empty.setAttribute("width", "100");
+    empty.setAttribute("height", "40");
+    return empty;
+  }
+  const positions = computeDagPositions(layout);
+  if (!positions) return document.createElementNS("http://www.w3.org/2000/svg", "svg");
+
+  const NS = "http://www.w3.org/2000/svg";
+  const svgEl = (tag) => document.createElementNS(NS, tag);
+  const { nodes } = layout;
+  const { rootOpId, yX: rawYX, yY: rawYY, PIPE } = positions;
+
+  // Compute effective rotation: base treeRotationDeg + 90° if horizontal mode
+  const _treeDeg = ((state.treeRotationDeg || 0) + (horizontal ? -90 : 0)) % 360;
+  const _treeRad = _treeDeg * Math.PI / 180;
+  const _cosR = Math.cos(_treeRad), _sinR = Math.sin(_treeRad);
+
+  // Capture unrotated bounding box BEFORE rotation so the viewBox stays
+  // the same size at every rotation angle (diagonal of this box).
+  const _preAllX = [rawYX], _preAllY = [rawYY];
+  for (const n of nodes) {
+    if (n.x != null) _preAllX.push(n.x);
+    if (n.y != null) _preAllY.push(n.y);
+  }
+  const _preW = Math.max(..._preAllX) - Math.min(..._preAllX);
+  const _preH = Math.max(..._preAllY) - Math.min(..._preAllY);
+
+  // Apply rotation to all node coordinates
+  if (_treeDeg !== 0) {
+    for (const n of nodes) {
+      if (n.x != null) {
+        const ox = n.x, oy = n.y;
+        n.x = ox * _cosR - oy * _sinR;
+        n.y = ox * _sinR + oy * _cosR;
+      }
+    }
+  }
+  const yX = _treeDeg !== 0
+    ? (rawYX * _cosR - rawYY * _sinR)
+    : rawYX;
+  const yY = _treeDeg !== 0
+    ? (rawYX * _sinR + rawYY * _cosR)
+    : rawYY;
+
+  // Store Y position on layout for external use (e.g. equals drag)
+  layout._yX = yX;
+  layout._yY = yY;
+
+  const R = 22;
+  const JR = 18;
+  const PW = 15;       // pipe width
+  const ARROW_W = 2;   // thin arrow line width
+  const PAD = 18;      // reduced padding for compact tree view
+  const CR = PIPE / 2; // ring circle radius — centerlines of neighbors just touch
+  layout._CR = CR;      // expose for attachEqualsDrag
+  const GREY = "#888";
+  const MATH_FONT = "KaTeX_Main, 'Times New Roman', serif";
+
+  // Counter-rotation is NOT needed at render time: coordinate pre-computation
+  // keeps text upright.  But during the CSS-rotate animation step the whole SVG
+  // spins, so we mark every text element with .pipe-upright so the animation
+  // code can apply a matching CSS counter-rotation in real-time.
+  const _counterDeg = 0;
+  function uprightText(textEl, cx, cy) {
+    textEl.classList.add('pipe-upright');
+    if (_counterDeg !== 0) {
+      textEl.setAttribute("transform", `rotate(${_counterDeg} ${cx} ${cy})`);
+    }
+    return textEl;
+  }
+
+  const isDarkMode = !document.body.classList.contains("light");
+  const GLASS_FILL = "var(--bg)";
+
+  function opColor(node) {
+    // For call-type ops, resolve category from stored fn name
+    if (node.opType === "call") {
+      const fn = node.fn || (node.ast && node.ast.fn) || null;
+      if (fn) {
+        if (TRIG_FNS.has(fn)) return userColors.trig || OP_COLORS.trig;
+        if (EXP_FNS.has(fn)) return userColors.exp || OP_COLORS.exp;
+        return userColors.misc || OP_COLORS.misc;
+      }
+    }
+    return userColors[getColorKeyForOp({ type: node.opType })] || OP_COLORS.misc;
+  }
+
+  // ARM_COLORS is now at module scope (near OP_COLORS)
+
+  /** Map opType → default { left, right, output } role labels */
+  function getArmRoles(opType) {
+    switch (opType) {
+      case "add": return { left: "1", right: "2", output: "3" };
+      case "sub": return { left: "3", right: "2", output: "1" };
+      case "mul": return { left: "2", right: "4", output: "8" };
+      case "div": return { left: "8", right: "4", output: "2" };
+      case "power": return { left: "base", right: "exponent", output: "power" };
+      default: return null;
+    }
+  }
+
+  /** Derive opType and symbol from an arm assignment */
+  function deriveOpInfo(cat, assignment) {
+    if (cat === "addSub") {
+      if (assignment.output === "3") return { opType: "add", symbol: "+" };
+      return { opType: "sub", symbol: "\u2212" };
+    }
+    if (cat === "mulDiv") {
+      if (assignment.output === "8") return { opType: "mul", symbol: "\u00d7" };
+      return { opType: "div", symbol: "\u00f7" };
+    }
+    if (cat === "exp") {
+      if (assignment.output === "power") return { opType: "power", symbol: "^" };
+      if (assignment.output === "base") return { opType: "call", symbol: "\u207f\u221a" };
+      return { opType: "call", symbol: "log" };
+    }
+    return null;
+  }
+
+  function categoryForOpType(opType) {
+    if (opType === "add" || opType === "sub") return "addSub";
+    if (opType === "mul" || opType === "div") return "mulDiv";
+    if (opType === "power") return "exp";
+    return null;
+  }
+
+  /** Darken a hex color by mixing toward black */
+  function darkenColor(hex, amount) {
+    let h = hex.replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    const t = 1 - amount; // amount=0.7 means 30% original, 70% black
+    const cr = Math.round(r * t);
+    const cg = Math.round(g * t);
+    const cb = Math.round(b * t);
+    return `#${cr.toString(16).padStart(2, '0')}${cg.toString(16).padStart(2, '0')}${cb.toString(16).padStart(2, '0')}`;
+  }
+
+  /**
+   * Return a "result arm" variant for an operator's output pipe.
+   * Lighter and slightly desaturated, with hue shift to make it clearly distinct.
+   */
+  function outputArmColor(baseHex) {
+    let h = baseHex.replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    const lab = rgbToOklab(r, g, b);
+    const lch = oklabToOklch(lab.L, lab.a, lab.b);
+    // Significantly lighter, more desaturated, slight hue shift
+    const newL = Math.min(1, lch.L + 0.18);
+    const newC = lch.C * 0.5;
+    const newH = (lch.h + 20) % 360;
+    const adj = oklchToOklab(newL, newC, newH);
+    const [nr, ng, nb] = oklabToRgb(adj.L, adj.a, adj.b);
+    const cr = Math.round(Math.max(0, Math.min(255, nr)));
+    const cg = Math.round(Math.max(0, Math.min(255, ng)));
+    const cb = Math.round(Math.max(0, Math.min(255, nb)));
+    return `#${cr.toString(16).padStart(2, '0')}${cg.toString(16).padStart(2, '0')}${cb.toString(16).padStart(2, '0')}`;
+  }
+
+  // Compute viewBox bounds — tight fit to content.
+  // Uses actual bounding rect (not forced-square) so the tree fills the
+  // available width.  A small minimum prevents degenerate zero-size.
+  const allX = [yX], allY = [yY];
+  for (const n of nodes) {
+    if (n.x != null) allX.push(n.x);
+    if (n.y != null) allY.push(n.y);
+  }
+  const bMinX = Math.min(...allX) - R - PAD;
+  const bMaxX = Math.max(...allX) + R + PAD;
+  const bMinY = Math.min(...allY) - R - PAD;
+  const bMaxY = Math.max(...allY) + R + PAD;
+  const vbW = Math.max(bMaxX - bMinX, 80);
+  const vbH = Math.max(bMaxY - bMinY, 80);
+  const cxMid = (bMinX + bMaxX) / 2;
+  const cyMid = (bMinY + bMaxY) / 2;
+
+  const svg = svgEl("svg");
+  svg.setAttribute("viewBox", `${cxMid - vbW / 2} ${cyMid - vbH / 2} ${vbW} ${vbH}`);
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  svg.classList.add("pipe-diagram");
+
+  // Same sizing for both horizontal and vertical modes
+  svg.style.width = "100%";
+  svg.style.maxWidth = "100%";
+  svg.style.height = "100%";
+  svg.style.display = "block";
+  svg.style.margin = "0 auto";
+
+  // Defs: arrow marker — dark, thin chevron
+  const defs = svgEl("defs");
+  const arrow = svgEl("marker");
+  arrow.setAttribute("id", "pipe-arrow-root");
+  arrow.setAttribute("viewBox", "0 0 10 6");
+  arrow.setAttribute("markerUnits", "userSpaceOnUse");
+  arrow.setAttribute("markerWidth", 14);
+  arrow.setAttribute("markerHeight", 8);
+  arrow.setAttribute("refX", 9);
+  arrow.setAttribute("refY", 3);
+  arrow.setAttribute("orient", "auto");
+  arrow.setAttribute("overflow", "visible");
+  // We'll create per-color markers dynamically
+  const defaultArrowPath = svgEl("path");
+  defaultArrowPath.setAttribute("d", "M0,0.5 L9,3 L0,5.5 Z");
+  defaultArrowPath.setAttribute("fill", "#000");
+  arrow.appendChild(defaultArrowPath);
+  defs.appendChild(arrow);
+  svg.appendChild(defs);
+
+  // Create a marker per color for matching arrow+line coloring
+  const markerCache = {};
+  function getArrowMarkerId(pipeColor) {
+    const key = pipeColor || '#000';
+    if (markerCache[key]) return markerCache[key];
+    const safeId = 'pipe-arrow-' + key.replace(/[^a-zA-Z0-9]/g, '_');
+    const m = svgEl("marker");
+    m.setAttribute("id", safeId);
+    m.setAttribute("viewBox", "0 0 10 6");
+    m.setAttribute("markerUnits", "userSpaceOnUse");
+    m.setAttribute("markerWidth", 14);
+    m.setAttribute("markerHeight", 8);
+    m.setAttribute("refX", 9);
+    m.setAttribute("refY", 3);
+    m.setAttribute("orient", "auto");
+    m.setAttribute("overflow", "visible");
+    const p = svgEl("path");
+    p.setAttribute("d", "M0,0.5 L9,3 L0,5.5 Z");
+    // Arrow fill = very dark version of the pipe color
+    p.setAttribute("fill", darkenColor(key, 0.7));
+    m.appendChild(p);
+    defs.appendChild(m);
+    markerCache[key] = safeId;
+    return safeId;
+  }
+
+  // ---------- Layer groups (back → front) ----------
+  const gPipes = svgEl("g");  // thick connector pipes (lowest)
+  const gRings = svgEl("g");  // decorative ring circles around nodes
+  const gArrows = svgEl("g");  // thin arrow flow lines
+  const gNodes = svgEl("g");  // circles / node fills
+  const gText = svgEl("g");  // symbol text on nodes
+  const gDebug = svgEl("g");  // debug labels (can be toggled)
+  const gPipeDebug = svgEl("g");  // pipe arm role labels
+  const gInteract = svgEl("g"); // interaction layer (swap buttons, hover zones) — topmost
+  if (!showDebug) gDebug.setAttribute("display", "none");
+  if (!showPipeDebug) gPipeDebug.setAttribute("display", "none");
+  svg.appendChild(gPipes);
+  svg.appendChild(gRings);
+  svg.appendChild(gArrows);
+  svg.appendChild(gNodes);
+  svg.appendChild(gText);
+  svg.appendChild(gDebug);
+  svg.appendChild(gPipeDebug);
+  svg.appendChild(gInteract);
+
+  // ---- Radial menu layer — now rendered into HTML portal ----
+  // Keep a dummy gRadialMenu in SVG for backwards compat (unused)
+  const gRadialMenu = svgEl("g");
+  gRadialMenu.setAttribute("display", "none");
+  svg.appendChild(gRadialMenu);
+  let _radialDismiss = null;
+
+  /**
+   * Convert SVG coordinate to screen coordinate using the SVG's CTM.
+   */
+  function svgToScreen(svgX, svgY) {
+    const pt = svg.createSVGPoint();
+    pt.x = svgX; pt.y = svgY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    const sp = pt.matrixTransform(ctm);
+    return { x: sp.x, y: sp.y };
+  }
+
+  /**
+   * Show a radial operator menu centred at SVG coords (mx, my).
+   * Renders into the HTML portal layer for z-priority.
+   */
+  function showRadialMenu(targetNodeId, mx, my, nodeType) {
+    const backdrop = document.getElementById('radial-menu-backdrop');
+    const portal = document.getElementById('radial-menu-portal');
+    if (!portal || !backdrop) return;
+
+    // Clear previous
+    while (portal.firstChild) portal.removeChild(portal.firstChild);
+    backdrop.style.display = '';
+    portal.style.display = '';
+
+    // Get screen position of the SVG coord
+    const center = svgToScreen(mx, my);
+
+    // Compute a scale factor from SVG units → screen px
+    const origin = svgToScreen(0, 0);
+    const oneUnit = svgToScreen(1, 0);
+    const scale = Math.abs(oneUnit.x - origin.x) || 1;
+
+    // Set portal position and size to cover the menu area
+    portal.style.left = '0px';
+    portal.style.top = '0px';
+    portal.style.width = '100vw';
+    portal.style.height = '100vh';
+    portal.setAttribute('viewBox', `0 0 ${window.innerWidth} ${window.innerHeight}`);
+
+    const isDark = isDarkMode;
+    const BTN_R = R * scale; // full badge radius
+    const gap = 4 * scale;
+    const step = BTN_R * 2 + gap; // centre-to-centre distance
+
+    function catColor(cat, item) {
+      if (cat === "delete") return isDark ? "#ffffff" : "#222222";
+      // Per-operator output color for binary ops (uses same ARM_COLORS as badges)
+      if (item && item.op && item.op !== "call") {
+        const roles = getArmRoles(item.op);
+        if (roles) {
+          const ac = ARM_COLORS[cat];
+          if (ac && ac[roles.output]) return ac[roles.output];
+        }
+      }
+      // Exp call-types: log and nthrt have specific output roles
+      if (item && cat === "exp" && item.fn) {
+        if (item.fn === "log") return ARM_COLORS.exp?.exponent || OP_COLORS.exp;
+        if (item.fn === "nthrt") return ARM_COLORS.exp?.base || OP_COLORS.exp;
+      }
+      return OP_COLORS[cat] || OP_COLORS.misc;
+    }
+
+    // ---- Determine which menu item matches the target node's current op ----
+    const targetNd = nodes[targetNodeId];
+    function itemMatchesNode(item) {
+      if (!targetNd || item.action === "delete") return false;
+      if (targetNd.type !== "op") return false;
+      // Exp family
+      if (item.fn === "nthrt") return targetNd.armAssignment && targetNd.armAssignment.output === "base";
+      if (item.fn === "log") return targetNd.armAssignment && targetNd.armAssignment.output === "exponent";
+      if (item.op === "power") return targetNd.opType === "power" && targetNd.armAssignment && targetNd.armAssignment.output === "power";
+      // Binary ops
+      if (item.op && item.op !== "call") return targetNd.opType === item.op;
+      // Single-arg calls
+      if (item.fn) return targetNd.symbol === item.symbol;
+      return false;
+    }
+
+    // ---- Styled symbol helper: renders n^m, log(m), ⁿ√ with tspans ----
+    // (uses setStyledLabel defined at renderPipeDiagramDag scope)
+
+    function makeBtn(item, bx, by, isCurrent) {
+      const g = svgEl("g");
+      g.style.cursor = "pointer";
+      const col = catColor(item.cat, item);
+      // When filled (hover or active), symbol colour becomes bg-contrast
+      const filledTextCol = isDark ? "#000" : "#fff";
+
+      // Button circle — glass fill matching pipe diagram badges
+      const bg = svgEl("circle");
+      bg.setAttribute("cx", bx); bg.setAttribute("cy", by);
+      bg.setAttribute("r", BTN_R);
+      bg.setAttribute("stroke", col);
+      bg.setAttribute("stroke-width", 2.5 * scale);
+
+      // If this is the currently-active operator, pre-fill the button
+      if (isCurrent) {
+        bg.setAttribute("fill", col);
+      } else {
+        bg.style.fill = GLASS_FILL;
+      }
+      g.appendChild(bg);
+
+      // Highlight ring for currently-selected operator
+      if (isCurrent) {
+        const ring = svgEl("circle");
+        ring.setAttribute("cx", bx); ring.setAttribute("cy", by);
+        ring.setAttribute("r", BTN_R + 3 * scale);
+        ring.setAttribute("fill", "none");
+        ring.setAttribute("stroke", col);
+        ring.setAttribute("stroke-width", 2 * scale);
+        ring.setAttribute("opacity", "0.6");
+        g.insertBefore(ring, bg);
+      }
+
+      // Track initial text color — filled buttons use contrast, normal use category color
+      const initialTextCol = isCurrent ? filledTextCol : col;
+
+      if (item.action === "delete") {
+        // Draw trash can icon
+        const s = BTN_R * 0.055;
+        const icon = svgEl("g");
+        // Body (tapered bin)
+        const body = svgEl("path");
+        body.setAttribute("d",
+          `M${bx - 4 * s},${by - 1 * s} L${bx - 3 * s},${by + 6 * s} L${bx + 3 * s},${by + 6 * s} L${bx + 4 * s},${by - 1 * s} Z`);
+        body.setAttribute("fill", "none");
+        body.setAttribute("stroke", col);
+        body.setAttribute("stroke-width", 1.8 * s);
+        body.setAttribute("stroke-linejoin", "round");
+        icon.appendChild(body);
+        // Lid
+        const lid = svgEl("line");
+        lid.setAttribute("x1", bx - 5.5 * s); lid.setAttribute("y1", by - 2 * s);
+        lid.setAttribute("x2", bx + 5.5 * s); lid.setAttribute("y2", by - 2 * s);
+        lid.setAttribute("stroke", col);
+        lid.setAttribute("stroke-width", 2 * s);
+        lid.setAttribute("stroke-linecap", "round");
+        icon.appendChild(lid);
+        // Handle
+        const handle = svgEl("path");
+        handle.setAttribute("d",
+          `M${bx - 1.8 * s},${by - 2 * s} L${bx - 1.8 * s},${by - 4.5 * s} L${bx + 1.8 * s},${by - 4.5 * s} L${bx + 1.8 * s},${by - 2 * s}`);
+        handle.setAttribute("fill", "none");
+        handle.setAttribute("stroke", col);
+        handle.setAttribute("stroke-width", 1.5 * s);
+        handle.setAttribute("stroke-linejoin", "round");
+        icon.appendChild(handle);
+        // Vertical lines inside
+        for (const dx of [-1.5, 0, 1.5]) {
+          const l = svgEl("line");
+          l.setAttribute("x1", bx + dx * s); l.setAttribute("y1", by + 0.5 * s);
+          l.setAttribute("x2", bx + dx * 0.85 * s); l.setAttribute("y2", by + 5 * s);
+          l.setAttribute("stroke", col);
+          l.setAttribute("stroke-width", 1 * s);
+          l.setAttribute("stroke-linecap", "round");
+          icon.appendChild(l);
+        }
+        g.appendChild(icon);
+      } else {
+        // Text label — styled to match badge rendering with same font & sizing
+        const t = svgEl("text");
+        t.setAttribute("x", bx); t.setAttribute("y", by);
+        t.setAttribute("text-anchor", "middle");
+        t.setAttribute("dominant-baseline", "central");
+        t.setAttribute("font-family", MATH_FONT);
+        t.setAttribute("font-style", "normal");
+        t.setAttribute("fill", initialTextCol);
+        // Consistent font-size scaling based on label length
+        const len = item.label.length;
+        const fontSize = len <= 1 ? BTN_R * 1.2
+          : len <= 2 ? BTN_R * 0.82
+            : len === 3 ? BTN_R * 0.7
+              : len === 4 ? BTN_R * 0.58
+                : BTN_R * 0.48;
+        setStyledLabel(t, item.label, fontSize, initialTextCol);
+        g.appendChild(t);
+      }
+
+      // ---- Hover: preview change on the actual diagram badge ----
+      g.addEventListener("mouseenter", () => {
+        // Button hover fill — fill circle, text becomes contrast color
+        bg.style.fill = col;
+        bg.setAttribute("fill", col);
+        g.querySelectorAll("text").forEach(el => el.setAttribute("fill", filledTextCol));
+        g.querySelectorAll("tspan").forEach(el => el.setAttribute("fill", filledTextCol));
+        g.querySelectorAll("path, line").forEach(el => {
+          if (el.getAttribute("stroke") && el.getAttribute("stroke") !== "none")
+            el.setAttribute("stroke", filledTextCol);
+        });
+        // Preview on pipe diagram: update target node's badge
+        if (targetNd && targetNd._junctionEl && targetNd._symbolTextEl) {
+          const previewCol = catColor(item.cat, item);
+          targetNd._junctionEl.setAttribute("stroke", previewCol);
+          if (item.action === "delete") {
+            targetNd._symbolTextEl.textContent = "\u2715"; // ✕ cross
+            targetNd._symbolTextEl.setAttribute("fill", previewCol);
+            targetNd._junctionEl.setAttribute("stroke-dasharray", "3 2");
+          } else {
+            const previewFontSize = badgeFontSizeForLabel(item.label, JR);
+            setStyledLabel(targetNd._symbolTextEl, item.label, previewFontSize, previewCol);
+            targetNd._symbolTextEl.setAttribute("fill", previewCol);
+          }
+        }
+      });
+      g.addEventListener("mouseleave", () => {
+        // Button hover restore — isCurrent keeps filled, others revert to glass
+        if (isCurrent) {
+          bg.style.fill = col;
+          bg.setAttribute("fill", col);
+        } else {
+          bg.style.fill = GLASS_FILL;
+          bg.removeAttribute("fill");
+        }
+        g.querySelectorAll("text").forEach(el => el.setAttribute("fill", initialTextCol));
+        g.querySelectorAll("tspan").forEach(el => el.setAttribute("fill", initialTextCol));
+        g.querySelectorAll("path, line").forEach(el => {
+          if (el.getAttribute("stroke") && el.getAttribute("stroke") !== "none")
+            el.setAttribute("stroke", initialTextCol);
+        });
+        // Restore pipe diagram badge
+        if (targetNd && targetNd._junctionEl && targetNd._symbolTextEl) {
+          const origCol = targetNd._origBadgeCol || "#888";
+          targetNd._junctionEl.setAttribute("stroke", origCol);
+          targetNd._junctionEl.removeAttribute("stroke-dasharray");
+          const origFontSize = badgeFontSizeForLabel(targetNd._origDisplaySymbol || "", JR);
+          setStyledLabel(targetNd._symbolTextEl, targetNd._origDisplaySymbol || "", origFontSize, origCol);
+          targetNd._symbolTextEl.setAttribute("fill", origCol);
+        }
+      });
+      g.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dismissRadialMenu();
+        if (item.action === "delete") {
+          if (nodeType === "op") deleteOperatorNode(targetNodeId, layout);
+        } else {
+          applyRadialMenuChoice(targetNodeId, nodeType, item, layout);
+        }
+      });
+      return g;
+    }
+
+    // Hex-grid layout — positions in step units from centre
+    //
+    //  Hex neighbours use offsets: N(0,-1) NE(0.866,-0.5) SE(0.866,0.5)
+    //                               S(0,1)  SW(-0.866,0.5) NW(-0.866,-0.5)
+    //
+    //                abs
+    //     floor  tan      +         −
+    //       round    🗑      ×    ÷
+    //     atan  ceil   cos   ^    mod
+    //             sin        ⁿ√  log
+    //                asin
+    //                 acos
+
+    const items = [
+      // trash — centre
+      { x: 0, y: 0, cat: "delete", action: "delete" },
+      // addSub
+      { x: 0, y: -1, label: "+", op: "add", symbol: "+", cat: "addSub" },
+      { x: 0.866, y: -1.5, label: "\u2212", op: "sub", symbol: "\u2212", cat: "addSub" },
+      // mulDiv
+      { x: 0.866, y: -0.5, label: "\u00d7", op: "mul", symbol: "\u00d7", cat: "mulDiv" },
+      { x: 1.732, y: -1, label: "\u00f7", op: "div", symbol: "\u00f7", cat: "mulDiv" },
+      { x: 1.732, y: 0, label: "mod", op: "mod", symbol: "%", cat: "mulDiv" },
+      // exp
+      { x: 0.866, y: 0.5, label: "^", op: "power", symbol: "^", cat: "exp" },
+      { x: 0.866, y: 1.5, label: "log", op: "call", symbol: "log", fn: "log", cat: "exp" },
+      { x: 1.732, y: 1, label: "\u207f\u221a", op: "call", symbol: "\u207f\u221a", fn: "nthrt", cat: "exp" },
+      // trig
+      { x: -0.866, y: 0.5, label: "sin", op: "call", symbol: "sin", fn: "sin", cat: "trig" },
+      { x: 0, y: 1, label: "cos", op: "call", symbol: "cos", fn: "cos", cat: "trig" },
+      { x: -0.866, y: 1.5, label: "asin", op: "call", symbol: "asin", fn: "asin", cat: "trig" },
+      { x: 0, y: 2, label: "acos", op: "call", symbol: "acos", fn: "acos", cat: "trig" },
+      { x: -1.732, y: 0, label: "tan", op: "call", symbol: "tan", fn: "tan", cat: "trig" },
+      { x: -1.732, y: 1, label: "atan", op: "call", symbol: "atan", fn: "atan", cat: "trig" },
+
+      // x: -0.866, y: -0.5
+      //
+      // misc
+      { x: 0, y: -2, label: "|·|", op: "call", symbol: "|·|", fn: "abs", cat: "misc" },
+      { x: -0.866, y: -1.5, label: "⌈⌉", op: "call", symbol: "⌈⌉", fn: "ceil", cat: "misc" },
+      { x: -1.732, y: -1, label: "round", op: "call", symbol: "round", fn: "round", cat: "misc" },
+      { x: -0.866, y: -0.5, label: "⌊⌋", op: "call", symbol: "⌊⌋", fn: "floor", cat: "misc" },
+    ];
+
+    const cx = center.x, cy = center.y;
+
+    // Save original badge appearance for preview restore
+    if (targetNd && targetNd._junctionEl) {
+      targetNd._origBadgeCol = targetNd._junctionEl.getAttribute("stroke") || "#888";
+    }
+    if (targetNd && targetNd._symbolTextEl) {
+      // Determine current display symbol from the element
+      const symEl = targetNd._symbolTextEl;
+      // Check for styled tspan content
+      const tspans = symEl.querySelectorAll("tspan");
+      if (tspans.length > 0) {
+        // Reconstruct symbol from tspan pattern
+        const firstText = tspans[0].textContent || "";
+        if (firstText === "n" && tspans.length >= 2 && tspans[1].textContent === "m") {
+          targetNd._origDisplaySymbol = "^";
+        } else if (firstText.startsWith("log")) {
+          targetNd._origDisplaySymbol = "log";
+        } else {
+          targetNd._origDisplaySymbol = symEl.textContent;
+        }
+      } else {
+        targetNd._origDisplaySymbol = symEl.textContent;
+      }
+    }
+
+    for (const item of items) {
+      const isCurrent = nodeType === "op" && itemMatchesNode(item);
+      portal.appendChild(makeBtn(item, cx + item.x * step, cy + item.y * step, isCurrent));
+    }
+
+    setTimeout(() => {
+      _radialDismiss = (e) => {
+        if (portal.contains(e.target)) return;
+        dismissRadialMenu();
+      };
+      backdrop.addEventListener("click", _radialDismiss);
+      document.addEventListener("click", _radialDismiss, true);
+    }, 10);
+  }
+
+  function dismissRadialMenu() {
+    const backdrop = document.getElementById('radial-menu-backdrop');
+    const portal = document.getElementById('radial-menu-portal');
+    if (backdrop) backdrop.style.display = 'none';
+    if (portal) {
+      portal.style.display = 'none';
+      while (portal.firstChild) portal.removeChild(portal.firstChild);
+    }
+    // Also clear the old SVG layer in case
+    gRadialMenu.setAttribute("display", "none");
+    while (gRadialMenu.firstChild) gRadialMenu.removeChild(gRadialMenu.firstChild);
+    if (_radialDismiss) {
+      if (backdrop) backdrop.removeEventListener("click", _radialDismiss);
+      document.removeEventListener("click", _radialDismiss, true);
+      _radialDismiss = null;
+    }
+  }
+
+  function applyRadialMenuChoice(targetNodeId, nodeType, item, layout) {
+    const nodes = layout.nodes;
+    const nd = nodes[targetNodeId];
+    if (!nd) return;
+
+    // Helper: badge symbol for a call-type fn (matches symbolFromOp output)
+    function callSymbolForFn(fn) {
+      if (fn === "ceil") return "\u2308\u2309";
+      if (fn === "floor") return "\u230a\u230b";
+      if (fn === "abs") return "|\u00b7|";
+      return fn;
+    }
+
+    const SINGLE_ARG_FNS = ["sin", "cos", "tan", "asin", "acos", "atan", "abs", "round", "ceil", "floor"];
+    const isSingleArg = SINGLE_ARG_FNS.includes(item.fn || "");
+    const isExpFamily = (item.fn === "nthrt" || item.fn === "log");
+
+    if (nodeType === "op") {
+      const wasSingleArg = nd.rightId == null || nd.rightId === nd.leftId;
+      if (isExpFamily) {
+        if (wasSingleArg) {
+          const newValId = nodes.length;
+          nodes.push({ id: newValId, type: "value", value: item.fn === "nthrt" ? "2" : "e" });
+          nd.rightId = newValId;
+        }
+        nd.opType = "power";
+        nd.symbol = item.symbol;
+        nd.armCategory = "exp";
+        nd.armAssignment = item.fn === "nthrt"
+          ? { left: "power", right: "exponent", output: "base" }
+          : { left: "power", right: "base", output: "exponent" };
+      } else if (isSingleArg && !wasSingleArg) {
+        nd.rightId = null;
+        nd.opType = "call";
+        nd.symbol = callSymbolForFn(item.fn);
+        nd.fn = item.fn;
+      } else if (!isSingleArg && wasSingleArg) {
+        const newValId = nodes.length;
+        nodes.push({ id: newValId, type: "value", value: "1" });
+        nd.rightId = newValId;
+        nd.opType = item.op;
+        nd.symbol = item.symbol;
+      } else {
+        nd.opType = item.op || "call";
+        nd.symbol = item.symbol || callSymbolForFn(item.fn);
+        if (item.fn) nd.fn = item.fn;
+      }
+      if (!isExpFamily) {
+        nd.armAssignment = null;
+        nd.armCategory = null;
+        const defRoles = getArmRoles(nd.opType);
+        if (defRoles) {
+          nd.armAssignment = { ...defRoles };
+          nd.armCategory = _categoryForOpType(nd.opType);
+        }
+      }
+    } else if (nodeType === "value") {
+      const newValId = nodes.length;
+      nodes.push({ id: newValId, type: "value", value: isExpFamily ? (item.fn === "nthrt" ? "2" : "e") : "1" });
+      const newOpId = nodes.length;
+      if (isExpFamily) {
+        nodes.push({
+          id: newOpId, type: "op", opType: "power",
+          leftId: targetNodeId, rightId: newValId,
+          symbol: item.symbol, ast: null,
+          armCategory: "exp",
+          armAssignment: item.fn === "nthrt"
+            ? { left: "power", right: "exponent", output: "base" }
+            : { left: "power", right: "base", output: "exponent" },
+        });
+      } else if (isSingleArg) {
+        nodes.push({
+          id: newOpId, type: "op", opType: "call",
+          leftId: targetNodeId, rightId: null,
+          symbol: callSymbolForFn(item.fn), fn: item.fn, ast: null,
+        });
+      } else {
+        nodes.push({
+          id: newOpId, type: "op", opType: item.op,
+          leftId: targetNodeId, rightId: newValId,
+          symbol: item.symbol, ast: null,
+        });
+      }
+      if (!isExpFamily) {
+        const defRoles = getArmRoles(nodes[newOpId].opType);
+        if (defRoles) {
+          nodes[newOpId].armAssignment = { ...defRoles };
+          nodes[newOpId].armCategory = _categoryForOpType(nodes[newOpId].opType);
+        }
+      }
+      // Create intermediate node so the parent op connects through it (not directly to the new op)
+      const newIntId = nodes.length;
+      nodes.push({
+        id: newIntId, type: "intermediate",
+        sourceOpId: newOpId, connectsToOpId: newOpId, value: null,
+      });
+      if (layout.opToIntermediateId) {
+        layout.opToIntermediateId.set(newOpId, newIntId);
+      }
+      // Redirect parent to the intermediate
+      for (const n of nodes) {
+        if (!n || n.type !== "op" || n.id === newOpId) continue;
+        if (n.leftId === targetNodeId) { n.leftId = newIntId; break; }
+        if (n.rightId === targetNodeId) { n.rightId = newIntId; break; }
+      }
+    } else if (nodeType === "intermediate") {
+      const intNode = nd;
+      const newValId = nodes.length;
+      nodes.push({ id: newValId, type: "value", value: isExpFamily ? (item.fn === "nthrt" ? "2" : "e") : "1" });
+      const newOpId = nodes.length;
+      if (isExpFamily) {
+        nodes.push({
+          id: newOpId, type: "op", opType: "power",
+          leftId: targetNodeId, rightId: newValId,
+          symbol: item.symbol, ast: null,
+          armCategory: "exp",
+          armAssignment: item.fn === "nthrt"
+            ? { left: "power", right: "exponent", output: "base" }
+            : { left: "power", right: "base", output: "exponent" },
+        });
+      } else if (isSingleArg) {
+        nodes.push({
+          id: newOpId, type: "op", opType: "call",
+          leftId: targetNodeId, rightId: null,
+          symbol: callSymbolForFn(item.fn), fn: item.fn, ast: null,
+        });
+      } else {
+        nodes.push({
+          id: newOpId, type: "op", opType: item.op,
+          leftId: targetNodeId, rightId: newValId,
+          symbol: item.symbol, ast: null,
+        });
+      }
+      if (!isExpFamily) {
+        const defRoles = getArmRoles(nodes[newOpId].opType);
+        if (defRoles) {
+          nodes[newOpId].armAssignment = { ...defRoles };
+          nodes[newOpId].armCategory = _categoryForOpType(nodes[newOpId].opType);
+        }
+      }
+      const newIntId = nodes.length;
+      nodes.push({
+        id: newIntId, type: "intermediate",
+        sourceOpId: newOpId, connectsToOpId: newOpId, value: null,
+      });
+      for (const n of nodes) {
+        if (!n || n.type !== "op" || n.id === newOpId) continue;
+        if (n.leftId === targetNodeId) { n.leftId = newIntId; break; }
+        if (n.rightId === targetNodeId) { n.rightId = newIntId; break; }
+      }
+    }
+
+    rebuildAfterDelete(layout, true);
+  }
+
+  // ---- Shared tooltip element ----
+  let _tooltipEl = document.querySelector('.node-tooltip');
+  if (!_tooltipEl) {
+    _tooltipEl = document.createElement('div');
+    _tooltipEl.className = 'node-tooltip';
+    document.body.appendChild(_tooltipEl);
+  }
+
+  function showNodeTooltip(svgCx, svgCy, text) {
+    // Position above the outer ring edge (R + RING_THICK + margin)
+    const sp = svgToScreen(svgCx, svgCy);
+    // Compute SVG-to-screen scale to translate the badge radius correctly
+    const origin = svgToScreen(0, 0);
+    const unit = svgToScreen(0, -1);
+    const svgScale = Math.abs(unit.y - origin.y) || 1;
+    const offset = (22 + 11 + 6) * svgScale; // R + RING_THICK + gap, in screen px
+    _tooltipEl.textContent = text;
+    _tooltipEl.style.left = sp.x + 'px';
+    _tooltipEl.style.top = (sp.y - offset) + 'px';
+    _tooltipEl.classList.add('visible');
+  }
+  function hideNodeTooltip() {
+    _tooltipEl.classList.remove('visible');
+  }
+
+  function attachRadialClick(nodeId, cx, cy, nodeType, radius) {
+    const hitCircle = svgEl("circle");
+    hitCircle.setAttribute("cx", cx);
+    hitCircle.setAttribute("cy", cy);
+    hitCircle.setAttribute("r", radius);
+    hitCircle.setAttribute("fill", "transparent");
+    hitCircle.setAttribute("stroke", "none");
+    hitCircle.dataset.badgeHit = "1";
+    hitCircle.style.cursor = "pointer";
+    hitCircle.setAttribute("pointer-events", "all");
+    hitCircle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hideNodeTooltip();
+      showRadialMenu(nodeId, cx, cy, nodeType);
+    });
+
+    // Tooltip on hover
+    const tipText = nodeType === "op" ? "Click to change operator"
+      : nodeType === "value" ? "Click to wrap in operator"
+        : "Click to insert operator";
+    hitCircle.addEventListener("mouseenter", () => showNodeTooltip(cx, cy, tipText));
+    hitCircle.addEventListener("mouseleave", () => hideNodeTooltip());
+
+    gInteract.appendChild(hitCircle);
+  }
+
+  // ---- Drawing helpers ----
+
+  // Gradient cache for pipe gradients
+  let gradId = 0;
+
+  /** Draw a thick pipe segment with two-color gradient.
+   *  Gradient runs colorStart at (x1,y1) → colorEnd at (x2,y2).
+   *  Arrows point in the (x1,y1)→(x2,y2) direction.
+   *  Non-stretched pipes get one arrowhead at the midpoint.
+   *  Stretched pipes get two arrowheads, one entering each node's ring circle. */
+  function drawPipe(x1, y1, x2, y2, colorStart, colorEnd) {
+    const cS = colorStart || GREY;
+    const cE = colorEnd || cS;
+
+    // Create a linearGradient along the pipe
+    const gid = 'pipe-grad-' + (gradId++);
+    const grad = svgEl("linearGradient");
+    grad.setAttribute("id", gid);
+    grad.setAttribute("gradientUnits", "userSpaceOnUse");
+    grad.setAttribute("x1", x1);
+    grad.setAttribute("y1", y1);
+    grad.setAttribute("x2", x2);
+    grad.setAttribute("y2", y2);
+    const stop1 = svgEl("stop");
+    stop1.setAttribute("offset", "0%");
+    stop1.setAttribute("stop-color", cS);
+    const stop2 = svgEl("stop");
+    stop2.setAttribute("offset", "100%");
+    stop2.setAttribute("stop-color", cE);
+    grad.appendChild(stop1);
+    grad.appendChild(stop2);
+    defs.appendChild(grad);
+
+    // Thick pipe body — drawn center-to-center (behind badges)
+    const pipe = svgEl("line");
+    pipe.setAttribute("x1", x1);
+    pipe.setAttribute("y1", y1);
+    pipe.setAttribute("x2", x2);
+    pipe.setAttribute("y2", y2);
+    pipe.setAttribute("stroke", `url(#${gid})`);
+    pipe.setAttribute("stroke-width", PW);
+    pipe.setAttribute("stroke-linecap", "round");
+    gPipes.appendChild(pipe);
+
+    // ---- Arrow line (full length) + arrowhead triangle(s) ----
+    const dx = x2 - x1, dy = y2 - y1;
+    const dist = Math.hypot(dx, dy) || 1;
+    if (dist <= 1) return;
+    const ux = dx / dist, uy = dy / dist;
+
+
+
+    // Arrowhead triangles — white in dark mode, black in light mode
+    const ALEN = 12;  // triangle length
+    const AHW = 4;   // triangle half-width at base
+    const nx = -uy, ny = ux; // perpendicular unit vector
+    const arrowFill = isDarkMode ? "white" : "black";
+
+    function arrowTriangle(tipX, tipY) {
+      const bx = tipX - ALEN * ux, by = tipY - ALEN * uy;
+      const pts = [
+        `${tipX},${tipY}`,
+        `${bx + AHW * nx},${by + AHW * ny}`,
+        `${bx - AHW * nx},${by - AHW * ny}`
+      ].join(" ");
+      const tri = svgEl("polygon");
+      tri.setAttribute("points", pts);
+      tri.setAttribute("fill", arrowFill);
+      gArrows.appendChild(tri);
+    }
+
+    if (dist <= 2 * CR + 1) {
+      // Non-stretched: single arrowhead centred in the overlap region
+      const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+      arrowTriangle(mx + (ALEN / 2) * ux, my + (ALEN / 2) * uy);
+    } else {
+      // Stretched: two arrowheads, one centred inside each ring's stroke band
+      arrowTriangle(x1 + (CR + ALEN / 2) * ux, y1 + (CR + ALEN / 2) * uy);
+      arrowTriangle(x2 - (CR - ALEN / 2) * ux, y2 - (CR - ALEN / 2) * uy);
+    }
+  }
+
+  /** Draw a small role label at the midpoint of a pipe, into the gPipeDebug layer */
+  function drawPipeLabel(x, y, label, color) {
+    const tw = Math.max(18, label.length * 7.5);
+    const th = 15;
+    const bgRect = svgEl("rect");
+    bgRect.setAttribute("x", x - tw / 2);
+    bgRect.setAttribute("y", y - th / 2);
+    bgRect.setAttribute("width", tw);
+    bgRect.setAttribute("height", th);
+    bgRect.setAttribute("fill", "#1a1a1a");
+    bgRect.setAttribute("stroke", color || "#fff");
+    bgRect.setAttribute("stroke-width", 0.7);
+    bgRect.setAttribute("rx", 3);
+    bgRect.setAttribute("opacity", 0.92);
+    gPipeDebug.appendChild(bgRect);
+    const t = svgEl("text");
+    t.setAttribute("x", x);
+    t.setAttribute("y", y);
+    t.setAttribute("text-anchor", "middle");
+    t.setAttribute("dominant-baseline", "central");
+    t.setAttribute("fill", color || "#fff");
+    t.setAttribute("font-size", 9);
+    t.setAttribute("font-family", MATH_FONT);
+    t.textContent = label;
+    uprightText(t, x, y);
+    gPipeDebug.appendChild(t);
+  }
+
+  /** Draw pipe between two nodes. Arrow always points TOWARD ROOT (y).
+   *  Pipe body drawn center-to-center (behind badges). Arrow line clipped to edges.
+   *  colorStart/colorEnd: gradient colors from origin(start) → child(end).
+   *  armLabel: optional role label at midpoint. */
+  function pipeToChild(ox, oy, childX, childY, colorStart, colorEnd, childRadius, startRadius, arrowToward, armLabel) {
+    const dx = childX - ox, dy = childY - oy;
+    const len = Math.hypot(dx, dy) || 1;
+    if (len <= 1) return;
+    if (arrowToward === 'child') {
+      // Arrows point origin→child; gradient colorStart at origin → colorEnd at child
+      drawPipe(ox, oy, childX, childY, colorStart, colorEnd);
+    } else {
+      // Arrows point child→origin; gradient colorEnd at child → colorStart at origin
+      drawPipe(childX, childY, ox, oy, colorEnd, colorStart);
+    }
+    if (armLabel) {
+      drawPipeLabel((ox + childX) / 2, (oy + childY) / 2, armLabel, colorStart);
+    }
+  }
+
+  function drawDebugLabel(x, y, label) {
+    const w = Math.max(20, label.length * 6.5);
+    const h = 14;
+    const bgRect = svgEl("rect");
+    bgRect.setAttribute("x", x - w / 2);
+    bgRect.setAttribute("y", y - h / 2);
+    bgRect.setAttribute("width", w);
+    bgRect.setAttribute("height", h);
+    bgRect.setAttribute("fill", "#1a1a1a");
+    bgRect.setAttribute("stroke", "#f90");
+    bgRect.setAttribute("stroke-width", 0.5);
+    bgRect.setAttribute("rx", 2);
+    gDebug.appendChild(bgRect);
+    const t = svgEl("text");
+    t.setAttribute("x", x);
+    t.setAttribute("y", y);
+    t.setAttribute("text-anchor", "middle");
+    t.setAttribute("dominant-baseline", "middle");
+    t.setAttribute("fill", "#f90");
+    t.setAttribute("font-size", 10);
+    t.setAttribute("font-family", "monospace");
+    t.textContent = label;
+    uprightText(t, x, y);
+    gDebug.appendChild(t);
+  }
+
+  // Only show ring circles for nodes adjacent to the equals marker
+  const _eqActiveRingIds = new Set();
+  {
+    const eq = state.equalsEdge;
+    if (eq) {
+      if (typeof eq.fromId === 'number') _eqActiveRingIds.add(eq.fromId);
+      if (typeof eq.toId === 'number') _eqActiveRingIds.add(eq.toId);
+    } else {
+      _eqActiveRingIds.add(rootOpId);
+    }
+  }
+
+  /** Draw a low-opacity ring circle — DISABLED (rings removed) */
+  function drawRing(cx, cy, color, nodeId) {
+    return; // rings removed; grab handle is separate
+  }
+
+  /** Draw a circle onto the gNodes layer */
+  function drawCircle(cx, cy, r, fill, stroke, strokeWidth) {
+    const circle = svgEl("circle");
+    circle.setAttribute("cx", cx);
+    circle.setAttribute("cy", cy);
+    circle.setAttribute("r", r);
+    if (fill && fill.startsWith('var(')) {
+      circle.style.fill = fill;
+    } else {
+      circle.setAttribute("fill", fill);
+    }
+    if (stroke) circle.setAttribute("stroke", stroke);
+    if (strokeWidth) circle.setAttribute("stroke-width", strokeWidth);
+    gNodes.appendChild(circle);
+    return circle;
+  }
+
+  /** Draw text onto the gText layer with KaTeX font */
+  function drawText(x, y, text, fontSize, fill, isItalic) {
+    const t = svgEl("text");
+    t.setAttribute("x", x);
+    t.setAttribute("y", y);
+    t.setAttribute("text-anchor", "middle");
+    t.setAttribute("dominant-baseline", "central");
+    t.setAttribute("font-size", fontSize || 14);
+    t.setAttribute("font-family", MATH_FONT);
+    if (isItalic !== false) t.setAttribute("font-style", "italic");
+    t.setAttribute("fill", fill || "#fff");
+    t.textContent = text;
+    uprightText(t, x, y);
+    gText.appendChild(t);
+    return t;
+  }
+
+  /**
+   * Compute font size for a badge label that fits within a junction circle.
+   * Single symbols get size 15; longer labels shrink progressively.
+   */
+  function badgeFontSizeForLabel(label, radius) {
+    const len = label.length;
+    if (len <= 1) return radius * 0.83;       // ~15 for JR=18
+    if (len <= 2) return radius * 0.72;
+    if (len === 3) return radius * 0.61;
+    if (len === 4) return radius * 0.5;
+    return radius * 0.42;
+  }
+
+  /**
+   * Set styled symbol content on an SVG text element.
+   * Renders n^m with superscript, log(m) with italic m, etc.
+   * Used by both pipe-diagram badges and radial-menu buttons.
+   */
+  function setStyledLabel(textEl, label, fontSize, fillCol) {
+    textEl.textContent = "";
+    if (label === "^") {
+      // m^n — base (m) with superscript exponent (n) using dy offsets
+      const base = svgEl("tspan");
+      base.textContent = "m";
+      base.setAttribute("font-style", "italic");
+      if (fillCol) base.setAttribute("fill", fillCol);
+      textEl.appendChild(base);
+      const exp = svgEl("tspan");
+      exp.textContent = "n";
+      exp.setAttribute("font-style", "italic");
+      exp.setAttribute("dy", `-${fontSize * 0.35}px`);
+      exp.setAttribute("font-size", `${fontSize * 0.6}px`);
+      if (fillCol) exp.setAttribute("fill", fillCol);
+      textEl.appendChild(exp);
+      // Invisible reset tspan to restore baseline for subsequent content
+      const reset = svgEl("tspan");
+      reset.textContent = "\u200B";
+      reset.setAttribute("dy", `${fontSize * 0.35}px`);
+      reset.setAttribute("font-size", "0");
+      textEl.appendChild(reset);
+      textEl.setAttribute("font-size", fontSize);
+      return;
+    }
+    if (label === "log") {
+      // log with subscript base (m) using dy offsets
+      const lbl = svgEl("tspan");
+      lbl.textContent = "log";
+      lbl.setAttribute("font-style", "normal");
+      if (fillCol) lbl.setAttribute("fill", fillCol);
+      textEl.appendChild(lbl);
+      const sub = svgEl("tspan");
+      sub.textContent = "m";
+      sub.setAttribute("font-style", "italic");
+      sub.setAttribute("dy", `${fontSize * 0.25}px`);
+      sub.setAttribute("font-size", `${fontSize * 0.55 * 0.6}px`);
+      if (fillCol) sub.setAttribute("fill", fillCol);
+      textEl.appendChild(sub);
+      // Invisible reset tspan to restore baseline
+      const reset = svgEl("tspan");
+      reset.textContent = "\u200B";
+      reset.setAttribute("dy", `-${fontSize * 0.25}px`);
+      reset.setAttribute("font-size", "0");
+      textEl.appendChild(reset);
+      textEl.setAttribute("font-size", fontSize * 0.55);
+      return;
+    }
+    // Default plain label
+    textEl.textContent = label;
+    textEl.setAttribute("font-size", fontSize);
+  }
+
+  // ---- Node drawing ----
+
+  function drawIntermediateNode(nodeId, parentX, parentY, gradJunction, gradIntermediate, parentArmLabel) {
+    const node = nodes[nodeId];
+    if (!node || node.x == null) return;
+    const px = node.x, py = node.y;
+    const intRad = R * 0.55;
+
+    // Pipe from parent operator to this intermediate
+    // gradJunction → gradIntermediate  (B→A for ABC input arms, darken→bright for exp)
+    pipeToChild(parentX, parentY, px, py, gradJunction, gradIntermediate, intRad, JR, undefined, parentArmLabel);
+
+    // Helper: draw the intermediate badge circle + live value text
+    function drawIntBadge(strokeCol) {
+      drawRing(px, py, strokeCol, nodeId);
+      const circleEl = drawCircle(px, py, intRad, GLASS_FILL, strokeCol, 1.5);
+      node._circleEl = circleEl;
+      // Live value text inside the intermediate circle
+      const lv = svgEl("text");
+      lv.setAttribute("x", px);
+      lv.setAttribute("y", py);
+      lv.setAttribute("text-anchor", "middle");
+      lv.setAttribute("dominant-baseline", "central");
+      lv.setAttribute("font-size", 9);
+      lv.setAttribute("font-family", MATH_FONT);
+      lv.setAttribute("font-style", "normal");
+      lv.setAttribute("fill", strokeCol);
+      lv.setAttribute("opacity", "0.9");
+      lv.setAttribute("display", "none");
+      lv.textContent = "";
+      uprightText(lv, px, py);
+      gText.appendChild(lv);
+      node._liveValueEl = lv;
+      // Store original counter-rotation transform for restoring after scale
+      node._liveValueOrigTransform = lv.getAttribute("transform") || "";
+
+      drawDebugLabel(px, py + intRad + 10, String(nodeId));
+      attachRadialClick(nodeId, px, py, "intermediate", intRad + 4);
+    }
+
+    // Determine child op's output arm color (for coloring the intermediate)
+    let intStrokeCol = gradIntermediate || "#aaa";
+    if (node.connectsToOpId != null) {
+      const nextOp = nodes[node.connectsToOpId];
+      if (nextOp && nextOp.x != null) {
+        const nextCatResolved = nextOp.armCategory || categoryForOpType(nextOp.opType);
+        const nextCol = nextCatResolved ? (OP_COLORS[nextCatResolved] || opColor(nextOp)) : opColor(nextOp);
+        if (!nextOp.armAssignment) {
+          const defRoles = getArmRoles(nextOp.opType);
+          if (defRoles) {
+            nextOp.armAssignment = { ...defRoles };
+            nextOp.armCategory = categoryForOpType(nextOp.opType);
+          }
+        }
+        const nextRoles = nextOp.armAssignment || getArmRoles(nextOp.opType);
+        const nextCat = nextOp.armCategory || categoryForOpType(nextOp.opType);
+        const childOutLabel = nextRoles ? nextRoles.output : null;
+
+        // Determine pipe/circle colors based on child op's category (per-role for all)
+        let childGradInt, childGradJunc;
+        const ncc = nextCat && ARM_COLORS[nextCat];
+        if (ncc && nextRoles) {
+          const childOutCol = ncc[nextRoles.output] || nextCol;
+          intStrokeCol = childOutCol;
+          childGradInt = childOutCol;
+          childGradJunc = darkenColor(childOutCol, 0.3);
+        } else {
+          const childOutCol = outputArmColor(nextCol);
+          intStrokeCol = childOutCol;
+          childGradInt = childOutCol;
+          childGradJunc = darkenColor(childOutCol, 0.3);
+        }
+
+        drawIntBadge(intStrokeCol);
+
+        // Pipe from intermediate to child op: childGradInt → childGradJunc
+        pipeToChild(px, py, nextOp.x, nextOp.y, childGradInt, childGradJunc, JR, intRad, undefined, childOutLabel);
+        drawNode(node.connectsToOpId, px, py, false);
+      } else {
+        drawIntBadge(intStrokeCol);
+      }
+    } else {
+      drawIntBadge(intStrokeCol);
+    }
+  }
+
+  // ---- Compute set of node IDs on the equals path (for badge inversion) ----
+  const _eqPathNodeSet = new Set();
+  {
+    const eqEdge = state.equalsEdge;
+    if (eqEdge && typeof eqEdge.fromId === 'number') {
+      function _buildEqPath(nid, target) {
+        if (nid == null) return false;
+        const nd = nodes[nid];
+        if (!nd) return false;
+        if (nid === target) return true;
+        if (nd.type === 'intermediate' && nd.connectsToOpId != null) {
+          return _buildEqPath(nd.connectsToOpId, target);
+        }
+        if (nd.type !== 'op') return false;
+        if (nd.leftId != null && _buildEqPath(nd.leftId, target)) {
+          _eqPathNodeSet.add(nid);
+          return true;
+        }
+        if (nd.rightId != null && nd.rightId !== nd.leftId && _buildEqPath(nd.rightId, target)) {
+          _eqPathNodeSet.add(nid);
+          return true;
+        }
+        return false;
+      }
+      _buildEqPath(rootOpId, eqEdge.toId);
+    }
+  }
+
+  // =======================================================================
+  // ---- Operand scroll-to-adjust dial ("watch crown") --------------------
+  // Adds interactive hover+scroll UI on numeric value nodes.
+  // Three columns (10s, 1s, 0.1s) with a thick ring showing a value dial.
+  // =======================================================================
+
+  /** Update expression and graph after changing a value node in-place.
+   *  Does NOT rebuild the SVG — caller updates dial/text elements directly. */
+  function applyDagValueChange(nodeId, newStr) {
+    nodes[nodeId].value = newStr;
+    if (state.equalsEdge) {
+      const eqResult = generateEquation(layout, state.equalsEdge);
+      if (eqResult) applyEqualsResult(eqResult);
+    } else {
+      const treeResult = _walkPipeTree(layout);
+      if (treeResult) {
+        if (ui.exprEl) { ui.exprEl.value = treeResult.text; autoSizeInput(); }
+        state.lastExpr = treeResult.text;
+        state.fn = compileExpression(treeResult.text);
+        state.displaySpans = treeResult.spans;
+      }
+    }
+    try {
+      const expr = ui.exprEl?.value ?? "";
+      const { steps, ops: newOps } = parseAndLinearize(expr);
+      state.steps = steps;
+      state.ops = newOps;
+    } catch { }
+    updateInputOverlay();
+    updateLatexDisplay(ui.exprEl?.value ?? "");
+  }
+
+  // ---- Spinner click sound via AudioContext ----
+  let _spinAudioCtx = null;
+  function playSpinClick() {
+    try {
+      if (!_spinAudioCtx) _spinAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = _spinAudioCtx;
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1200, t);
+      osc.frequency.exponentialRampToValueAtTime(600, t + 0.03);
+      gain.gain.setValueAtTime(0.12, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.06);
+    } catch (_) { }
+  }
+
+  /** Hover highlight + keyboard entry for variable value nodes (x, pi, e). */
+  function addVariableHighlight(nodeId, cx, cy, armCol) {
+    const node = nodes[nodeId];
+    const HOVER_SCALE = 1.25;
+    let _keyHandler = null;
+    let _typedBuf = "";
+
+    // Hit zone circle (same size as expanded badge)
+    const hit = svgEl("circle");
+    hit.setAttribute("cx", cx);
+    hit.setAttribute("cy", cy);
+    hit.setAttribute("r", R * HOVER_SCALE + 2);
+    hit.setAttribute("fill", "transparent");
+    hit.setAttribute("stroke", "none");
+    hit.setAttribute("pointer-events", "all");
+    hit.dataset.badgeHit = "1";
+    hit.style.cursor = "pointer";
+
+    // Click opens radial menu
+    hit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hideNodeTooltip();
+      showRadialMenu(nodeId, cx, cy, "value");
+    });
+
+    hit.addEventListener("mouseenter", () => {
+      // Scale up the original circle + text (preserving counter-rotation on text)
+      const circleXform = `translate(${cx},${cy}) scale(${HOVER_SCALE}) translate(${-cx},${-cy})`;
+      const textXform = _counterDeg !== 0
+        ? `translate(${cx},${cy}) scale(${HOVER_SCALE}) rotate(${_counterDeg}) translate(${-cx},${-cy})`
+        : circleXform;
+      if (node._circleEl) node._circleEl.setAttribute("transform", circleXform);
+      if (node._textEl) {
+        node._textEl.style.transformBox = "view-box";
+        node._textEl.style.transformOrigin = "0 0";
+        node._textEl.setAttribute("transform", textXform);
+      }
+      // Tooltip above expanded badge
+      const tipOffset = R * HOVER_SCALE + 8;
+      showNodeTooltip(cx, cy - tipOffset + 28, "Click to wrap in operator");
+      _typedBuf = "";
+
+      // Keyboard handler: type digits to convert to numeric constant,
+      // or type variable names to change to a different variable
+      _keyHandler = (e) => {
+        // Accept digits, minus, dot for converting to constant
+        if (/^[\d.\-]$/.test(e.key)) {
+          e.preventDefault();
+          _typedBuf += e.key;
+          // Validate as a partial number
+          if (/^-?[\d]*\.?[\d]*$/.test(_typedBuf) && _typedBuf !== "-" && _typedBuf !== ".") {
+            applyDagValueChange(nodeId, _typedBuf);
+            playSpinClick();
+            renderStepRepresentation();
+          }
+          return;
+        }
+        // Accept letters for changing variable (x, e, pi)
+        if (/^[a-zA-Z]$/.test(e.key)) {
+          e.preventDefault();
+          _typedBuf += e.key.toLowerCase();
+          const validVars = ["x", "e", "pi"];
+          const match = validVars.find(v => v === _typedBuf);
+          if (match && match !== node.value) {
+            applyDagValueChange(nodeId, match);
+            playSpinClick();
+            renderStepRepresentation();
+          }
+          return;
+        }
+      };
+      document.addEventListener("keydown", _keyHandler);
+    });
+
+    hit.addEventListener("mouseleave", () => {
+      // Restore original transforms (counter-rotation for text)
+      if (node._circleEl) node._circleEl.removeAttribute("transform");
+      if (node._textEl) {
+        node._textEl.style.transformBox = "";
+        node._textEl.style.transformOrigin = "";
+        if (_counterDeg !== 0) {
+          node._textEl.setAttribute("transform", `rotate(${_counterDeg} ${cx} ${cy})`);
+        } else {
+          node._textEl.removeAttribute("transform");
+        }
+      }
+      hideNodeTooltip();
+      _typedBuf = "";
+      if (_keyHandler) {
+        document.removeEventListener("keydown", _keyHandler);
+        _keyHandler = null;
+      }
+    });
+
+    gInteract.appendChild(hit);
+  }
+
+  /** Create scroll-to-adjust dial on a numeric value node. */
+  function addValueDial(nodeId, cx, cy, armCol) {
+    const node = nodes[nodeId];
+    const val = parseFloat(node.value);
+    if (!Number.isFinite(val)) return;
+
+    const RING_THICK = 11;
+    const HOVER_SCALE = 1.25;
+    const STEPS = [10, 1, 0.1];
+    const DIAL_R = R + RING_THICK;
+    const RING_R = R + RING_THICK / 2;
+    const ARC_HALF = 2 * Math.PI / 3; // each side spans 1/3 of the full ring
+    const BALL_R_VAL = (RING_THICK / 2) - 0.5;
+    const MIN_LABEL_SPACING = 2 * BALL_R_VAL / RING_R * 1.15; // 15% gap
+    const NUM_LABELS = Math.max(1, Math.floor(ARC_HALF / MIN_LABEL_SPACING));
+    const BASE_FONT = 28;
+    const INNER_PAD = 4;
+    const MAX_TEXT_W = (R - INNER_PAD) * 2;
+
+    // ---- Scroll sensitivity / trackpad detection ----
+    let scrollAccum = 0;
+    const MOUSE_THRESH = 30;
+    const TRACKPAD_THRESH = 60;
+    let isTrackpad = false;
+
+    // ---- Clip ----
+    const clipId = "dial-clip-" + nodeId;
+    const clipDef = svgEl("clipPath");
+    clipDef.setAttribute("id", clipId);
+    const clipC = svgEl("circle");
+    clipC.setAttribute("cx", cx);
+    clipC.setAttribute("cy", cy);
+    clipC.setAttribute("r", R - 1);
+    clipDef.appendChild(clipC);
+
+    // ---- Dial group ----
+    const gDial = svgEl("g");
+    gDial.setAttribute("display", "none");
+    gDial.setAttribute("pointer-events", "none");
+    gDial.appendChild(clipDef);
+
+    // Background
+    const bg = svgEl("circle");
+    bg.setAttribute("cx", cx);
+    bg.setAttribute("cy", cy);
+    bg.setAttribute("r", R);
+    bg.style.fill = GLASS_FILL;
+    bg.setAttribute("stroke", armCol);
+    bg.setAttribute("stroke-width", 2);
+    gDial.appendChild(bg);
+
+    // Clipped inner area for the number display
+    const gClipped = svgEl("g");
+    gClipped.setAttribute("clip-path", `url(#${clipId})`);
+    gDial.appendChild(gClipped);
+
+    // Single centred text element — uses <tspan> per character for digit highlighting
+    const numText = svgEl("text");
+    numText.setAttribute("x", cx);
+    numText.setAttribute("y", cy);
+    numText.setAttribute("text-anchor", "middle");
+    numText.setAttribute("dominant-baseline", "central");
+    numText.setAttribute("font-size", BASE_FONT);
+    numText.setAttribute("font-family", MATH_FONT);
+    numText.setAttribute("font-style", "normal");
+    numText.setAttribute("fill", armCol);
+    uprightText(numText, cx, cy);
+    gClipped.appendChild(numText);
+
+    // Thick opaque dial ring
+    const ring = svgEl("circle");
+    ring.setAttribute("cx", cx);
+    ring.setAttribute("cy", cy);
+    ring.setAttribute("r", RING_R);
+    ring.setAttribute("fill", "none");
+    ring.setAttribute("stroke", armCol);
+    ring.setAttribute("stroke-width", RING_THICK);
+    ring.setAttribute("opacity", "1");
+    gDial.appendChild(ring);
+
+    // Dial labels — each is a group: black circle + coloured text
+    const BALL_R = BALL_R_VAL;
+    const dialLabels = [];
+    for (let i = -NUM_LABELS; i <= NUM_LABELS; i++) {
+      const g = svgEl("g");
+      g.setAttribute("display", "none");
+      const c = svgEl("circle");
+      c.setAttribute("r", BALL_R);
+      c.setAttribute("fill", "#000");
+      g.appendChild(c);
+      const t = svgEl("text");
+      t.setAttribute("text-anchor", "middle");
+      t.setAttribute("dominant-baseline", "central");
+      t.setAttribute("font-family", MATH_FONT);
+      t.setAttribute("font-style", "normal");
+      t.setAttribute("fill", armCol);
+      g.appendChild(t);
+      gDial.appendChild(g);
+      dialLabels.push({ g, circle: c, el: t, offset: i });
+    }
+
+    gInteract.appendChild(gDial);
+
+    // ---- Hit zone ----
+    const hit = svgEl("circle");
+    hit.setAttribute("cx", cx);
+    hit.setAttribute("cy", cy);
+    hit.setAttribute("r", DIAL_R * HOVER_SCALE + 2);
+    hit.setAttribute("fill", "transparent");
+    hit.setAttribute("stroke", "none");
+    hit.dataset.badgeHit = "1";
+    hit.style.cursor = "ns-resize";
+    hit.setAttribute("pointer-events", "all");
+    // Click opens radial menu (wraps this value in an operator)
+    hit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hideNodeTooltip();
+      showRadialMenu(nodeId, cx, cy, "value");
+    });
+    gInteract.appendChild(hit);
+
+    // ---- State ----
+    let activeCol = -1;
+    let angOffset = 0;
+    let animId = null;
+
+    // ---- Helpers ----
+
+    /** Map character index in the display string → column (0=tens,1=ones,2=tenths).
+     *  Returns -1 for minus sign, dot, or digits outside the three columns. */
+    function charToCol(str, idx) {
+      const ch = str[idx];
+      if (ch === "-" || ch === "\u2212") return -1;
+      if (ch === ".") return 2; // dot grouped with tenths
+      const dotIdx = str.indexOf(".");
+      const signLen = (str[0] === "-" || str[0] === "\u2212") ? 1 : 0;
+      if (dotIdx >= 0 && idx > dotIdx) return 2; // after decimal
+      // Integer digits — count position from right of the integer part
+      const intEnd = dotIdx >= 0 ? dotIdx : str.length;
+      const posFromRight = intEnd - 1 - idx;
+      if (posFromRight === 0) return 1; // ones
+      if (posFromRight === 1) return 0; // tens
+      return -1; // hundreds+
+    }
+
+    /** Pad the value string so the active column's digit is always visible. */
+    function paddedValue(col) {
+      let str = node.value;
+      const signLen = (str[0] === "-" || str[0] === "\u2212") ? 1 : 0;
+      const sign = str.substring(0, signLen);
+      const rest = str.substring(signLen);
+      if (col === 0) { // tens — ensure at least 2 integer digits
+        const dotPos = rest.indexOf(".");
+        const intPart = dotPos >= 0 ? rest.substring(0, dotPos) : rest;
+        const fracPart = dotPos >= 0 ? rest.substring(dotPos) : "";
+        if (intPart.length < 2) str = sign + "0".repeat(2 - intPart.length) + intPart + fracPart;
+      }
+      if (col === 2) { // tenths — ensure decimal point + at least 1 decimal digit
+        if (!str.includes(".")) str += ".0";
+        else if (str.endsWith(".")) str += "0";
+      }
+      return str;
+    }
+
+    /** Render the number with per-character tspans, highlighting the active column's digit. */
+    function updateNumberDisplay() {
+      const str = paddedValue(activeCol);
+      while (numText.firstChild) numText.removeChild(numText.firstChild);
+      for (let i = 0; i < str.length; i++) {
+        const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+        const col = charToCol(str, i);
+        if (col === activeCol && activeCol >= 0) {
+          tspan.setAttribute("fill", "#fff");
+        } else {
+          tspan.setAttribute("fill", armCol);
+          // Dim leading-zero tens or trailing .0
+          const ch = str[i];
+          const signLen = (str[0] === "-" || str[0] === "\u2212") ? 1 : 0;
+          const isLeadingZero = col === 0 && ch === "0" && signLen === 0;
+          if (isLeadingZero) tspan.setAttribute("opacity", "0.3");
+        }
+        tspan.textContent = str[i];
+        numText.appendChild(tspan);
+      }
+      // Fit text inside circle
+      numText.setAttribute("font-size", BASE_FONT);
+      try {
+        const bbox = numText.getBBox();
+        if (bbox.width > MAX_TEXT_W) {
+          const scaled = Math.floor(BASE_FONT * MAX_TEXT_W / bbox.width);
+          numText.setAttribute("font-size", Math.max(8, scaled));
+        }
+      } catch (_) { }
+    }
+
+    function formatDialVal(v, step) {
+      if (step < 1) return v.toFixed(1);
+      return String(Math.round(v));
+    }
+
+    function fitText(textEl, maxW, baseSize) {
+      textEl.setAttribute("font-size", baseSize);
+      try {
+        const bbox = textEl.getBBox();
+        if (bbox.width > maxW) {
+          const scaled = Math.floor(baseSize * maxW / bbox.width);
+          textEl.setAttribute("font-size", Math.max(6, scaled));
+        }
+      } catch (_) { }
+    }
+
+    function ringLabelMaxW() {
+      return BALL_R * 2 * 0.85; // text fits inside ball-bearing diameter
+    }
+
+    function positionDialLabels(col, extraAng) {
+      const v = parseFloat(node.value);
+      const step = STEPS[col];
+      const dAng = ARC_HALF / NUM_LABELS;
+      const maxW = ringLabelMaxW();
+      for (const lbl of dialLabels) {
+        const off = lbl.offset;
+        const ang = -Math.PI / 2 + off * dAng + extraAng;
+        if (ang < -Math.PI / 2 - ARC_HALF || ang > -Math.PI / 2 + ARC_HALF) {
+          lbl.g.setAttribute("display", "none");
+          continue;
+        }
+        const lx = cx + RING_R * Math.cos(ang);
+        const ly = cy + RING_R * Math.sin(ang);
+        lbl.circle.setAttribute("cx", lx);
+        lbl.circle.setAttribute("cy", ly);
+        lbl.el.setAttribute("x", lx);
+        lbl.el.setAttribute("y", ly);
+        uprightText(lbl.el, lx, ly);
+        lbl.el.textContent = formatDialVal(v + off * step, step);
+        const baseSz = off === 0 ? 9 : 8;
+        // Active label: white text; others: arm colour
+        lbl.el.setAttribute("fill", off === 0 ? "#fff" : armCol);
+        const fade = 1 - Math.abs(ang + Math.PI / 2) / ARC_HALF;
+        const opacity = Math.max(0.15, fade);
+        lbl.circle.setAttribute("opacity", String(opacity));
+        lbl.el.setAttribute("opacity", String(opacity));
+        lbl.g.setAttribute("display", "");
+        fitText(lbl.el, maxW, baseSz);
+      }
+    }
+
+    function setActiveCol(c) {
+      if (c === activeCol) return;
+      activeCol = c;
+      updateNumberDisplay();
+      if (c >= 0 && c < 3) {
+        angOffset = 0;
+        positionDialLabels(c, 0);
+      } else {
+        for (const lbl of dialLabels) lbl.g.setAttribute("display", "none");
+      }
+    }
+
+    function getColumn(e) {
+      const pt = svg.createSVGPoint();
+      pt.x = e.clientX;
+      pt.y = e.clientY;
+      const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+      const lx = (svgPt.x - cx) / HOVER_SCALE + cx;
+      const COL_W = (2 * R) / 3;
+      const relX = lx - (cx - R);
+      return Math.max(0, Math.min(2, Math.floor(relX / COL_W)));
+    }
+
+    function animateSnap() {
+      if (Math.abs(angOffset) < 0.005) {
+        angOffset = 0;
+        if (activeCol >= 0) positionDialLabels(activeCol, 0);
+        animId = null;
+        return;
+      }
+      angOffset *= 0.55;
+      if (activeCol >= 0) positionDialLabels(activeCol, angOffset);
+      animId = requestAnimationFrame(animateSnap);
+    }
+
+    // ---- Events ----
+    // ---- Keyboard direct-entry handler ----
+    let _varBuf = "";
+    function onKeyDown(e) {
+      // Only respond to digit keys, minus, period, backspace, and letters (for variable names)
+      const key = e.key;
+      if (/^[0-9]$/.test(key)) {
+        e.preventDefault();
+        _varBuf = "";
+        applyDagValueChange(nodeId, key);
+        playSpinClick();
+        updateNumberDisplay();
+        if (activeCol >= 0) positionDialLabels(activeCol, 0);
+      } else if (key === "-" || key === ".") {
+        e.preventDefault();
+        _varBuf = "";
+        const cur = node.value;
+        if (key === "-") {
+          // Toggle sign
+          const newStr = cur.startsWith("-") ? cur.slice(1) : "-" + cur;
+          applyDagValueChange(nodeId, newStr || "0");
+        } else {
+          // Add decimal if not present
+          if (!cur.includes(".")) applyDagValueChange(nodeId, cur + ".0");
+        }
+        playSpinClick();
+        updateNumberDisplay();
+        if (activeCol >= 0) positionDialLabels(activeCol, 0);
+      } else if (/^[a-zA-Z]$/.test(key)) {
+        // Type variable names (x, e, pi) to convert numeric constant to variable
+        e.preventDefault();
+        _varBuf += key.toLowerCase();
+        const validVars = ["x", "e", "pi"];
+        const match = validVars.find(v => v === _varBuf);
+        if (match) {
+          applyDagValueChange(nodeId, match);
+          playSpinClick();
+          renderStepRepresentation();
+          _varBuf = "";
+        } else if (!validVars.some(v => v.startsWith(_varBuf))) {
+          _varBuf = ""; // reset if no variable can match
+        }
+      } else if (key === "Backspace" || key === "Delete") {
+        e.preventDefault();
+        _varBuf = "";
+        deleteOperatorNode(nodeId, layout);
+      }
+    }
+
+    hit.addEventListener("mouseenter", (e) => {
+      // Hide original node circle + text so they don't show behind the scaled dial
+      if (node._circleEl) node._circleEl.setAttribute("display", "none");
+      if (node._textEl) node._textEl.setAttribute("display", "none");
+      gDial.setAttribute("display", "");
+      gDial.setAttribute("transform",
+        `translate(${cx},${cy}) scale(${HOVER_SCALE}) translate(${-cx},${-cy})`);
+      updateNumberDisplay();
+      setActiveCol(getColumn(e));
+      document.addEventListener("keydown", onKeyDown);
+      // Show tooltip above expanded dial
+      const tipOffset = (R + RING_THICK) * HOVER_SCALE + 8;
+      showNodeTooltip(cx, cy - tipOffset + 28, "Click to wrap in operator");
+    });
+
+    hit.addEventListener("mousemove", (e) => {
+      setActiveCol(getColumn(e));
+    });
+
+    hit.addEventListener("mouseleave", () => {
+      document.removeEventListener("keydown", onKeyDown);
+      gDial.setAttribute("display", "none");
+      gDial.removeAttribute("transform");
+      setActiveCol(-1);
+      if (animId) { cancelAnimationFrame(animId); animId = null; }
+      angOffset = 0;
+      scrollAccum = 0;
+      hideNodeTooltip();
+      // Restore original circle + text
+      if (node._circleEl) node._circleEl.setAttribute("display", "");
+      if (node._textEl) {
+        node._textEl.textContent = node.value;
+        node._textEl.setAttribute("display", "");
+        // Resize restored text to fit inside circle
+        node._textEl.setAttribute("font-size", 32);
+        try {
+          const bbox = node._textEl.getBBox();
+          if (bbox.width > MAX_TEXT_W) {
+            const scaled = Math.floor(32 * MAX_TEXT_W / bbox.width);
+            node._textEl.setAttribute("font-size", Math.max(8, scaled));
+          }
+        } catch (_) { }
+      }
+    });
+
+    hit.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Trackpad heuristic: trackpads typically send small fractional deltaY
+      const absDY = Math.abs(e.deltaY);
+      if (absDY > 0 && absDY < 10) isTrackpad = true;
+      else if (absDY >= 50) isTrackpad = false;
+
+      const thresh = isTrackpad ? TRACKPAD_THRESH : MOUSE_THRESH;
+      scrollAccum -= e.deltaY; // negate: scroll-up = positive accumulation
+      if (Math.abs(scrollAccum) < thresh) return;
+
+      const col = getColumn(e);
+      const step = STEPS[col];
+      const curVal = parseFloat(node.value);
+      if (!Number.isFinite(curVal)) return;
+
+      const ticks = Math.trunc(scrollAccum / thresh);
+      scrollAccum -= ticks * thresh;
+      // scroll-up (negative deltaY) → positive ticks → increase value
+      const dir = ticks > 0 ? 1 : -1;
+      const absTicks = Math.abs(ticks);
+
+      // Digit-based change for tens column; step-based for ones & tenths
+      let newVal;
+      if (step === 10) {
+        // Tens column: change only the tens digit, preserving other digits
+        const isNeg = curVal < 0;
+        const absVal = Math.abs(curVal);
+        const digit = Math.floor(absVal / 10) % 10;
+        const digitDelta = (isNeg ? -dir : dir) * absTicks;
+        const newDigit = digit + digitDelta;
+        let newAbs = absVal - digit * 10 + Math.abs(newDigit) * 10;
+        let newNeg = newDigit < 0 ? !isNeg : isNeg;
+        if (newAbs === 0) newNeg = false;
+        newVal = newNeg ? -newAbs : newAbs;
+      } else {
+        // Ones / tenths: simple step-based arithmetic
+        newVal = curVal + dir * absTicks * step;
+      }
+      if (step < 1) newVal = Math.round(newVal * 10) / 10;
+      const hasDec = node.value.includes(".");
+      const curDec = hasDec ? (node.value.split(".")[1] || "").length : 0;
+      const outDec = step < 1 ? Math.max(1, curDec) : curDec;
+      const newStr = outDec > 0 ? newVal.toFixed(outDec) : String(Math.round(newVal));
+      applyDagValueChange(nodeId, newStr);
+      playSpinClick();
+
+      const dAng = ARC_HALF / NUM_LABELS;
+      // Scroll up → value increases → ring appears to step clockwise
+      angOffset += dir * absTicks * dAng;
+      updateNumberDisplay();
+      if (activeCol >= 0) positionDialLabels(activeCol, angOffset);
+      if (!animId) animId = requestAnimationFrame(animateSnap);
+    }, { passive: false });
+
+    // ---- Touch hold-to-scroll for mobile ----
+    {
+      const TOUCH_SCALE = 1.6;
+      const TOUCH_LIFT = 55;        // SVG units to raise dial above finger
+      const HOLD_DELAY = 250;       // ms before activating
+      const TOUCH_SCROLL_THRESH = 8; // px per tick
+      let holdTimer = null;
+      let touchActive = false;
+      let lastTouchY = 0;
+      let touchScrollAccum = 0;
+
+      function getColumnFromTouch(touch) {
+        const pt = svg.createSVGPoint();
+        pt.x = touch.clientX;
+        pt.y = touch.clientY;
+        const svgPt = pt.matrixTransform(svg.getScreenCTM().inverse());
+        const COL_W = (2 * R) / 3;
+        const relX = svgPt.x - (cx - R);
+        return Math.max(0, Math.min(2, Math.floor(relX / COL_W)));
+      }
+
+      function activateTouchDial(touch) {
+        touchActive = true;
+        lastTouchY = touch.clientY;
+        touchScrollAccum = 0;
+        // Hide original node visuals
+        if (node._circleEl) node._circleEl.setAttribute("display", "none");
+        if (node._textEl) node._textEl.setAttribute("display", "none");
+        // Show dial scaled & lifted above touch point
+        gDial.setAttribute("display", "");
+        gDial.setAttribute("transform",
+          `translate(0,${-TOUCH_LIFT}) translate(${cx},${cy}) scale(${TOUCH_SCALE}) translate(${-cx},${-cy})`);
+        updateNumberDisplay();
+        setActiveCol(getColumnFromTouch(touch));
+        // Tooltip above lifted dial
+        const tipOffset = (R + RING_THICK) * TOUCH_SCALE + TOUCH_LIFT + 8;
+        showNodeTooltip(cx, cy - tipOffset + 28, "Slide \u2195 to scroll, \u2194 to change place");
+      }
+
+      function deactivateTouchDial() {
+        touchActive = false;
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+        gDial.setAttribute("display", "none");
+        gDial.removeAttribute("transform");
+        setActiveCol(-1);
+        if (animId) { cancelAnimationFrame(animId); animId = null; }
+        angOffset = 0;
+        touchScrollAccum = 0;
+        hideNodeTooltip();
+        // Restore original circle + text
+        if (node._circleEl) node._circleEl.setAttribute("display", "");
+        if (node._textEl) {
+          node._textEl.textContent = node.value;
+          node._textEl.setAttribute("display", "");
+          node._textEl.setAttribute("font-size", 32);
+          try {
+            const bbox = node._textEl.getBBox();
+            if (bbox.width > MAX_TEXT_W) {
+              const scaled = Math.floor(32 * MAX_TEXT_W / bbox.width);
+              node._textEl.setAttribute("font-size", Math.max(8, scaled));
+            }
+          } catch (_) { }
+        }
+      }
+
+      hit.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        holdTimer = setTimeout(() => {
+          holdTimer = null;
+          activateTouchDial(touch);
+        }, HOLD_DELAY);
+      }, { passive: false });
+
+      hit.addEventListener("touchmove", (e) => {
+        if (!touchActive && holdTimer) {
+          // Moved before hold triggered → cancel
+          clearTimeout(holdTimer);
+          holdTimer = null;
+          return;
+        }
+        if (!touchActive) return;
+        e.preventDefault();
+        const touch = e.touches[0];
+
+        // Horizontal: column selection
+        setActiveCol(getColumnFromTouch(touch));
+
+        // Vertical: scroll value (up = increase)
+        const dy = lastTouchY - touch.clientY;
+        lastTouchY = touch.clientY;
+        touchScrollAccum += dy;
+
+        if (Math.abs(touchScrollAccum) >= TOUCH_SCROLL_THRESH) {
+          const col = activeCol >= 0 ? activeCol : 1;
+          const step = STEPS[col];
+          const curVal = parseFloat(node.value);
+          if (!Number.isFinite(curVal)) return;
+
+          const ticks = Math.trunc(touchScrollAccum / TOUCH_SCROLL_THRESH);
+          touchScrollAccum -= ticks * TOUCH_SCROLL_THRESH;
+          const dir = ticks > 0 ? 1 : -1;
+          const absTicks = Math.abs(ticks);
+
+          let newVal;
+          if (step === 10) {
+            const isNeg = curVal < 0;
+            const absVal = Math.abs(curVal);
+            const digit = Math.floor(absVal / 10) % 10;
+            const digitDelta = (isNeg ? -dir : dir) * absTicks;
+            const newDigit = digit + digitDelta;
+            let newAbs = absVal - digit * 10 + Math.abs(newDigit) * 10;
+            let newNeg = newDigit < 0 ? !isNeg : isNeg;
+            if (newAbs === 0) newNeg = false;
+            newVal = newNeg ? -newAbs : newAbs;
+          } else {
+            newVal = curVal + dir * absTicks * step;
+          }
+          if (step < 1) newVal = Math.round(newVal * 10) / 10;
+          const hasDec = node.value.includes(".");
+          const curDec = hasDec ? (node.value.split(".")[1] || "").length : 0;
+          const outDec = step < 1 ? Math.max(1, curDec) : curDec;
+          const newStr = outDec > 0 ? newVal.toFixed(outDec) : String(Math.round(newVal));
+          applyDagValueChange(nodeId, newStr);
+          playSpinClick();
+
+          const dAng = ARC_HALF / NUM_LABELS;
+          angOffset += dir * absTicks * dAng;
+          updateNumberDisplay();
+          if (activeCol >= 0) positionDialLabels(activeCol, angOffset);
+          if (!animId) animId = requestAnimationFrame(animateSnap);
+        }
+      }, { passive: false });
+
+      hit.addEventListener("touchend", () => {
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+        if (touchActive) deactivateTouchDial();
+      });
+
+      hit.addEventListener("touchcancel", () => {
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+        if (touchActive) deactivateTouchDial();
+      });
+    }
+  }
+
+  function drawNode(nodeId, parentX, parentY, drawOutputArm, parentArmColor) {
+    const node = nodes[nodeId];
+    if (!node || node.x == null) return;
+    const px = node.x, py = node.y;
+
+    if (node.type === "value") {
+      // x always keeps its blue; other operands colored by the arm they connect to
+      const isX = node.value === "x";
+      const armCol = isX ? OP_COLORS.x : (parentArmColor || "#888");
+      const circleEl = drawCircle(px, py, R, GLASS_FILL, armCol, 2);
+      node._circleEl = circleEl;  // ref so dial can hide on hover
+      // Numbers: upright (non-italic). Variables/constants: italic (matches LaTeX)
+      const isNumeric = /^-?[\d.]+$/.test(node.value);
+      const textEl = drawText(px, py, node.value, 32, armCol, !isNumeric);
+      node._textEl = textEl;  // ref for in-place updates
+      drawDebugLabel(px, py + R + 12, String(nodeId));
+      // Scroll-to-adjust dial for numeric constants
+      // (addValueDial integrates click-to-radial + tooltip, no extra attachRadialClick)
+      if (isNumeric) {
+        addValueDial(nodeId, px, py, armCol);
+      } else {
+        // Variable/constant value nodes get hover highlight + radial click
+        addVariableHighlight(nodeId, px, py, armCol);
+      }
+      return;
+    }
+
+    if (node.type === "intermediate") {
+      return;
+    }
+
+    // Operator node
+    const cat = categoryForOpType(node.opType);
+
+    // Initialise persistent arm assignment and category if not yet set
+    if (!node.armAssignment) {
+      const defaultRoles = getArmRoles(node.opType);
+      if (defaultRoles) {
+        node.armAssignment = { ...defaultRoles };
+        node.armCategory = cat;  // persist original category
+      }
+    }
+    // Use persisted category (survives opType changes like power→call)
+    const effectiveCat = node.armCategory || cat;
+    const roles = node.armAssignment || getArmRoles(node.opType);
+
+    // Stable base color: use effectiveCat to avoid grey fallback after exp→call swaps
+    const col = effectiveCat
+      ? (OP_COLORS[effectiveCat] || opColor(node))
+      : opColor(node);
+
+    // Per-arm colors — all categories use per-role keys so colours follow swaps
+    let outArmCol, leftArmCol, rightArmCol, badgeCol;
+    const armCC = effectiveCat && ARM_COLORS[effectiveCat];
+    if (armCC && roles) {
+      leftArmCol = armCC[roles.left] || col;
+      rightArmCol = armCC[roles.right] || col;
+      outArmCol = armCC[roles.output] || col;
+      badgeCol = outArmCol;  // badge color follows output pipe
+    } else {
+      leftArmCol = col;
+      rightArmCol = col;
+      outArmCol = outputArmColor(col);
+      badgeCol = outArmCol;  // badge color follows output pipe
+    }
+    const outLabel = roles ? roles.output : null;
+    const leftLabel = roles ? roles.left : null;
+    const rightLabel = roles ? roles.right : null;
+
+    // Derive displayed symbol from arm assignment (may differ from initial opType after swaps)
+    let displaySymbol = node.symbol || "";
+    if (roles && effectiveCat) {
+      const info = deriveOpInfo(effectiveCat, roles);
+      if (info) displaySymbol = info.symbol;
+    }
+
+    // If this node is on the equals path, show the INVERSE operator symbol
+    // (e.g. "+" → "−", "×" → "÷") to match the rearranged LHS equation
+    if (_eqPathNodeSet.has(nodeId) && effectiveCat) {
+      if (effectiveCat === "addSub") {
+        displaySymbol = displaySymbol === "+" ? "\u2212" : "+";
+      } else if (effectiveCat === "mulDiv") {
+        displaySymbol = displaySymbol === "\u00d7" ? "\u00f7" : "\u00d7";
+      }
+      // exp family inversion (^↔√↔log) is complex; skip for now
+    }
+
+    // Output arm pipe toward parent: darken→bright gradient for all categories
+    if (drawOutputArm && parentX != null && parentY != null) {
+      pipeToChild(px, py, parentX, parentY, darkenColor(outArmCol, 0.3), outArmCol, R, JR, 'child', outLabel);
+    }
+
+    // Ring circle + operator junction circle
+    drawRing(px, py, badgeCol, nodeId);
+    const junctionCircle = drawCircle(px, py, JR, GLASS_FILL, badgeCol, 2.5);
+    junctionCircle.dataset.ringId = String(nodeId);
+    node._junctionEl = junctionCircle;
+    // Operator symbol — use styled rendering for ^ (n^m) and log (log(m))
+    // Scale font size to fit within the junction circle radius
+    const badgeFontSize = badgeFontSizeForLabel(displaySymbol, JR);
+    const isSymbol = /^[+\-×÷\^/%⌈⌉⌊⌋|·]|log|ⁿ√$/.test(displaySymbol);
+    const symTextEl = drawText(px, py, "", badgeFontSize, badgeCol, !isSymbol);
+    setStyledLabel(symTextEl, displaySymbol, badgeFontSize, badgeCol);
+    // Tag the just-added text for animation
+    const lastText = gText.lastElementChild;
+    if (lastText) lastText.dataset.ringId = String(nodeId);
+    node._symbolTextEl = lastText;
+    // Tag the ring circle for animation (if exists)
+    const lastRing = gRings.lastElementChild;
+    if (lastRing) lastRing.dataset.ringId = String(nodeId);
+    drawDebugLabel(px, py + JR + 10, String(nodeId));
+
+    // Live value text — small label below junction, hidden until cursor update
+    {
+      const lv = svgEl("text");
+      lv.setAttribute("x", px);
+      lv.setAttribute("y", py + JR + 13);
+      lv.setAttribute("text-anchor", "middle");
+      lv.setAttribute("dominant-baseline", "hanging");
+      lv.setAttribute("font-size", 10);
+      lv.setAttribute("font-family", MATH_FONT);
+      lv.setAttribute("font-style", "normal");
+      lv.setAttribute("fill", badgeCol);
+      lv.setAttribute("opacity", "0.85");
+      lv.setAttribute("display", "none");
+      lv.textContent = "";
+      uprightText(lv, px, py + JR + 13);
+      gText.appendChild(lv);
+      node._liveValueEl = lv;
+    }
+
+    // Radial menu click target for operator nodes
+    attachRadialClick(nodeId, px, py, "op", JR);
+
+    // ---- Swap buttons (3 between each pair of arms) ----
+    if (roles && effectiveCat) {
+      // Compute actual directions to each arm endpoint
+      const armDirs = {};
+      // Output direction: toward parent
+      if (parentX != null && parentY != null) {
+        const dx = parentX - px, dy = parentY - py;
+        const len = Math.hypot(dx, dy) || 1;
+        armDirs.output = { x: dx / len, y: dy / len };
+      }
+      // Left direction: toward left child
+      if (node.leftId != null) {
+        const lc = nodes[node.leftId];
+        if (lc && lc.x != null) {
+          const dx = lc.x - px, dy = lc.y - py;
+          const len = Math.hypot(dx, dy) || 1;
+          armDirs.left = { x: dx / len, y: dy / len };
+        }
+      }
+      // Right direction: toward right child
+      if (node.rightId != null && node.rightId !== node.leftId) {
+        const rc = nodes[node.rightId];
+        if (rc && rc.x != null) {
+          const dx = rc.x - px, dy = rc.y - py;
+          const len = Math.hypot(dx, dy) || 1;
+          armDirs.right = { x: dx / len, y: dy / len };
+        }
+      }
+
+      // Actual endpoint positions (for swap animation)
+      const armEndpoints = {};
+      if (parentX != null && parentY != null) armEndpoints.output = { x: parentX, y: parentY };
+      if (node.leftId != null) {
+        const lc = nodes[node.leftId];
+        if (lc && lc.x != null) armEndpoints.left = { x: lc.x, y: lc.y };
+      }
+      if (node.rightId != null && node.rightId !== node.leftId) {
+        const rc = nodes[node.rightId];
+        if (rc && rc.x != null) armEndpoints.right = { x: rc.x, y: rc.y };
+      }
+
+      // Create swap buttons between each pair of arms that exists
+      const armPairs = [];
+      if (armDirs.left && armDirs.right) armPairs.push(["left", "right"]);
+      if (armDirs.left && armDirs.output) armPairs.push(["left", "output"]);
+      if (armDirs.right && armDirs.output) armPairs.push(["right", "output"]);
+
+      const SWAP_R = 10;
+      const SWAP_DIST = JR + 16;
+
+      // Container group: hover zone (behind) + buttons (on top)
+      // mouseenter/leave on the group handles show/hide for all children
+      const swapGroup = svgEl("g");
+      swapGroup.classList.add("swap-group");
+      swapGroup.setAttribute("data-node-id", nodeId);
+
+      // Hover zone: invisible circle — appended first so it's behind buttons
+      const hoverZone = svgEl("circle");
+      hoverZone.setAttribute("cx", px);
+      hoverZone.setAttribute("cy", py);
+      hoverZone.setAttribute("r", JR + 26);
+      hoverZone.setAttribute("fill", "transparent");
+      hoverZone.setAttribute("stroke", "none");
+      hoverZone.setAttribute("pointer-events", "all");
+      hoverZone.dataset.badgeHit = "1";
+      // Click on the hover zone centre opens the radial menu to change operator
+      hoverZone.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hideNodeTooltip();
+        showRadialMenu(nodeId, px, py, "op");
+      });
+      hoverZone.style.cursor = "pointer";
+      swapGroup.appendChild(hoverZone);
+
+      for (const [posA, posB] of armPairs) {
+        const dA = armDirs[posA], dB = armDirs[posB];
+        // Bisector direction (between the two arms)
+        const mx = dA.x + dB.x, my = dA.y + dB.y;
+        const mLen = Math.hypot(mx, my) || 1;
+        const bx = px + SWAP_DIST * mx / mLen;
+        const by = py + SWAP_DIST * my / mLen;
+
+        const btnG = svgEl("g");
+        btnG.classList.add("swap-btn");
+        btnG.setAttribute("data-node-id", nodeId);
+        btnG.setAttribute("data-pos-a", posA);
+        btnG.setAttribute("data-pos-b", posB);
+        btnG.style.cursor = "pointer";
+        btnG.style.opacity = "0";
+        btnG.style.transition = "opacity 0.15s";
+        btnG.style.pointerEvents = "none";
+
+        const bg = svgEl("circle");
+        bg.setAttribute("cx", bx);
+        bg.setAttribute("cy", by);
+        bg.setAttribute("r", SWAP_R);
+        bg.setAttribute("fill", isDarkMode ? "rgba(40,40,40,0.9)" : "rgba(230,230,230,0.9)");
+        bg.setAttribute("stroke", "#888");
+        bg.setAttribute("stroke-width", 1);
+        btnG.appendChild(bg);
+
+        // Swap icon: ↔ symbol
+        const ico = svgEl("text");
+        ico.setAttribute("x", bx);
+        ico.setAttribute("y", by);
+        ico.setAttribute("text-anchor", "middle");
+        ico.setAttribute("dominant-baseline", "central");
+        ico.setAttribute("font-size", 11);
+        ico.setAttribute("fill", "#ccc");
+        ico.textContent = "⇄";
+        uprightText(ico, bx, by);
+        btnG.appendChild(ico);
+
+        // Click handler: swap the two arms with turnstile animation
+        btnG.addEventListener("click", (e) => {
+          e.stopPropagation();
+
+          // --- Turnstile animation ---
+          const endA = armEndpoints[posA], endB = armEndpoints[posB];
+          if (!endA || !endB) {
+            // Fallback: immediate swap, no animation
+            const temp = node.armAssignment[posA];
+            node.armAssignment[posA] = node.armAssignment[posB];
+            node.armAssignment[posB] = temp;
+            const info = deriveOpInfo(effectiveCat, node.armAssignment);
+            if (info) { node.opType = info.opType; node.symbol = info.symbol; }
+            applySwapToAstAndState();
+            renderStepRepresentation();
+            return;
+          }
+
+          // Compute rotation angle
+          const θA = Math.atan2(endA.y - py, endA.x - px);
+          const θB = Math.atan2(endB.y - py, endB.x - px);
+          let delta = θB - θA;
+          while (delta > Math.PI) delta -= 2 * Math.PI;
+          while (delta < -Math.PI) delta += 2 * Math.PI;
+          const deltaDeg = delta * 180 / Math.PI;
+
+          // Arm animation colours — per-role for all categories
+          let animColA, animColB;
+          const animCC = effectiveCat && ARM_COLORS[effectiveCat];
+          if (animCC && node.armAssignment) {
+            animColA = animCC[node.armAssignment[posA]] || col;
+            animColB = animCC[node.armAssignment[posB]] || col;
+          } else {
+            animColA = animColB = col;
+          }
+
+          // Build overlay group
+          const animOverlay = svgEl("g");
+          animOverlay.style.pointerEvents = "none";
+
+          // Dim layer (covers entire SVG)
+          const dimLayer = svgEl("rect");
+          dimLayer.setAttribute("x", "-10000"); dimLayer.setAttribute("y", "-10000");
+          dimLayer.setAttribute("width", "20000"); dimLayer.setAttribute("height", "20000");
+          dimLayer.setAttribute("fill", isDarkMode ? "rgba(30,30,30,0.6)" : "rgba(255,255,255,0.6)");
+          animOverlay.appendChild(dimLayer);
+
+          // Static pivot badge
+          const pivotC = svgEl("circle");
+          pivotC.setAttribute("cx", px); pivotC.setAttribute("cy", py);
+          pivotC.setAttribute("r", JR);
+          pivotC.style.fill = GLASS_FILL;
+          pivotC.setAttribute("stroke", badgeCol);
+          pivotC.setAttribute("stroke-width", 2.5);
+          animOverlay.appendChild(pivotC);
+          const pivotT = svgEl("text");
+          pivotT.setAttribute("x", px); pivotT.setAttribute("y", py);
+          pivotT.setAttribute("text-anchor", "middle");
+          pivotT.setAttribute("dominant-baseline", "central");
+          pivotT.setAttribute("font-size", 15);
+          pivotT.setAttribute("font-family", MATH_FONT);
+          pivotT.setAttribute("fill", badgeCol);
+          pivotT.textContent = displaySymbol;
+          uprightText(pivotT, px, py);
+          animOverlay.appendChild(pivotT);
+
+          // Arm A: rotating line from junction to endA
+          const gA = svgEl("g");
+          const lineA = svgEl("line");
+          lineA.setAttribute("x1", px); lineA.setAttribute("y1", py);
+          lineA.setAttribute("x2", endA.x); lineA.setAttribute("y2", endA.y);
+          lineA.setAttribute("stroke", animColA);
+          lineA.setAttribute("stroke-width", PW);
+          lineA.setAttribute("stroke-linecap", "round");
+          lineA.setAttribute("opacity", "0.85");
+          gA.appendChild(lineA);
+          const smilA = svgEl("animateTransform");
+          smilA.setAttribute("attributeName", "transform");
+          smilA.setAttribute("type", "rotate");
+          smilA.setAttribute("from", `0 ${px} ${py}`);
+          smilA.setAttribute("to", `${deltaDeg} ${px} ${py}`);
+          smilA.setAttribute("dur", "0.4s");
+          smilA.setAttribute("fill", "freeze");
+          smilA.setAttribute("calcMode", "spline");
+          smilA.setAttribute("keyTimes", "0;1");
+          smilA.setAttribute("keySplines", "0.42 0 0.58 1");
+          smilA.setAttribute("begin", "indefinite");
+          gA.appendChild(smilA);
+          animOverlay.appendChild(gA);
+
+          // Arm B: rotating line from junction to endB (opposite direction)
+          const gB = svgEl("g");
+          const lineB = svgEl("line");
+          lineB.setAttribute("x1", px); lineB.setAttribute("y1", py);
+          lineB.setAttribute("x2", endB.x); lineB.setAttribute("y2", endB.y);
+          lineB.setAttribute("stroke", animColB);
+          lineB.setAttribute("stroke-width", PW);
+          lineB.setAttribute("stroke-linecap", "round");
+          lineB.setAttribute("opacity", "0.85");
+          gB.appendChild(lineB);
+          const smilB = svgEl("animateTransform");
+          smilB.setAttribute("attributeName", "transform");
+          smilB.setAttribute("type", "rotate");
+          smilB.setAttribute("from", `0 ${px} ${py}`);
+          smilB.setAttribute("to", `${-deltaDeg} ${px} ${py}`);
+          smilB.setAttribute("dur", "0.4s");
+          smilB.setAttribute("fill", "freeze");
+          smilB.setAttribute("calcMode", "spline");
+          smilB.setAttribute("keyTimes", "0;1");
+          smilB.setAttribute("keySplines", "0.42 0 0.58 1");
+          smilB.setAttribute("begin", "indefinite");
+          gB.appendChild(smilB);
+          animOverlay.appendChild(gB);
+
+          svg.appendChild(animOverlay);
+
+          // Start SMIL animations
+          smilA.beginElement();
+          smilB.beginElement();
+
+          // After animation: apply swap and re-render
+          const ANIM_DUR = 430;
+          setTimeout(() => {
+            // Swap the role labels (no normalisation — positions stay, roles move)
+            const temp = node.armAssignment[posA];
+            node.armAssignment[posA] = node.armAssignment[posB];
+            node.armAssignment[posB] = temp;
+            // Update opType and symbol
+            const info = deriveOpInfo(effectiveCat, node.armAssignment);
+            if (info) { node.opType = info.opType; node.symbol = info.symbol; }
+            // Update AST, expression, overlay, latex, and re-render SVG
+            applySwapToAstAndState();
+            renderStepRepresentation();
+            updateInputOverlay();
+            updateLatexDisplay(ui.exprEl?.value ?? "");
+          }, ANIM_DUR);
+        });
+
+        swapGroup.appendChild(btnG);
+      }
+
+      // Hover on the group shows/hides all buttons inside it
+      const OP_HOVER_SCALE = 1.2;
+      let _opDeleteHandler = null;
+      swapGroup.addEventListener("mouseenter", () => {
+        swapGroup.querySelectorAll(".swap-btn").forEach(b => {
+          b.style.opacity = "1"; b.style.pointerEvents = "auto";
+        });
+        // Expand the junction circle and symbol text (preserving counter-rotation on text)
+        const circleXform = `translate(${px},${py}) scale(${OP_HOVER_SCALE}) translate(${-px},${-py})`;
+        const textXform = _counterDeg !== 0
+          ? `translate(${px},${py}) scale(${OP_HOVER_SCALE}) rotate(${_counterDeg}) translate(${-px},${-py})`
+          : circleXform;
+        if (node._junctionEl) node._junctionEl.setAttribute("transform", circleXform);
+        if (node._symbolTextEl) {
+          node._symbolTextEl.style.transformBox = "view-box";
+          node._symbolTextEl.style.transformOrigin = "0 0";
+          node._symbolTextEl.setAttribute("transform", textXform);
+        }
+        // Attach keyboard delete listener
+        _opDeleteHandler = (e) => {
+          if (e.key === "Backspace" || e.key === "Delete" || e.key === "d" || e.key === "D") {
+            e.preventDefault();
+            deleteOperatorNode(nodeId, layout);
+          }
+        };
+        document.addEventListener("keydown", _opDeleteHandler);
+      });
+      swapGroup.addEventListener("mouseleave", () => {
+        swapGroup.querySelectorAll(".swap-btn").forEach(b => {
+          b.style.opacity = "0"; b.style.pointerEvents = "none";
+        });
+        // Restore original transforms (counter-rotation for text)
+        if (node._junctionEl) node._junctionEl.removeAttribute("transform");
+        if (node._symbolTextEl) {
+          node._symbolTextEl.style.transformBox = "";
+          node._symbolTextEl.style.transformOrigin = "";
+          if (_counterDeg !== 0) {
+            node._symbolTextEl.setAttribute("transform", `rotate(${_counterDeg} ${px} ${py})`);
+          } else {
+            node._symbolTextEl.removeAttribute("transform");
+          }
+        }
+        if (_opDeleteHandler) {
+          document.removeEventListener("keydown", _opDeleteHandler);
+          _opDeleteHandler = null;
+        }
+      });
+
+      gInteract.appendChild(swapGroup);
+    }
+
+    // Draw children — darken→role-color gradient for all categories
+    const childEntries = [];
+    if (node.leftId != null) childEntries.push({ id: node.leftId, armCol: leftArmCol, label: leftLabel });
+    if (node.rightId != null && node.rightId !== node.leftId)
+      childEntries.push({ id: node.rightId, armCol: rightArmCol, label: rightLabel });
+
+    for (const { id: childId, armCol, label } of childEntries) {
+      const child = nodes[childId];
+      if (!child || child.x == null) continue;
+
+      if (child.type === "intermediate") {
+        drawIntermediateNode(childId, px, py, darkenColor(armCol, 0.3), armCol, label);
+      } else {
+        const childRad = child.type === "value" ? R : JR;
+        pipeToChild(px, py, child.x, child.y, darkenColor(armCol, 0.3), armCol, childRad, JR, undefined, label);
+        drawNode(childId, px, py, false, armCol);
+      }
+    }
+  }
+
+  // ---- Draw y node: black glass fill with green ring ----
+  drawCircle(yX, yY, R, GLASS_FILL, OP_COLORS.y, 2);
+  const yTextEl = drawText(yX, yY, "y", 32, OP_COLORS.y, true);
+  layout._yTextEl = yTextEl;  // ref for live value updates
+  drawDebugLabel(yX, yY + R + 12, "y");
+
+  // ---- Draw tree from root ----
+  drawNode(rootOpId, yX, yY, true);
+
+  // ==================================================================
+  // ---- Dimmed third arrows on intermediate nodes -------------------
+  // DISABLED: rings removed, so third-arm stubs are no longer shown.
+  // ==================================================================
+
+  // ==================================================================
+  // ---- Equals marker: white ring + "=" pill on the equals pipe -----
+  // ==================================================================
+  {
+    // Determine equals pipe endpoints
+    const eq = state.equalsEdge;
+    let eqFromX, eqFromY, eqToX, eqToY;
+    if (!eq) {
+      // Default: equals is on the Y→root pipe
+      eqFromX = yX; eqFromY = yY;
+      const root = nodes[rootOpId];
+      eqToX = root.x; eqToY = root.y;
+    } else {
+      const fromN = eq.fromId === 'y' ? { x: yX, y: yY } : nodes[eq.fromId];
+      const toN = eq.toId === 'y' ? { x: yX, y: yY } : nodes[eq.toId];
+      if (fromN && toN) {
+        eqFromX = fromN.x; eqFromY = fromN.y;
+        eqToX = toN.x; eqToY = toN.y;
+      }
+    }
+
+    if (eqFromX != null && eqToX != null) {
+      const mx = (eqFromX + eqToX) / 2, my = (eqFromY + eqToY) / 2;
+      const dx = eqToX - eqFromX, dy = eqToY - eqFromY;
+      const dist = Math.hypot(dx, dy) || 1;
+      const ux = dx / dist, uy = dy / dist;
+      const nx = -uy, ny = ux; // perpendicular
+
+      // Two opposing arrow triangles representing the equals sign: ▶◀
+      const EQ_ALEN = 8;   // triangle length
+      const EQ_AHW = 3.5; // triangle half-width at base
+      const EQ_GAP = 2;   // gap between the two tips
+
+      // Position equals marker at from-end or to-end of the pipe
+      const atToEnd = eq && eq.atToEnd;
+      const eqPosX = atToEnd ? (eqToX - CR * ux) : (eqFromX + CR * ux);
+      const eqPosY = atToEnd ? (eqToY - CR * uy) : (eqFromY + CR * uy);
+
+      // Both triangles together at this position, tips pointing at each other (▶◀)
+      const triAx = eqPosX - EQ_GAP / 2 * ux, triAy = eqPosY - EQ_GAP / 2 * uy;
+      const triBx = eqPosX + EQ_GAP / 2 * ux, triBy = eqPosY + EQ_GAP / 2 * uy;
+
+      // Triangle A: tip pointing toward to-end (+u direction)
+      const aBase_x = triAx - EQ_ALEN * ux, aBase_y = triAy - EQ_ALEN * uy;
+      const triA = svgEl("polygon");
+      triA.setAttribute("points", [
+        `${triAx},${triAy}`,
+        `${aBase_x + EQ_AHW * nx},${aBase_y + EQ_AHW * ny}`,
+        `${aBase_x - EQ_AHW * nx},${aBase_y - EQ_AHW * ny}`
+      ].join(" "));
+      const eqFill = isDarkMode ? "white" : "black";
+      triA.style.fill = "var(--text)";
+      triA.setAttribute("opacity", 0.85);
+      triA.classList.add("eq-tri", "eq-tri-a");
+      gArrows.appendChild(triA);
+
+      // Triangle B: tip pointing toward from-end (-u direction)
+      const bBase_x = triBx + EQ_ALEN * ux, bBase_y = triBy + EQ_ALEN * uy;
+      const triB = svgEl("polygon");
+      triB.setAttribute("points", [
+        `${triBx},${triBy}`,
+        `${bBase_x + EQ_AHW * nx},${bBase_y + EQ_AHW * ny}`,
+        `${bBase_x - EQ_AHW * nx},${bBase_y - EQ_AHW * ny}`
+      ].join(" "));
+      triB.style.fill = "var(--text)";
+      triB.setAttribute("opacity", 0.85);
+      triB.classList.add("eq-tri", "eq-tri-b");
+      gArrows.appendChild(triB);
+
+      // Visible grab circle at the equals marker — ring matches theme
+      const grabR = EQ_ALEN + 4; // just big enough to enclose the double arrows
+      const eqGrab = svgEl("circle");
+      eqGrab.setAttribute("cx", eqPosX);
+      eqGrab.setAttribute("cy", eqPosY);
+      eqGrab.setAttribute("r", grabR);
+      eqGrab.style.fill = isDarkMode ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+      eqGrab.style.stroke = isDarkMode ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.35)";
+      eqGrab.setAttribute("stroke-width", "2");
+      eqGrab.setAttribute("cursor", "grab");
+      eqGrab.setAttribute("pointer-events", "all");
+      eqGrab.classList.add("equals-grab");
+      eqGrab.dataset.fromId = eq ? String(eq.fromId) : 'y';
+      eqGrab.dataset.toId = eq ? String(eq.toId) : String(rootOpId);
+      gInteract.appendChild(eqGrab);
+
+      // ---- Hide normal arrow polygons that sit on the equals pipe ----
+      svg.querySelectorAll('polygon:not(.eq-tri)').forEach(p => {
+        const pts = p.getAttribute('points');
+        if (!pts) return;
+        const verts = pts.trim().split(/\s+/).map(v => v.split(',').map(Number));
+        let sx = 0, sy = 0;
+        for (const [vx, vy] of verts) { sx += vx; sy += vy; }
+        const centX = sx / verts.length, centY = sy / verts.length;
+        // Check if centroid is near the equals pipe midpoint
+        if (Math.hypot(centX - mx, centY - my) < dist / 2 + 2) {
+          p.setAttribute('opacity', '0');
+          p.classList.add('eq-hidden');
+        }
+      });
+
+
+    }
+  }
+
+  // ==================================================================
+  // ---- Post-process: permanently rotate arrow triangles for equalsEdge ----
+  // ==================================================================
+  const eqEdge = state.equalsEdge;
+  if (eqEdge && typeof eqEdge.fromId === 'number') {
+    // Find path from root to equalsEdge.toId
+    const eqPath = [];
+    function findEqPath(nodeId, target) {
+      if (nodeId == null) return false;
+      const nd = nodes[nodeId];
+      if (!nd) return false;
+      if (nodeId === target) return true;
+      if (nd.type === 'intermediate' && nd.connectsToOpId != null) {
+        return findEqPath(nd.connectsToOpId, target);
+      }
+      if (nd.type !== 'op') return false;
+      if (nd.leftId != null && findEqPath(nd.leftId, target)) {
+        eqPath.push({ nodeId, armToChild: 'left' });
+        return true;
+      }
+      if (nd.rightId != null && nd.rightId !== nd.leftId && findEqPath(nd.rightId, target)) {
+        eqPath.push({ nodeId, armToChild: 'right' });
+        return true;
+      }
+      return false;
+    }
+    findEqPath(rootOpId, eqEdge.toId);
+    eqPath.reverse();
+
+    // For each ring on the path, compute rotation and apply to arrow triangles
+    for (const step of eqPath) {
+      const nd = nodes[step.nodeId];
+      if (!nd || nd.type !== 'op') continue;
+      const cx = nd.x, cy = nd.y;
+
+      // Output direction (toward parent or Y)
+      let px, py;
+      if (step.nodeId === rootOpId) {
+        px = yX; py = yY;
+      } else {
+        for (let j = 0; j < nodes.length; j++) {
+          const pn = nodes[j];
+          if (pn && (pn.leftId === step.nodeId || pn.rightId === step.nodeId)) {
+            px = pn.x; py = pn.y; break;
+          }
+          if (pn && pn.type === 'intermediate' && pn.connectsToOpId === step.nodeId) {
+            px = pn.x; py = pn.y; break;
+          }
+        }
+      }
+      if (px == null) continue;
+      const outAngle = Math.atan2(py - cy, px - cx);
+
+      // Child direction (the arm equals exits through)
+      const childId = step.armToChild === 'left' ? nd.leftId : nd.rightId;
+      const child = nodes[childId];
+      if (!child || child.x == null) continue;
+      const childAngle = Math.atan2(child.y - cy, child.x - cx);
+
+      let rotRad = childAngle - outAngle;
+      if (rotRad > Math.PI) rotRad -= 2 * Math.PI;
+      if (rotRad < -Math.PI) rotRad += 2 * Math.PI;
+      const rotDeg = rotRad * 180 / Math.PI;
+      const rotStr = `rotate(${rotDeg}, ${cx}, ${cy})`;
+
+      // Find and rotate arrow triangles whose vertices are near this ring
+      svg.querySelectorAll('polygon:not(.eq-tri)').forEach(p => {
+        const pts = p.getAttribute('points');
+        if (!pts) return;
+        const verts = pts.trim().split(/\s+/).map(v => v.split(',').map(Number));
+        for (const [vx, vy] of verts) {
+          if (Math.hypot(vx - cx, vy - cy) < CR + 15) {
+            p.setAttribute('transform', rotStr);
+            break;
+          }
+        }
+      });
+    }
+
+    // After rotating arrows, recalculate which polygons should be hidden.
+    // Collect the centroids of actual eq-tri marker elements, then hide any
+    // regular polygon whose visual (rotated) centroid overlaps a marker,
+    // and UN-hide any previously-hidden polygon that has rotated away.
+    const eqTriCentroids = [];
+    svg.querySelectorAll('.eq-tri').forEach(tri => {
+      const pts = tri.getAttribute('points');
+      if (!pts) return;
+      const verts = pts.trim().split(/\s+/).map(v => v.split(',').map(Number));
+      let sx = 0, sy = 0;
+      for (const [vx, vy] of verts) { sx += vx; sy += vy; }
+      eqTriCentroids.push({ x: sx / verts.length, y: sy / verts.length });
+    });
+    const EQ_HIDE_R = 15;
+    svg.querySelectorAll('polygon:not(.eq-tri)').forEach(p => {
+      const pts = p.getAttribute('points');
+      if (!pts) return;
+      const verts = pts.trim().split(/\s+/).map(v => v.split(',').map(Number));
+      let sx = 0, sy = 0;
+      for (const [vx, vy] of verts) { sx += vx; sy += vy; }
+      let cx2 = sx / verts.length, cy2 = sy / verts.length;
+      // Account for rotation transform to get visual centroid
+      const t = p.getAttribute('transform');
+      if (t) {
+        const m = t.match(/rotate\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/);
+        if (m) {
+          const deg = parseFloat(m[1]), rcx = parseFloat(m[2]), rcy = parseFloat(m[3]);
+          const rad = deg * Math.PI / 180;
+          const dx2 = cx2 - rcx, dy2 = cy2 - rcy;
+          cx2 = rcx + dx2 * Math.cos(rad) - dy2 * Math.sin(rad);
+          cy2 = rcy + dx2 * Math.sin(rad) + dy2 * Math.cos(rad);
+        }
+      }
+      let nearTri = false;
+      for (const tc of eqTriCentroids) {
+        if (Math.hypot(cx2 - tc.x, cy2 - tc.y) < EQ_HIDE_R) {
+          nearTri = true;
+          break;
+        }
+      }
+      if (nearTri) {
+        p.setAttribute('opacity', '0');
+        p.classList.add('eq-hidden');
+      } else if (p.classList.contains('eq-hidden')) {
+        p.removeAttribute('opacity');
+        p.classList.remove('eq-hidden');
+      }
+    });
+  }
+
+  return svg;
 }
 
 /**
@@ -1592,7 +6502,9 @@ const FUNC_INVERSES = {
 function getFunctionName(op) {
   if (op.type !== "other") return null;
   const m = op.label.match(/^([a-zA-Z_]+)\(\)$/);
-  return m ? m[1] : null;
+  if (!m) return null;
+  if (/^log_.+$/.test(m[1])) return null;  // handled by getLogBase
+  return m[1];
 }
 
 /**
@@ -1652,17 +6564,28 @@ function getInverseFunctionLabel(op) {
   return null;
 }
 
-function applyOpsChange() {
+function applyOpsChange(relayout) {
+  if (_swapInProgress) { return; }
   try {
     const steps = rebuildStepsFromOps(state.ops);
     state.steps = steps;
     state.fn = steps.length > 0 ? steps[steps.length - 1].fn : null;
-    // Sync the text input with the current ops
     syncInputFromOps();
+    if (relayout) {
+      const expr = ui.exprEl?.value ?? "";
+      if (expr.trim()) {
+        try {
+          const { pipeLayout } = parseAndLinearize(expr);
+          if (pipeLayout != null) state.pipeLayout = pipeLayout;
+        } catch (_) { }
+      }
+    }
     renderStepRepresentation();
     setStatusForCurrentMode();
     // Resize the expression input to fit updated content
     autoSizeInput();
+    // Update LaTeX display
+    updateLatexDisplay(ui.exprEl?.value ?? "");
   } catch (err) {
     setStatus(err?.message ?? String(err), "error");
   }
@@ -1709,92 +6632,115 @@ function buildDisplayExpr(ops) {
   spans.push({ text: "x", color: xColor, isBracket: false });
   let prevPrec = 999; // x is a primary, highest precedence
 
+  /** Break a complex operand into individually-coloured spans.
+   *  Simple operands (plain numbers, single vars) keep the parent's opndColor;
+   *  complex sub-expressions (e.g. "2*x") get recursively coloured. */
+  function operandSpans(raw, opndColor) {
+    if (!raw) return [{ text: "", color: opndColor, isBracket: false }];
+    if (/^-?\d+(\.\d+)?$/.test(raw)) return [{ text: raw, color: opndColor, isBracket: false }];
+    if (/^[a-zA-Z]$/.test(raw)) {
+      return [{ text: raw, color: raw === "x" ? OP_COLORS.x : opndColor, isBracket: false }];
+    }
+    // Complex: use colorizeRawExpr and replace default-text numbers with opndColor
+    const parts = colorizeRawExpr(raw);
+    return parts.map(s => ({
+      text: s.text,
+      color: s.color === "var(--text)" ? opndColor : s.color,
+      isBracket: false,
+      opacity: s.opacity,
+    }));
+  }
+
   for (const op of ops) {
-    const colorHex = userColors[getColorKeyForOp(op)] || "#aaa";
+    const { fnColor, opndColor } = getOpArmColors(op);
 
     if (op.type === "add" || op.type === "sub") {
       const sym = op.type === "add" ? " + " : " - ";
       const operand = op.operand || "";
-      spans.push({ text: sym, color: colorHex, isBracket: false });
-      spans.push({ text: operand, color: colorHex, isBracket: false });
+      spans.push({ text: sym, color: fnColor, isBracket: false });
+      spans.push(...operandSpans(operand, opndColor));
       prevPrec = 1;
     } else if (op.type === "mul" || op.type === "div") {
       const sym = op.type === "mul" ? " * " : " / ";
       const operand = op.operand || "";
       if (prevPrec < 2) {
-        spans.splice(0, 0, { text: "(", color: colorHex, isBracket: true });
-        spans.push({ text: ")", color: colorHex, isBracket: true });
+        spans.splice(0, 0, { text: "(", color: fnColor, isBracket: true });
+        spans.push({ text: ")", color: fnColor, isBracket: true });
       }
-      spans.push({ text: sym, color: colorHex, isBracket: false });
+      spans.push({ text: sym, color: fnColor, isBracket: false });
       // Wrap operand in parens if it has lower-precedence operators
       if (/[+\-]/.test(operand) && !/^\d/.test(operand)) {
-        spans.push({ text: "(", color: colorHex, isBracket: true });
-        spans.push({ text: operand, color: colorHex, isBracket: false });
-        spans.push({ text: ")", color: colorHex, isBracket: true });
+        spans.push({ text: "(", color: fnColor, isBracket: true });
+        spans.push(...operandSpans(operand, opndColor));
+        spans.push({ text: ")", color: fnColor, isBracket: true });
       } else {
-        spans.push({ text: operand, color: colorHex, isBracket: false });
+        spans.push(...operandSpans(operand, opndColor));
       }
       prevPrec = 2;
     } else {
       const fnName = getFunctionName(op);
       if (fnName) {
-        spans.splice(0, 0, { text: fnName + "(", color: colorHex, isBracket: false });
-        spans.push({ text: ")", color: colorHex, isBracket: false });
+        spans.splice(0, 0, { text: fnName + "(", color: fnColor, isBracket: false });
+        spans.push({ text: ")", color: fnColor, isBracket: false });
         prevPrec = 999;
       } else if (op.label === "x²") {
         if (prevPrec < 3) {
-          spans.splice(0, 0, { text: "(", color: colorHex, isBracket: true });
-          spans.push({ text: ")", color: colorHex, isBracket: true });
+          spans.splice(0, 0, { text: "(", color: fnColor, isBracket: true });
+          spans.push({ text: ")", color: fnColor, isBracket: true });
         }
-        spans.push({ text: "^2", color: colorHex, isBracket: false });
+        spans.push({ text: "^", color: fnColor, isBracket: false });
+        spans.push({ text: "2", color: opndColor, isBracket: false });
         prevPrec = 3;
       } else if (getExpBase(op) !== null) {
         const base = op.operand || getExpBase(op);
-        spans.splice(0, 0, { text: base + "^(", color: colorHex, isBracket: false });
-        spans.push({ text: ")", color: colorHex, isBracket: false });
+        spans.splice(0, 0, ...operandSpans(base, opndColor),
+          { text: "^(", color: fnColor, isBracket: false });
+        spans.push({ text: ")", color: fnColor, isBracket: false });
         prevPrec = 999;
       } else if (getLogBase(op) !== null) {
         const base = op.operand || getLogBase(op);
-        spans.splice(0, 0, { text: "ln(", color: colorHex, isBracket: false });
-        spans.push({ text: ")/ln(" + base + ")", color: colorHex, isBracket: false });
+        spans.splice(0, 0, { text: "log_", color: fnColor, isBracket: false },
+          ...operandSpans(base, opndColor),
+          { text: "(", color: fnColor, isBracket: false });
+        spans.push({ text: ")", color: fnColor, isBracket: false });
         prevPrec = 999;
       } else if (op.label === "^ −1" || op.label === "^ -1") {
         if (prevPrec < 3) {
-          spans.splice(0, 0, { text: "(", color: colorHex, isBracket: true });
-          spans.push({ text: ")", color: colorHex, isBracket: true });
+          spans.splice(0, 0, { text: "(", color: fnColor, isBracket: true });
+          spans.push({ text: ")", color: fnColor, isBracket: true });
         }
-        spans.push({ text: "^(-1)", color: colorHex, isBracket: false });
+        spans.push({ text: "^(-1)", color: fnColor, isBracket: false });
         prevPrec = 3;
       } else if (getPowerExponent(op) !== null) {
         const expStr = op.operand || getPowerExponent(op);
         if (prevPrec < 3) {
-          spans.splice(0, 0, { text: "(", color: colorHex, isBracket: true });
-          spans.push({ text: ")", color: colorHex, isBracket: true });
+          spans.splice(0, 0, { text: "(", color: fnColor, isBracket: true });
+          spans.push({ text: ")", color: fnColor, isBracket: true });
         }
-        spans.push({ text: "^", color: colorHex, isBracket: false });
-        spans.push({ text: expStr, color: colorHex, isBracket: false });
+        spans.push({ text: "^", color: fnColor, isBracket: false });
+        spans.push(...operandSpans(expStr, opndColor));
         prevPrec = 3;
       } else if (getRootN(op) !== null) {
         const rootN = op.operand || getRootN(op);
         if (prevPrec < 3) {
-          spans.splice(0, 0, { text: "(", color: colorHex, isBracket: true });
-          spans.push({ text: ")", color: colorHex, isBracket: true });
+          spans.splice(0, 0, { text: "(", color: fnColor, isBracket: true });
+          spans.push({ text: ")", color: fnColor, isBracket: true });
         }
-        spans.push({ text: "^(1/", color: colorHex, isBracket: false });
-        spans.push({ text: rootN, color: colorHex, isBracket: false });
-        spans.push({ text: ")", color: colorHex, isBracket: false });
+        spans.push({ text: "^(1/", color: fnColor, isBracket: false });
+        spans.push(...operandSpans(rootN, opndColor));
+        spans.push({ text: ")", color: fnColor, isBracket: false });
         prevPrec = 3;
       } else if (getModOperand(op) !== null) {
         const modVal = op.operand || getModOperand(op);
         if (prevPrec < 2) {
-          spans.splice(0, 0, { text: "(", color: colorHex, isBracket: true });
-          spans.push({ text: ")", color: colorHex, isBracket: true });
+          spans.splice(0, 0, { text: "(", color: fnColor, isBracket: true });
+          spans.push({ text: ")", color: fnColor, isBracket: true });
         }
-        spans.push({ text: " % ", color: colorHex, isBracket: false });
-        spans.push({ text: modVal, color: colorHex, isBracket: false });
+        spans.push({ text: " % ", color: fnColor, isBracket: false });
+        spans.push(...operandSpans(modVal, opndColor));
         prevPrec = 2;
       } else {
-        spans.push({ text: op.label, color: colorHex, isBracket: false });
+        spans.push({ text: op.label, color: fnColor, isBracket: false });
         prevPrec = 0;
       }
     }
@@ -1825,38 +6771,63 @@ function syncInputFromOps() {
 function updateInputOverlay() {
   if (!ui.exprOverlay || !ui.exprEl) return;
   const controlEl = ui.exprEl.closest('.control--expr');
+  const isEqActive = !!state.equalsEdge;
+  // Toggle eq-active class for equalsEdge state (removes y= indent on input)
+  if (controlEl) controlEl.classList.toggle('eq-active', isEqActive);
   const text = ui.exprEl.value;
+
+  // "y = " prefix HTML — rendered inside the overlay so it's part of the expression display
+  const _eqCol = document.body.classList.contains('light') ? 'black' : 'white';
+  const yEqHtml = '<span style="color:' + OP_COLORS.y + '">y</span>'
+    + '<span style="color:' + _eqCol + '"> = </span>';
+
   if (!text) {
-    ui.exprOverlay.innerHTML = "";
-    if (controlEl) controlEl.classList.remove('has-overlay');
+    // Even when empty, show "y = " in the overlay (unless eq-active)
+    ui.exprOverlay.innerHTML = isEqActive ? '' : yEqHtml;
+    if (controlEl) controlEl.classList.toggle('has-overlay', !isEqActive && !!ui.exprOverlay.innerHTML);
     return;
   }
 
   // If we have pre-built spans from buildDisplayExpr (after Enter/plotFunction), use them
   if (state.displaySpans && state.displaySpans.length) {
     const spanText = state.displaySpans.map(s => s.text).join('');
-    if (spanText === text) {
-      ui.exprOverlay.innerHTML = state.displaySpans
+    // When equalsEdge is active, always use displaySpans (input has RHS only, spans have LHS = RHS)
+    if (spanText === text || isEqActive) {
+      const spansHtml = state.displaySpans
         .map(s => {
-          const opacity = s.isBracket ? 0.35 : 1;
+          const opacity = s.isBracket ? 0.35 : (s.opacity || 1);
           return '<span style="color:' + s.color + ';opacity:' + opacity + '">' + escapeHtml(s.text) + '</span>';
         })
         .join('');
+      // Prepend "y = " only in normal mode (eq-active displaySpans already contain y)
+      ui.exprOverlay.innerHTML = isEqActive ? spansHtml : yEqHtml + spansHtml;
       if (controlEl) controlEl.classList.add('has-overlay');
       return;
     }
   }
 
-  // Live coloring: tokenize the raw text and color by token type
-  const spans = colorizeRawExpr(text);
+  // Live coloring: prefer pipe-layout-aware spans when available
+  let spans;
+  if (state.pipeLayout && state.pipeLayout.nodes && state.pipeLayout.mainPath) {
+    spans = pipeLayoutToColoredSpans(state.pipeLayout);
+    // Verify span text matches the actual input — fall back if mismatch
+    if (spans && spans.length > 0) {
+      const spanText = spans.map(s => s.text).join('');
+      if (spanText !== text) spans = null;
+    }
+  }
+  if (!spans || spans.length === 0) {
+    spans = colorizeRawExpr(text);
+  }
   if (spans.length > 0) {
-    ui.exprOverlay.innerHTML = spans
+    const spansHtml = spans
       .map(s => '<span style="color:' + s.color + (s.opacity ? ';opacity:' + s.opacity : '') + '">' + escapeHtml(s.text) + '</span>')
       .join('');
+    ui.exprOverlay.innerHTML = yEqHtml + spansHtml;
     if (controlEl) controlEl.classList.add('has-overlay');
   } else {
-    ui.exprOverlay.innerHTML = "";
-    if (controlEl) controlEl.classList.remove('has-overlay');
+    ui.exprOverlay.innerHTML = yEqHtml;
+    if (controlEl) controlEl.classList.toggle('has-overlay', !!ui.exprOverlay.innerHTML);
   }
   // Re-measure input width now that overlay content has changed (may shrink)
   autoSizeInput();
@@ -1884,6 +6855,24 @@ function colorizeRawExpr(text) {
         const isMod = word === "mod";
         const col = isMod ? OP_COLORS.mulDiv : isTrig ? OP_COLORS.trig : isExp ? OP_COLORS.exp : OP_COLORS.misc;
         spans.push({ text: word, color: col });
+      } else if (word.startsWith("log_") && word.length > 4) {
+        // log_base notation → split into "log_" (exp color) and base part
+        const basePart = word.slice(4);
+        spans.push({ text: "log_", color: OP_COLORS.exp });
+        if (basePart === "x") {
+          spans.push({ text: basePart, color: OP_COLORS.x });
+        } else {
+          spans.push({ text: basePart, color: OP_COLORS.exp });
+        }
+      } else if (word.startsWith("nthrt_") && word.length > 6) {
+        // nthrt_n notation → split into "nthrt_" (exp color) and index part
+        const idxPart = word.slice(6);
+        spans.push({ text: "nthrt_", color: OP_COLORS.exp });
+        if (idxPart === "x") {
+          spans.push({ text: idxPart, color: OP_COLORS.x });
+        } else {
+          spans.push({ text: idxPart, color: OP_COLORS.exp });
+        }
       } else if (word === "pi" || word === "e") {
         spans.push({ text: word, color: OP_COLORS.misc });
       } else {
@@ -1928,7 +6917,7 @@ function getOpSymbol(step) {
     case "add": return "+";
     case "sub": return "−";
     case "mul": return "×";
-    case "div": return "/";
+    case "div": return "÷";
     default: return null;
   }
 }
@@ -1937,7 +6926,7 @@ function getInverseOpSymbol(step) {
   switch (step.type) {
     case "add": return "−";
     case "sub": return "+";
-    case "mul": return "/";
+    case "mul": return "÷";
     case "div": return "×";
     default: return null;
   }
@@ -1948,7 +6937,7 @@ function getOpValue(step) {
     return step.label.replace(/^[+−]\s*/, "");
   }
   if (step.type === "mul" || step.type === "div") {
-    return step.label.replace(/^[×/]\s*/, "");
+    return step.label.replace(/^[×÷/]\s*/, "");
   }
   return null;
 }
@@ -1965,801 +6954,2370 @@ function getColorKeyForOp(op) {
   return getOpCategory(op);
 }
 
+/* ======= Pipe diagram helpers ======= */
+
+/** Single source of truth: scroll direction for changing operand/numeric value. Returns +1 to increase, -1 to decrease. Scroll down = bigger. */
+function getOperandScrollDir(e) {
+  return e.deltaY > 0 ? 1 : -1;
+}
+
+/** Return the operand value for an op (shown as a badge above the junction), or null. */
+function getOperandForPipe(op) {
+  if (op.type === "add" || op.type === "sub" || op.type === "mul" || op.type === "div") {
+    return op.operand || getOpValue(op) || null;
+  }
+  if (op.label === "x\u00B2") return "2";
+  const exp = getPowerExponent(op); if (exp !== null) return exp;
+  const rootN = getRootN(op); if (rootN !== null) return rootN;
+  const expBase = getExpBase(op); if (expBase !== null) return expBase;
+  const logBase = getLogBase(op); if (logBase !== null) return logBase;
+  const modVal = getModOperand(op); if (modVal !== null) return modVal;
+  // Functions like sin, cos, etc. — no external operand
+  return null;
+}
+
+/** Return the symbol to display at the centre of an operator junction. */
+function getPipeSymbol(op) {
+  if (!op) return "?";
+  if (op.type === "add") return "+";
+  if (op.type === "sub") return "\u2212";
+  if (op.type === "mul") return "\u00d7";
+  if (op.type === "div") return "\u00f7";
+  const expSt = getExpFamilyState(op);
+  if (expSt >= 0) {
+    if (expSt === 0) return "^";
+    if (expSt === 1) return "log";
+    return "\u221a";
+  }
+  if (op.label === "x\u00B2" || getPowerExponent(op) !== null) return "^";
+  if (getRootN(op) !== null) return "\u221a";
+  if (getExpBase(op) !== null) return "b\u02e3";
+  if (getLogBase(op) !== null) return "log";
+  if (getModOperand(op) !== null) return "%";
+  if (op.label === "^ \u22121" || op.label === "^ -1") return "^\u207b\u00b9";
+  const fn = getFunctionName(op);
+  if (fn) return fn;
+  return op.label || "?";
+}
+
+/* ======= Exp-family rotation helpers ======= */
+
+/**
+ * Determine whether an op is in the power/log/root trio.
+ * Returns 0 = power, 1 = log, 2 = root, or -1 if not in the family.
+ */
+function getExpFamilyState(op) {
+  if (!op) return -1;
+  if (op.label === "x\u00B2" || getPowerExponent(op) !== null) return 0; // power
+  if (getLogBase(op) !== null) return 1; // log
+  if (getRootN(op) !== null) return 2;   // root
+  return -1;
+}
+
+/** Extract the shared operand N from a power/log/root op. */
+function getExpFamilyOperand(op) {
+  if (op.label === "x\u00B2") return "2";
+  return getPowerExponent(op) || getLogBase(op) || getRootN(op) || null;
+}
+
+/**
+ * Mutate op to the given state (0=power, 1=log, 2=root)
+ * keeping the same operand N.  Updates label, operand, and applyToExpr.
+ */
+function setExpFamilyState(op, newState, operand) {
+  switch (newState) {
+    case 0: // power: input^N
+      op.label = operand === "2" ? "x\u00B2" : "^ " + operand;
+      op.operand = operand;
+      op.applyToExpr = (prev) => "(" + prev + ")**(" + operand + ")";
+      break;
+    case 1: // log: log_N(input)
+      op.label = "log_" + operand + "()";
+      op.operand = operand;
+      if (operand === "10") {
+        op.applyToExpr = (prev) => "log(" + prev + ")";
+      } else {
+        op.applyToExpr = (prev) => "ln(" + prev + ")/ln(" + operand + ")";
+      }
+      break;
+    case 2: // root: input^(1/N) = N-th root
+      op.label = "\u207F\u221A " + operand;
+      op.operand = operand;
+      op.applyToExpr = (prev) => "(" + prev + ")**(1/(" + operand + "))";
+      break;
+  }
+}
+
+/** Is this op in the exp family and eligible for rotation? */
+function isExpRotatable(op) {
+  return getExpFamilyState(op) >= 0;
+}
+
+/**
+ * Determine the rotation family for any op.
+ * Returns { family, states, curState } or null.
+ *   family: "exp" | "addSub" | "mulDiv"
+ *   states: number of states in the cycle
+ *   curState: current state index
+ */
+function getRotationInfo(op) {
+  if (!op) return null;
+  const expSt = getExpFamilyState(op);
+  if (expSt >= 0) return { family: "exp", states: 3, curState: expSt };
+  if (op.type === "add") return { family: "addSub", states: 2, curState: 0 };
+  if (op.type === "sub") return { family: "addSub", states: 2, curState: 1 };
+  if (op.type === "mul") return { family: "mulDiv", states: 2, curState: 0 };
+  if (op.type === "div") return { family: "mulDiv", states: 2, curState: 1 };
+  return null;
+}
+
+/** Is this op rotatable (any family)? */
+function isRotatable(op) {
+  return getRotationInfo(op) !== null;
+}
+
+/**
+ * Mutate an add/sub or mul/div op to the given state.
+ * add/sub: 0=add, 1=sub.  mul/div: 0=mul, 1=div.
+ */
+function setArithState(op, newState) {
+  const labelPrefixes = { add: "+ ", sub: "\u2212 ", mul: "\u00d7 ", div: "\u00f7 " };
+  const opChars = { add: "+", sub: "-", mul: "*", div: "/" };
+  let newType;
+  if (op.type === "add" || op.type === "sub") {
+    newType = newState === 0 ? "add" : "sub";
+  } else {
+    newType = newState === 0 ? "mul" : "div";
+  }
+  const opChar = opChars[newType];
+  op.type = newType;
+  op.label = labelPrefixes[newType] + op.operand;
+  op.applyToExpr = (prev) => "(" + prev + ")" + opChar + "(" + op.operand + ")";
+}
+
+/**
+ * Rotate any op by dir (+1 = CW, -1 = CCW).
+ * Mutates the op in place.
+ */
+function rotateOp(op, dir) {
+  const info = getRotationInfo(op);
+  if (!info) return;
+  const newState = ((info.curState + dir) % info.states + info.states) % info.states;
+  if (info.family === "exp") {
+    setExpFamilyState(op, newState, getExpFamilyOperand(op));
+  } else {
+    setArithState(op, newState);
+  }
+}
+
+/**
+ * Render the operations sequence as an SVG pipe diagram.
+ *
+ * Layout:
+ *   - Operators at 3-way (or 2-way) junctions with coloured junction arms.
+ *   - Value badges (x, intermediates, y) in the lower row; connector pipes (hex lattice)
+ *     link each value badge to its junction arm. Operand badges above operators, linked by arm + pipe.
+ *   - No hex outlines on value/operand badges; valve handwheels and operator circles only.
+ */
+function renderPipeDiagram(ops, layout, showIntermediates) {
+  if (showIntermediates === undefined) showIntermediates = true;
+  const safeOps = Array.isArray(ops) ? ops : [];
+  const NS = "http://www.w3.org/2000/svg";
+  const svgEl = (tag) => document.createElementNS(NS, tag);
+  const useBranchedLayout = layout && layout.branches && layout.branches.length > 0;
+
+  function hexToRgba(hex, alpha) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  /** Composite colour over page background for an opaque fill */
+  function blendFill(hex, alpha) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    const dark = document.body.classList.contains('dark-mode');
+    const bg = dark ? { r: 28, g: 30, b: 46 } : { r: 247, g: 247, b: 249 };
+    const mr = Math.round(r * alpha + bg.r * (1 - alpha));
+    const mg = Math.round(g * alpha + bg.g * (1 - alpha));
+    const mb = Math.round(b * alpha + bg.b * (1 - alpha));
+    return `rgb(${mr},${mg},${mb})`;
+  }
+
+  /** Mix colour toward near-black — always produces a dark tinted result */
+  function darkFill(hex, t) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    const base = { r: 20, g: 22, b: 34 };
+    const mr = Math.round(r * t + base.r * (1 - t));
+    const mg = Math.round(g * t + base.g * (1 - t));
+    const mb = Math.round(b * t + base.b * (1 - t));
+    return `rgb(${mr},${mg},${mb})`;
+  }
+
+  /* ---- layout constants ---- */
+
+  /** Convert vertical touch-drag into synthetic WheelEvents on a hit circle.
+   *  Reuses existing wheel handlers unchanged.  Threshold in px per tick. */
+  function addTouchScroll(hitEl, threshold) {
+    if (threshold == null) threshold = 30;
+    let startY = null;
+    let accum = 0;
+    hitEl.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      startY = e.touches[0].clientY;
+      accum = 0;
+    }, { passive: false });
+    hitEl.addEventListener("touchmove", (e) => {
+      if (startY == null) return;
+      e.preventDefault();
+      const dy = startY - e.touches[0].clientY;
+      startY = e.touches[0].clientY;
+      accum += dy;
+      while (Math.abs(accum) >= threshold) {
+        const sign = accum > 0 ? -1 : 1; // finger-up → negative deltaY (scroll up)
+        accum -= (accum > 0 ? 1 : -1) * threshold;
+        const synth = new WheelEvent("wheel", {
+          deltaY: sign * 100,
+          bubbles: false,
+          cancelable: true,
+          clientX: e.touches[0].clientX,
+          clientY: e.touches[0].clientY
+        });
+        hitEl.dispatchEvent(synth);
+      }
+    }, { passive: false });
+    hitEl.addEventListener("touchend", () => { startY = null; });
+    hitEl.addEventListener("touchcancel", () => { startY = null; });
+  }
+
+  const R = 33;    // large badge radius (x, y, operands)
+  const JR = 16;    // small badge radius (operators)
+  const IR = 20;    // intermediate value badge radius
+  const DOT_R = 3;     // small filled circles at spoke ends
+  const RING_W = 1.5;   // ring stroke width
+  const SPOKE_W = 2;     // spoke stroke width
+  const PW = 12;    // pipe stroke width
+  const GAP = 60;    // horizontal spacing (fallback for 0-ops)
+  const PAD = 14;    // SVG padding
+  const GREY = "#888";
+
+  const S60 = Math.sin(Math.PI / 3);  // √3/2 ≈ 0.866
+  const C60 = Math.cos(Math.PI / 3);  // 0.5
+
+  /* ---- Circles of radius ARM: operator junction circle and imaginary value circles just touch (distance 2*ARM) ---- */
+  const HEX_R = 44;
+  const ARM = HEX_R;   // junction circle radius; value "circles" same radius, touching
+  const HEX_STEP = 2 * ARM * Math.sqrt(3);  // so op-to-value distance = 2*ARM (horizontal STEP/2, vertical ARM)
+
+  const VALUE_FONT_BASE = 26;
+  const VALUE_BADGE_FONT_PREFERRED = Math.round(R * 1.2);
+
+  /* ---- vertical positions ---- */
+  let hasOperand, pipeY, operandCY, lowY, branchValueY, branchOpY, subBranchOpY, subBranchValueY, branchIntermediateY;
+  // For alternating layout: odd ops are flipped with branches going down
+  let oddOpY, oddBranchIntY, oddBranchOpY, oddBranchValueY, oddSubBranchOpY, oddSubBranchValueY;
+  let hasSubBranch = false;
+  if (useBranchedLayout) {
+    const { nodes: _n, branches: _b } = layout;
+    for (const br of _b) {
+      if ((_n[br.inputLeftId] && _n[br.inputLeftId].type === "op") ||
+        (_n[br.inputRightId] && _n[br.inputRightId].type === "op")) {
+        hasSubBranch = true; break;
+      }
+    }
+    const extraArms = hasSubBranch ? 3 : 0;
+    pipeY = PAD + (6 + extraArms) * ARM + R;
+    // Even ops at pipeY (standard, T arm up) — branches above
+    branchIntermediateY = pipeY - 2 * ARM;
+    branchOpY = pipeY - 4 * ARM;
+    branchValueY = branchOpY - ARM;
+    subBranchOpY = branchValueY - ARM;
+    subBranchValueY = subBranchOpY - ARM;
+    operandCY = pipeY - 2 * ARM;
+    // Compact mode: junction circles touch — no grey connectors. Center-to-center = 2*ARM along pipe.
+    const compactV = showIntermediates ? 0 : ARM;   // vertical gap even→odd = ARM so arm tips meet
+    const compactBranchV = showIntermediates ? 0 : 2 * ARM;  // branch feed tip meets main T tip
+    oddOpY = pipeY + 2 * ARM - compactV;
+    oddBranchIntY = oddOpY + 2 * ARM;
+    oddBranchOpY = oddOpY + 4 * ARM - compactBranchV;
+    oddBranchValueY = oddBranchOpY + ARM;
+    oddSubBranchOpY = oddBranchValueY + ARM;
+    oddSubBranchValueY = oddSubBranchOpY + ARM;
+    if (!showIntermediates) {
+      branchOpY = branchOpY + compactBranchV;
+      branchValueY = branchOpY - ARM;
+      subBranchOpY = branchValueY - ARM;
+      subBranchValueY = subBranchOpY - ARM;
+    }
+    lowY = pipeY + ARM;
+    hasOperand = false;
+  } else {
+    hasOperand = safeOps.some(op => getOperandForPipe(op) !== null);
+    pipeY = hasOperand ? PAD + 2 * ARM + R : PAD + HEX_R;
+    operandCY = hasOperand ? pipeY - 2 * ARM : 0;
+    lowY = pipeY + ARM;
+    branchValueY = branchOpY = subBranchOpY = subBranchValueY = branchIntermediateY = 0;
+    oddOpY = oddBranchIntY = oddBranchOpY = oddBranchValueY = oddSubBranchOpY = oddSubBranchValueY = 0;
+  }
+
+  const pipeItems = [];
+  let firstValCX;
+
+  if (useBranchedLayout) {
+    const { nodes, mainPath, branches } = layout;
+    const mainOpIdsOrdered = mainPath.opIds.slice().reverse();
+    const n = mainOpIdsOrdered.length;
+    firstValCX = PAD + HEX_R * S60 + (hasSubBranch ? 2 * ARM * Math.sqrt(3) : 0);
+    const opColor = (node) => userColors[getColorKeyForOp({ type: node.opType })] || OP_COLORS.misc;
+
+    function valueFontSizeForRadius(preferred, label, r) {
+      const len = Math.max(1, (label || "").length);
+      return Math.min(preferred, Math.max(8, Math.floor((2 * r * 0.9) / (0.6 * len))));
+    }
+    const _sup = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹" };
+    function getNodeLabel(id) {
+      const nd = nodes[id];
+      if (!nd) return "?";
+      if (nd.type === "value") return nd.value;
+      if (nd.type === "op" && nd.ast) {
+        if (nd.opType === "power" && nd.ast.left && nd.ast.left.type === "var"
+          && nd.ast.right && nd.ast.right.type === "num") {
+          return "x" + String(nd.ast.right.value).split("").map(c => _sup[c] || c).join("");
+        }
+        return exprString(nd.ast).replace(/\*\*/g, "^");
+      }
+      return "?";
+    }
+
+    // Which display indices have branches (and which have sub-branch inputs)
+    const branchedSet = new Set();
+    const branchHasSubRight = new Map();
+    const branchHasSubLeft = new Map();
+    for (const br of branches) {
+      const di = n - 1 - br.feedsIntoMainOpIndex;
+      branchedSet.add(di);
+      if (nodes[br.inputRightId] && nodes[br.inputRightId].type === "op") branchHasSubRight.set(di, br);
+      if (nodes[br.inputLeftId] && nodes[br.inputLeftId].type === "op") branchHasSubLeft.set(di, br);
+    }
+
+    const SQRT3 = Math.sqrt(3);
+    const VAL_Y = pipeY + ARM;
+    const opGap = showIntermediates ? HEX_STEP : ARM * SQRT3;
+    const opCXArr = [];
+    opCXArr[0] = firstValCX + ARM * SQRT3;
+    for (let i = 1; i < n; i++) {
+      opCXArr[i] = opCXArr[i - 1] + opGap;
+    }
+    const valCXArr = [firstValCX];
+    for (let i = 0; i < n; i++) {
+      if (i < n - 1) valCXArr.push((opCXArr[i] + opCXArr[i + 1]) / 2);
+    }
+    valCXArr.push(opCXArr[n - 1] + ARM * SQRT3);
+
+    pipeItems.push({ cx: valCXArr[0], cy: VAL_Y, r: R, label: "x", color: OP_COLORS.x, italic: true, operand: null, fontSize: VALUE_BADGE_FONT_PREFERRED });
+    for (let i = 0; i < n; i++) {
+      const isFlipped = (i % 2 === 1);
+      const opY = isFlipped ? oddOpY : pipeY;
+      const opNode = nodes[mainOpIdsOrdered[i]];
+      const branchForThisOp = branches.find((b) => b.feedsIntoMainOpIndex === n - 1 - i);
+      const stepOp = (safeOps && i < safeOps.length) ? safeOps[i] : null;
+      const bIntY = isFlipped ? oddBranchIntY : branchIntermediateY;
+      const it = {
+        cx: opCXArr[i], cy: opY, r: JR,
+        label: stepOp ? getPipeSymbol(stepOp) : opNode.symbol,
+        color: stepOp ? (userColors[getColorKeyForOp(stepOp)] || OP_COLORS.misc) : opColor(opNode),
+        italic: false,
+        operand: branchForThisOp ? null : (stepOp ? getOperandForPipe(stepOp) : (opNode.operand || null)),
+        fontSize: 16,
+        op: stepOp, layoutOpNode: opNode,
+        isFlipped,
+        branchFeed: branchForThisOp ? { cx: opCXArr[i], cy: bIntY } : null,
+      };
+      pipeItems.push(it);
+      if (i < n - 1) {
+        pipeItems.push({ cx: valCXArr[i + 1], cy: VAL_Y, r: R, label: "?", color: opColor(opNode), italic: false, operand: null, fontSize: 32, isIntermediate: true });
+      }
+    }
+    pipeItems.push({ cx: valCXArr[n], cy: VAL_Y, r: R, label: "y", color: OP_COLORS.y, italic: true, operand: null, fontSize: VALUE_BADGE_FONT_PREFERRED });
+
+    for (const br of branches) {
+      const di = n - 1 - br.feedsIntoMainOpIndex;
+      const isFlipped = (di % 2 === 1);
+      const branchOpCX = opCXArr[di];
+      const branchOpNode = nodes[br.opId];
+      const col = opColor(branchOpNode);
+      const branchLeftCX = branchOpCX - ARM * Math.sqrt(3);
+      const branchRightCX = branchOpCX + ARM * Math.sqrt(3);
+      const leftAstNum = branchOpNode.ast && branchOpNode.ast.left && branchOpNode.ast.left.type === "num" ? branchOpNode.ast.left : null;
+      // Y levels depend on whether the main-path op is even (up) or odd (down)
+      const bOpY = isFlipped ? oddBranchOpY : branchOpY;
+      const bIntY = isFlipped ? oddBranchIntY : branchIntermediateY;
+      const bValY = isFlipped ? oddBranchValueY : branchValueY;
+      const sbOpY = isFlipped ? oddSubBranchOpY : subBranchOpY;
+
+      // Branch op junction
+      pipeItems.push({ cx: branchOpCX, cy: bOpY, r: JR, label: branchOpNode.symbol, color: col, italic: false, operand: branchOpNode.operand || null, fontSize: 16, isBranchOp: true, isFlipped, layoutOpNode: branchOpNode, branchInputLeftId: br.inputLeftId, branchInputRightId: br.inputRightId, feedsIntoMainOpIndex: br.feedsIntoMainOpIndex });
+
+      // Intermediate "?" between branch op and main-path op
+      pipeItems.push({ cx: branchOpCX, cy: bIntY, r: R, label: "?", color: col, italic: false, operand: null, fontSize: 32, isIntermediate: true, isBranchIntermediate: true });
+
+      function findNumNode(ast) {
+        if (!ast) return null;
+        if (ast.type === "num") return ast;
+        if (ast.type === "call") return findNumNode(ast.arg);
+        if (ast.type === "binary") return findNumNode(ast.right);
+        return null;
+      }
+
+      // Helper: push a sub-branch (op junction + intermediate ? + two values) or a simple value
+      function pushBranchInput(nd, badgeCX, isLeft) {
+        if (nd && nd.type === "op") {
+          const subCol = opColor(nd);
+          // Sub-branch positioned along the 30° line from the branch arm through the value badge.
+          // The junction is ROTATED so its feed arm points directly at the value badge —
+          // no kinks anywhere except at junction centers.
+          const sideSign = isLeft ? -1 : 1;
+          const sbCX = badgeCX + sideSign * ARM * SQRT3;
+          // Feed direction (unit vector from sub-branch center toward value badge)
+          const fdx = badgeCX - sbCX, fdy = bValY - sbOpY;
+          const fdist = Math.sqrt(fdx * fdx + fdy * fdy);
+          const fnx = fdx / fdist, fny = fdy / fdist;
+          // Input arm directions: rotate feed direction by ±120°
+          const cos120 = -0.5, sin120 = SQRT3 / 2;
+          const a1nx = fnx * cos120 - fny * sin120, a1ny = fnx * sin120 + fny * cos120;
+          const a2nx = fnx * cos120 + fny * sin120, a2ny = -fnx * sin120 + fny * cos120;
+          // Value badge positions along each input arm direction (ARM*√3 from center)
+          const val1X = sbCX + ARM * SQRT3 * a1nx, val1Y = sbOpY + ARM * SQRT3 * a1ny;
+          const val2X = sbCX + ARM * SQRT3 * a2nx, val2Y = sbOpY + ARM * SQRT3 * a2ny;
+          pipeItems.push({ cx: badgeCX, cy: bValY, r: R, label: "?", color: subCol, italic: false, operand: null, fontSize: 32, isIntermediate: true, isBranchValue: true });
+          pipeItems.push({
+            cx: sbCX, cy: sbOpY, r: JR, label: nd.symbol, color: subCol, italic: false, operand: null, fontSize: 16, isSubBranchOp: true, subBranchNode: nd, isFlipped, parentValCX: badgeCX, parentValCY: bValY,
+            subBranchKey: "sub-" + br.feedsIntoMainOpIndex + (isLeft ? "-L" : "-R"),
+            sbArms: {
+              feed: { x: sbCX + ARM * fnx, y: sbOpY + ARM * fny },
+              left: { x: sbCX + ARM * a1nx, y: sbOpY + ARM * a1ny },
+              right: { x: sbCX + ARM * a2nx, y: sbOpY + ARM * a2ny },
+              leftVal: { x: val1X, y: val1Y },
+              rightVal: { x: val2X, y: val2Y },
+            }
+          });
+          const subLeftAst = findNumNode(nd.ast && nd.ast.left);
+          const subRightAst = findNumNode(nd.ast && nd.ast.right);
+          const sL = (subLeftAst && subLeftAst.type === "num") ? String(subLeftAst.value) : getNodeLabel(nd.leftId);
+          const sR = (subRightAst && subRightAst.type === "num") ? String(subRightAst.value) : getNodeLabel(nd.rightId);
+          const sLx = sL === "x", sRx = sR === "x";
+          pipeItems.push({ cx: val1X, cy: val1Y, r: R, label: sL, color: sLx ? OP_COLORS.x : subCol, italic: sLx, operand: null, fontSize: valueFontSizeForRadius(VALUE_BADGE_FONT_PREFERRED, sL, R), isBranchValue: true, astNode: subLeftAst });
+          pipeItems.push({ cx: val2X, cy: val2Y, r: R, label: sR, color: sRx ? OP_COLORS.x : subCol, italic: sRx, operand: null, fontSize: valueFontSizeForRadius(VALUE_BADGE_FONT_PREFERRED, sR, R), isBranchValue: true, astNode: subRightAst });
+        } else {
+          const label = getNodeLabel(isLeft ? br.inputLeftId : br.inputRightId);
+          const isX = label === "x";
+          const astNum = isLeft ? leftAstNum : null;
+          pipeItems.push({ cx: badgeCX, cy: bValY, r: R, label, color: isX ? OP_COLORS.x : (isLeft ? col : OP_COLORS.misc), italic: isX, operand: null, fontSize: valueFontSizeForRadius(VALUE_BADGE_FONT_PREFERRED, label, R), isBranchValue: true, astNode: astNum });
+        }
+      }
+      pushBranchInput(nodes[br.inputLeftId], branchLeftCX, true);
+      pushBranchInput(nodes[br.inputRightId], branchRightCX, false);
+    }
+  } else if (safeOps.length === 0) {
+    firstValCX = PAD + HEX_R * S60;
+    const xCX = firstValCX, yCX = firstValCX + HEX_STEP;
+    pipeItems.push({ cx: xCX, cy: lowY, r: R, label: "x", color: OP_COLORS.x, italic: true, operand: null, fontSize: VALUE_BADGE_FONT_PREFERRED });
+    pipeItems.push({ cx: yCX, cy: lowY, r: R, label: "y", color: OP_COLORS.y, italic: true, operand: null, fontSize: VALUE_BADGE_FONT_PREFERRED });
+  } else {
+    firstValCX = PAD + HEX_R * S60;
+    pipeItems.push({
+      cx: firstValCX, cy: lowY, r: R, label: "x",
+      color: OP_COLORS.x, italic: true, operand: null, fontSize: VALUE_BADGE_FONT_PREFERRED
+    });
+
+    const nbGap = showIntermediates ? HEX_STEP : HEX_STEP - R * Math.sqrt(3);
+    for (let i = 0; i < safeOps.length; i++) {
+      const op = safeOps[i];
+      const operand = getOperandForPipe(op);
+      const sym = getPipeSymbol(op);
+      const col = userColors[getColorKeyForOp(op)] || OP_COLORS.misc;
+      const fs = sym.length > 3 ? 12 : sym.length > 2 ? 14 : sym.length > 1 ? 16 : 22;
+
+      const opCX = firstValCX + i * nbGap + nbGap / 2;
+      pipeItems.push({
+        cx: opCX, cy: pipeY, r: JR, label: sym, color: col, italic: false,
+        operand, fontSize: fs, op
+      });
+
+      if (i < safeOps.length - 1) {
+        const intCX = firstValCX + (i + 1) * nbGap;
+        const { fnColor: intColor } = getOpArmColors(op);
+        pipeItems.push({
+          cx: intCX, cy: lowY, r: R, label: "?",
+          color: intColor, italic: false, operand: null, fontSize: 32, isIntermediate: true
+        });
+      }
+    }
+    pipeItems.push({
+      cx: firstValCX + safeOps.length * nbGap, cy: lowY, r: R, label: "y",
+      color: OP_COLORS.y, italic: true, operand: null, fontSize: VALUE_BADGE_FONT_PREFERRED
+    });
+  }
+
+  /* ---- SVG dimensions ---- */
+  if (pipeItems.length === 0) {
+    const empty = svgEl("svg");
+    empty.setAttribute("viewBox", "0 0 100 40");
+    empty.setAttribute("width", 100);
+    empty.setAttribute("height", 40);
+    return empty;
+  }
+  const maxCX = Math.max(...pipeItems.map(it => it.cx + (it.r || 0)));
+  const minCX = Math.min(...pipeItems.map(it => it.cx - (it.r || 0)));
+  const maxCY = Math.max(...pipeItems.map(it => (it.cy || pipeY) + (it.r || 0)));
+  const minCY = Math.min(...pipeItems.map(it => (it.cy || pipeY) - (it.r || 0)));
+  lowY = Math.max(lowY, maxCY);
+  const svgOriginX = Math.min(0, minCX - PAD);
+  const svgOriginY = Math.min(0, minCY - PAD);
+  const svgW = maxCX + ARM + PAD - svgOriginX;
+  const svgH = lowY + ARM + PAD - svgOriginY;
+
+  /* ---- create SVG ---- */
+  const svg = svgEl("svg");
+  svg.setAttribute("viewBox", `${svgOriginX} ${svgOriginY} ${svgW} ${svgH}`);
+  svg.setAttribute("width", svgW);
+  svg.setAttribute("height", svgH);
+  svg.setAttribute("overflow", "visible");
+  svg.classList.add("pipe-diagram");
+
+  /* Five layers, back → front */
+  const gHex = svgEl("g");   // (unused; hex outlines removed)
+  const gPipe = svgEl("g");   // connector pipes: value badge → junction arm (hex lattice)
+  const gArms = svgEl("g");   // coloured junction arms
+  const gSpokes = svgEl("g");   // valve spokes + dots (value badges only)
+  const gFills = svgEl("g");   // dark glass fills + operator circles
+  const gFront = svgEl("g");   // rings + text
+  const gInteract = svgEl("g"); // hit areas (topmost)
+
+  /** Draw one segment of pipe (hex-lattice style) in gPipe. */
+  function drawPipeSegment(x1, y1, x2, y2, colorHex) {
+    const line = svgEl("line");
+    line.setAttribute("x1", x1); line.setAttribute("y1", y1);
+    line.setAttribute("x2", x2); line.setAttribute("y2", y2);
+    line.setAttribute("stroke", colorHex || GREY);
+    line.setAttribute("stroke-width", PW);
+    line.setAttribute("stroke-linecap", "round");
+    gPipe.appendChild(line);
+  }
+
+  /** Grey connector pipe from arm tip (touch point) to value badge. */
+  function drawConnectorToValue(ax, ay, vx, vy) {
+    drawPipeSegment(ax, ay, vx, vy, GREY);
+  }
+
+  /** Classify an op for arm-labelling */
+  function getJunctionFamily(op) {
+    if (!op) return null;
+    if (op.type === "power") return "exp";
+    if (op.type === "add") return "add";
+    if (op.type === "sub") return "sub";
+    if (op.type === "mul") return "mul";
+    if (op.type === "div") return "div";
+    if (getExpFamilyState(op) >= 0) return "exp";
+    return null;
+  }
+
+  /** Get arm labels [BL, T, BR] in same order as getArmOpacities roles (so indices match) */
+  function getArmLabels(family, op) {
+    if (family === "add") return ["addend", "addend", "sum"];
+    if (family === "sub") return ["difference", "subtrahend", "minuend"];
+    if (family === "mul") return ["factor", "factor", "product"];
+    if (family === "div") return ["quotient", "dividend", "divisor"];
+    if (family === "exp") {
+      const st = getExpFamilyState(op);
+      if (st === 1) return ["power", "base", "exponent"];
+      if (st === 2) return ["exponent", "power", "base"];
+      return ["base", "exponent", "power"];
+    }
+    return null;
+  }
+
+  /** Get arm opacities [BL, T, BR] tied to semantic role, not position.
+   *  Roles: input=IN, output=OUT, operand=OPERAND.
+   *  For exp family the roles rotate through positions with state.
+   *  For add/sub/mul/div the physical layout is fixed. */
+  function getArmOpacities(family, op) {
+    const { IN, OPERAND: OP, OUT } = ARM_OP;
+    if (family === "exp") {
+      const st = op ? getExpFamilyState(op) : 0; // layout node without op → power state 0
+      // state 0: BL=input, T=operand, BR=output
+      // state 1: BL=output, T=input,   BR=operand
+      // state 2: BL=operand, T=output, BR=input
+      if (st === 1) return [OUT, IN, OP];
+      if (st === 2) return [OP, OUT, IN];
+      return [IN, OP, OUT];
+    }
+    // add/sub, mul/div: opacities rotate with state (same pattern as exp)
+    const info = op ? getRotationInfo(op) : null;
+    if (info && info.curState === 1) return [OUT, IN, OP];
+    return [IN, OP, OUT];
+  }
+
+  /* ---- Junction arms to touch point (circles of radius ARM just touch); grey connectors fill the gap ---- */
+  function drawArm(x1, y1, x2, y2, color, target, opacity) {
+    const arm = svgEl("line");
+    arm.setAttribute("x1", x1); arm.setAttribute("y1", y1);
+    arm.setAttribute("x2", x2); arm.setAttribute("y2", y2);
+    const blended = (opacity !== undefined && opacity < 1) ? dimHexColor(color, opacity) : color;
+    arm.setAttribute("stroke", blended);
+    arm.setAttribute("stroke-width", PW);
+    (target || gArms).appendChild(arm);
+  }
+
+  const valueItems = (useBranchedLayout ? pipeItems.filter(it => (it.italic || it.isIntermediate) && !it.isBranchValue && !it.isBranchIntermediate) : (safeOps.length ? pipeItems.filter(it => it.italic || it.isIntermediate) : []));
+  const opItems = (useBranchedLayout ? pipeItems.filter(it => !it.italic && !it.isIntermediate && !it.isBranchOp && !it.isSubBranchOp && !it.isBranchValue) : (safeOps.length ? pipeItems.filter(it => !it.italic && !it.isIntermediate) : []));
+  const branchItems = useBranchedLayout ? pipeItems.filter(it => it.isBranchOp || it.isBranchValue) : [];
+
+  for (let i = 0; i < opItems.length; i++) {
+    const it = opItems[i];
+    const opCX = it.cx, opCY = it.cy;
+    const flipped = !!it.isFlipped;
+    const vLeft = valueItems[i], vRight = valueItems[i + 1];
+    if (!vLeft || !vRight) continue;
+    const col = it.color;
+    // For standard (even) ops: BL/BR go down, T goes up
+    // For flipped (odd) ops: left/right go up, T goes down
+    const sign = flipped ? -1 : 1;
+    const blTipX = opCX - ARM * S60, blTipY = opCY + sign * ARM * C60;
+    const brTipX = opCX + ARM * S60, brTipY = opCY + sign * ARM * C60;
+
+    if (it.operand != null || it.branchFeed) {
+      const family = it.op ? getJunctionFamily(it.op) : (it.layoutOpNode ? getJunctionFamily({ type: it.layoutOpNode.opType }) : null);
+      const armAlpha = family ? getArmOpacities(family, it.op) : [0.3, 1.0, 0.6];
+      const rotatable = it.op && isRotatable(it.op);
+      let armTarget = null;
+      if (rotatable) {
+        armTarget = svgEl("g");
+        armTarget.style.transformOrigin = `${opCX}px ${opCY}px`;
+        gArms.appendChild(armTarget);
+        it._armsGroup = armTarget;
+      }
+      const tTipX = opCX;
+      const tTipY = opCY - sign * ARM;
+      drawArm(opCX, opCY, tTipX, tTipY, col, armTarget, armAlpha[1]);
+      drawArm(opCX, opCY, blTipX, blTipY, col, armTarget, armAlpha[0]);
+      drawArm(opCX, opCY, brTipX, brTipY, col, armTarget, armAlpha[2]);
+
+      const outline = svgEl("circle");
+      outline.setAttribute("cx", opCX); outline.setAttribute("cy", opCY);
+      outline.setAttribute("r", ARM);
+      outline.setAttribute("fill", "none");
+      outline.setAttribute("stroke", col);
+      outline.setAttribute("stroke-width", 1);
+      outline.setAttribute("opacity", 0.35);
+      it._outline = outline;
+      gFront.appendChild(outline);
+
+      const armLabels = family ? getArmLabels(family, it.op) : null;
+      if (armLabels) {
+        const ll = armLabels, lfs = 9;
+        const labelTarget = armTarget || gFront;
+        const needsCounter = !!armTarget;
+        function makeArmLabel(x, y, text, armOpacity) {
+          const lClr = dimHexColor(it.color, armOpacity);
+          const g = svgEl("g");
+          const bg = svgEl("rect");
+          bg.setAttribute("rx", 3); bg.setAttribute("ry", 3);
+          bg.setAttribute("fill", darkFill(it.color, 0.08));
+          g.appendChild(bg);
+          const t = svgEl("text");
+          t.setAttribute("x", x); t.setAttribute("y", y);
+          t.setAttribute("text-anchor", "middle");
+          t.setAttribute("dominant-baseline", "central");
+          t.setAttribute("fill", lClr);
+          t.setAttribute("font-size", lfs);
+          t.setAttribute("font-family", "KaTeX_Main, 'Times New Roman', serif");
+          t.setAttribute("font-style", "italic");
+          t.textContent = text;
+          g.appendChild(t);
+          // Mark group for CSS counter-rotation during animation
+          g.classList.add('pipe-upright');
+          if (_counterDeg !== 0) {
+            g.setAttribute("transform", `rotate(${_counterDeg} ${x} ${y})`);
+          }
+          if (needsCounter) {
+            g.style.transformOrigin = `${x}px ${y}px`;
+            g.style.transition = "transform 0.3s ease-in-out";
+          }
+          labelTarget.appendChild(g);
+          requestAnimationFrame(() => {
+            try {
+              const bbox = t.getBBox();
+              const pad = 3;
+              bg.setAttribute("x", bbox.x - pad); bg.setAttribute("y", bbox.y - pad);
+              bg.setAttribute("width", bbox.width + 2 * pad);
+              bg.setAttribute("height", bbox.height + 2 * pad);
+            } catch (e) { }
+          });
+          return g;
+        }
+        const blTxt = makeArmLabel(blTipX, blTipY, ll[0], armAlpha[0]);
+        const tTxt = makeArmLabel(tTipX, tTipY, ll[1], armAlpha[1]);
+        const brTxt = makeArmLabel(brTipX, brTipY, ll[2], armAlpha[2]);
+        if (needsCounter) it._armLabels = [blTxt, tTxt, brTxt];
+      }
+      it._opFnColor = (it.op && getOpArmColors(it.op).fnColor) || it.color;
+      it._opOpndColor = (it.op && getOpArmColors(it.op).opndColor) || it.color;
+      if (it.branchFeed) {
+        if (showIntermediates) {
+          drawConnectorToValue(tTipX, tTipY, it.branchFeed.cx, it.branchFeed.cy);
+        }
+        // When !showIntermediates, branch op is positioned so its feed tip meets this T tip — no connector
+      } else {
+        const operandY = flipped ? (opCY + 2 * ARM) : operandCY;
+        drawConnectorToValue(tTipX, tTipY, opCX, operandY);
+      }
+      if (showIntermediates) {
+        drawConnectorToValue(blTipX, blTipY, vLeft.cx, vLeft.cy);
+        drawConnectorToValue(brTipX, brTipY, vRight.cx, vRight.cy);
+      }
+    } else {
+      drawArm(opCX, opCY, blTipX, blTipY, col, null, ARM_OP.IN);
+      drawArm(opCX, opCY, brTipX, brTipY, col, null, ARM_OP.OUT);
+      it._opFnColor = dimHexColor(it.color, ARM_OP.OUT);
+      it._opOpndColor = it.color;
+      const outline = svgEl("circle");
+      outline.setAttribute("cx", opCX); outline.setAttribute("cy", opCY);
+      outline.setAttribute("r", ARM);
+      outline.setAttribute("fill", "none");
+      outline.setAttribute("stroke", col);
+      outline.setAttribute("stroke-width", 1);
+      outline.setAttribute("opacity", 0.35);
+      it._outline = outline;
+      gFront.appendChild(outline);
+      if (showIntermediates) {
+        drawConnectorToValue(blTipX, blTipY, vLeft.cx, vLeft.cy);
+        drawConnectorToValue(brTipX, brTipY, vRight.cx, vRight.cy);
+      }
+    }
+  }
+
+  // When intermediates are hidden, junction circles touch — only connect first op to x, last op to y
+  if (!showIntermediates && opItems.length > 0) {
+    const xItem = pipeItems.find(it => it.italic && it.label === "x");
+    const yItem = pipeItems.find(it => it.italic && it.label === "y");
+    for (let i = 0; i < opItems.length; i++) {
+      const curr = opItems[i];
+      const cFlip = !!curr.isFlipped;
+      const cSign = cFlip ? -1 : 1;
+      const cBlTipX = curr.cx - ARM * S60, cBlTipY = curr.cy + cSign * ARM * C60;
+      const cBrTipX = curr.cx + ARM * S60, cBrTipY = curr.cy + cSign * ARM * C60;
+      if (i === 0 && xItem) drawConnectorToValue(cBlTipX, cBlTipY, xItem.cx, xItem.cy);
+      if (i === opItems.length - 1 && yItem) drawConnectorToValue(cBrTipX, cBrTipY, yItem.cx, yItem.cy);
+    }
+  }
+
+  if (useBranchedLayout) {
+    const S60 = Math.sqrt(3) / 2;
+    for (const it of pipeItems) {
+      if (!it.isBranchOp) continue;
+      const cx = it.cx, cy = it.cy;
+      const bFlipped = !!it.isFlipped;
+      const bSign = bFlipped ? -1 : 1;
+      // For even (above): down arm toward main path, left/right up toward inputs
+      // For odd (below): up arm toward main path, left/right down toward inputs
+      const isMulDiv = it.layoutOpNode && (it.layoutOpNode.opType === "mul" || it.layoutOpNode.opType === "div");
+      const branchFamily = it.layoutOpNode && it.layoutOpNode.opType === "div" ? "div" : "mul";
+      const branchOpForState = it.layoutOpNode ? { type: it.layoutOpNode.opType } : null;
+      let branchAlpha;
+      try {
+        branchAlpha = getArmOpacities(branchFamily, branchOpForState);
+      } catch (_) {
+        branchAlpha = [ARM_OP.IN, ARM_OP.OPERAND, ARM_OP.OUT];
+      }
+      if (!branchAlpha || branchAlpha.length < 3) branchAlpha = [ARM_OP.IN, ARM_OP.OPERAND, ARM_OP.OUT];
+      const branchRot = branchOpForState ? getRotationInfo(branchOpForState) : null;
+      const branchState = branchRot ? branchRot.curState : 0;
+      const leftIdx = branchState === 0 ? 0 : 1;
+      const rightIdx = branchState === 0 ? 1 : 2;
+      const feedIdx = branchState === 0 ? 2 : 0;
+      const leftArmColor = dimHexColor(it.color, branchAlpha[leftIdx]);
+      const rightArmColor = dimHexColor(it.color, branchAlpha[rightIdx]);
+      const feedArmColor = dimHexColor(it.color, branchAlpha[feedIdx]);
+      const rotatableBranch = isMulDiv && it.layoutOpNode.ast;
+      let armTarget = null;
+      if (rotatableBranch) {
+        armTarget = svgEl("g");
+        armTarget.style.transformOrigin = `${cx}px ${cy}px`;
+        gArms.appendChild(armTarget);
+        it._armsGroup = armTarget;
+      }
+      // Feed arm toward main path; input arms toward branch values
+      const touchFeedX = cx;
+      const touchFeedY = cy + bSign * ARM;
+      const touchLeftX = cx - ARM * S60;
+      const touchLeftY = cy - bSign * ARM / 2;
+      const touchRightX = cx + ARM * S60;
+      const touchRightY = cy - bSign * ARM / 2;
+      const leftValCX = cx - ARM * Math.sqrt(3);
+      const rightValCX = cx + ARM * Math.sqrt(3);
+      const bValY = bFlipped ? oddBranchValueY : branchValueY;
+      const bIntY = bFlipped ? oddBranchIntY : branchIntermediateY;
+      drawArm(cx, cy, touchLeftX, touchLeftY, leftArmColor, armTarget, 1);
+      drawArm(cx, cy, touchRightX, touchRightY, rightArmColor, armTarget, 1);
+      drawArm(cx, cy, touchFeedX, touchFeedY, feedArmColor, armTarget, 1);
+      if (showIntermediates) {
+        drawConnectorToValue(touchFeedX, touchFeedY, cx, bIntY);
+      }
+      // In compact mode, the connection between branch feed and main-path T arm
+      // is handled from the main-path side using extended arm colors (no grey pipe).
+      drawConnectorToValue(touchLeftX, touchLeftY, leftValCX, bValY);
+      drawConnectorToValue(touchRightX, touchRightY, rightValCX, bValY);
+      const armLabels = getArmLabels(branchFamily, null);
+      if (armLabels) {
+        const ll = armLabels, lfs = 9;
+        const labelTarget = armTarget || gFront;
+        function makeBranchArmLabel(x, y, text, color) {
+          const g = svgEl("g");
+          const bg = svgEl("rect");
+          bg.setAttribute("rx", 3); bg.setAttribute("ry", 3);
+          bg.setAttribute("fill", darkFill(it.color, 0.08));
+          g.appendChild(bg);
+          const t = svgEl("text");
+          t.setAttribute("x", x); t.setAttribute("y", y);
+          t.setAttribute("text-anchor", "middle");
+          t.setAttribute("dominant-baseline", "central");
+          t.setAttribute("fill", color);
+          t.setAttribute("font-size", lfs);
+          t.setAttribute("font-family", "KaTeX_Main, 'Times New Roman', serif");
+          t.setAttribute("font-style", "italic");
+          t.textContent = text;
+          g.appendChild(t);
+          g.classList.add('pipe-upright');
+          if (_counterDeg !== 0) {
+            g.setAttribute("transform", `rotate(${_counterDeg} ${x} ${y})`);
+          }
+          if (armTarget) {
+            g.style.transformOrigin = `${x}px ${y}px`;
+            g.style.transition = "transform 0.3s ease-in-out";
+          }
+          labelTarget.appendChild(g);
+          requestAnimationFrame(() => {
+            try {
+              const bbox = t.getBBox();
+              const pad = 3;
+              bg.setAttribute("x", bbox.x - pad); bg.setAttribute("y", bbox.y - pad);
+              bg.setAttribute("width", bbox.width + 2 * pad);
+              bg.setAttribute("height", bbox.height + 2 * pad);
+            } catch (e) { }
+          });
+        }
+        const branchLabelEls = [];
+        function addBranchArmLabel(x, y, text, color) {
+          makeBranchArmLabel(x, y, text, color);
+          if (labelTarget.lastChild) branchLabelEls.push(labelTarget.lastChild);
+        }
+        addBranchArmLabel(touchLeftX, touchLeftY, ll[leftIdx], leftArmColor);
+        addBranchArmLabel(touchFeedX, touchFeedY, ll[feedIdx], feedArmColor);
+        addBranchArmLabel(touchRightX, touchRightY, ll[rightIdx], rightArmColor);
+        if (rotatableBranch) it._armLabels = branchLabelEls;
+      }
+      const junctionRotations = layout.junctionRotations || {};
+      const branchRotKey = it.feedsIntoMainOpIndex != null ? "branch-" + it.feedsIntoMainOpIndex : null;
+      const branchRotDeg = branchRotKey ? junctionRotations[branchRotKey] : undefined;
+      if (rotatableBranch && armTarget && typeof branchRotDeg === "number") {
+        armTarget.style.transform = `rotate(${branchRotDeg}deg)`;
+        if (it._armLabels) for (const lbl of it._armLabels) lbl.style.transform = `rotate(${-branchRotDeg}deg)`;
+      }
+      const outline = svgEl("circle");
+      outline.setAttribute("cx", cx);
+      outline.setAttribute("cy", cy);
+      outline.setAttribute("r", ARM);
+      outline.setAttribute("fill", "none");
+      outline.setAttribute("stroke", it.color);
+      outline.setAttribute("stroke-width", 1);
+      outline.setAttribute("opacity", 0.35);
+      gFront.appendChild(outline);
+      it._outline = outline;
+    }
+
+    // Sub-branch junctions (complex inputs within branches)
+    for (const it of pipeItems) {
+      if (!it.isSubBranchOp || !it.sbArms) continue;
+      const cx = it.cx, cy = it.cy;
+      const subCol = it.color;
+      const subNode = it.subBranchNode;
+      const subFamily = subNode ? getJunctionFamily({ type: subNode.opType }) : null;
+      const sbExpState = subNode && subNode._expState !== undefined ? subNode._expState : 0;
+      const subArmAlpha = (() => {
+        if (subFamily === "exp") {
+          const { IN, OPERAND: OP, OUT } = ARM_OP;
+          if (sbExpState === 1) return [OUT, IN, OP];
+          if (sbExpState === 2) return [OP, OUT, IN];
+          return [IN, OUT, OP];
+        }
+        return subFamily ? getArmOpacities(subFamily, null) : [ARM_OP.OPERAND, ARM_OP.OUT, ARM_OP.IN];
+      })();
+      // Map [BL, T, BR] to (left, right, feed) so feed always gets OUTPUT (same idea as branch)
+      const sbLeftIdx = subFamily === "exp" && sbExpState === 1 ? 1 : 0;
+      const sbRightIdx = subFamily === "exp" && sbExpState === 1 ? 2 : 2;
+      const sbFeedIdx = subFamily === "exp" && sbExpState === 1 ? 0 : 1;
+      const sbLeftLbl = subFamily === "exp" && sbExpState === 1 ? 1 : 0;
+      const sbFeedLbl = subFamily === "exp" && sbExpState === 1 ? 0 : 2;
+      const sbRightLbl = subFamily === "exp" && sbExpState === 1 ? 2 : 1;
+      // Use pre-computed rotated arm positions — arms point along actual pipe directions
+      const { feed, left, right, leftVal, rightVal } = it.sbArms;
+      const sbArmTarget = svgEl("g");
+      sbArmTarget.style.transformOrigin = `${cx}px ${cy}px`;
+      gArms.appendChild(sbArmTarget);
+      it._armsGroup = sbArmTarget;
+      drawArm(cx, cy, left.x, left.y, dimHexColor(subCol, subArmAlpha[sbLeftIdx]), sbArmTarget, 1);
+      drawArm(cx, cy, right.x, right.y, dimHexColor(subCol, subArmAlpha[sbRightIdx]), sbArmTarget, 1);
+      drawArm(cx, cy, feed.x, feed.y, dimHexColor(subCol, subArmAlpha[sbFeedIdx]), sbArmTarget, 1);
+      drawConnectorToValue(left.x, left.y, leftVal.x, leftVal.y);
+      drawConnectorToValue(right.x, right.y, rightVal.x, rightVal.y);
+      // Feed connector to parent value badge — straight line along same direction as feed arm
+      const pvCX = it.parentValCX, pvCY = it.parentValCY;
+      drawConnectorToValue(feed.x, feed.y, pvCX, pvCY);
+      const subLabels = (() => {
+        if (subFamily === "exp") {
+          if (sbExpState === 1) return ["power", "base", "exponent"];
+          if (sbExpState === 2) return ["exponent", "power", "base"];
+          return ["base", "exponent", "power"];
+        }
+        return subFamily ? getArmLabels(subFamily, null) : null;
+      })();
+      const sbLabelEls = [];
+      if (subLabels) {
+        const lfs = 9;
+        const labelTarget = sbArmTarget;
+        function makeSubArmLabel(x, y, text, armOpacity) {
+          const lClr = dimHexColor(subCol, armOpacity);
+          const g = svgEl("g");
+          const bg = svgEl("rect");
+          bg.setAttribute("rx", 3); bg.setAttribute("ry", 3);
+          bg.setAttribute("fill", darkFill(subCol, 0.08));
+          g.appendChild(bg);
+          const t = svgEl("text");
+          t.setAttribute("x", x); t.setAttribute("y", y);
+          t.setAttribute("text-anchor", "middle");
+          t.setAttribute("dominant-baseline", "central");
+          t.setAttribute("fill", lClr);
+          t.setAttribute("font-size", lfs);
+          t.setAttribute("font-family", "KaTeX_Main, 'Times New Roman', serif");
+          t.setAttribute("font-style", "italic");
+          t.textContent = text;
+          g.appendChild(t);
+          g.classList.add('pipe-upright');
+          if (_counterDeg !== 0) {
+            g.setAttribute("transform", `rotate(${_counterDeg} ${x} ${y})`);
+          }
+          g.style.transformOrigin = `${x}px ${y}px`;
+          g.style.transition = "transform 0.3s ease-in-out";
+          labelTarget.appendChild(g);
+          requestAnimationFrame(() => {
+            try {
+              const bbox = t.getBBox();
+              const pad = 3;
+              bg.setAttribute("x", bbox.x - pad); bg.setAttribute("y", bbox.y - pad);
+              bg.setAttribute("width", bbox.width + 2 * pad);
+              bg.setAttribute("height", bbox.height + 2 * pad);
+            } catch (e) { }
+          });
+          return g;
+        }
+        sbLabelEls.push(makeSubArmLabel(left.x, left.y, subLabels[sbLeftLbl], subArmAlpha[sbLeftIdx]));
+        sbLabelEls.push(makeSubArmLabel(feed.x, feed.y, subLabels[sbFeedLbl], subArmAlpha[sbFeedIdx]));
+        sbLabelEls.push(makeSubArmLabel(right.x, right.y, subLabels[sbRightLbl], subArmAlpha[sbRightIdx]));
+      }
+      it._armLabels = sbLabelEls;
+      const sbRotKey = it.subBranchKey;
+      const sbRotDeg = sbRotKey && (layout.junctionRotations || {})[sbRotKey];
+      if (typeof sbRotDeg === "number" && sbArmTarget && it._armLabels) {
+        sbArmTarget.style.transform = `rotate(${sbRotDeg}deg)`;
+        for (const lbl of it._armLabels) lbl.style.transform = `rotate(${-sbRotDeg}deg)`;
+      }
+      const outline = svgEl("circle");
+      outline.setAttribute("cx", cx);
+      outline.setAttribute("cy", cy);
+      outline.setAttribute("r", ARM);
+      outline.setAttribute("fill", "none");
+      outline.setAttribute("stroke", subCol);
+      outline.setAttribute("stroke-width", 1);
+      outline.setAttribute("opacity", 0.35);
+      gFront.appendChild(outline);
+      it._outline = outline;
+    }
+  }
+
+  if (safeOps.length === 0) {
+    const v0 = pipeItems[0], v1 = pipeItems[1];
+    const midX = (v0.cx + v1.cx) / 2;
+    const midY = v0.cy + (v1.cx - v0.cx) / (2 * S60);
+    drawPipeSegment(v0.cx, v0.cy, midX, midY, GREY);
+    drawPipeSegment(midX, midY, v1.cx, v1.cy, GREY);
+  }
+
+  for (const it of pipeItems) {
+    if (it.italic || it.isIntermediate) continue;
+    if (!it._opFnColor) {
+      const res = it.op ? getOpArmColors(it.op) : { fnColor: it.color, opndColor: it.color };
+      it._opFnColor = res.fnColor;
+      it._opOpndColor = res.opndColor;
+    }
+  }
+
+  /* ---- draw a valve handwheel at (cx, cy, radius) ---- */
+  function drawValve(cx, cy, color, rad) {
+    const spokeR = rad;
+    const ringOut = rad;
+    const ringIn = rad - 6;
+    // 6 spokes from centre to edge
+    for (let k = 0; k < 6; k++) {
+      const a = k * Math.PI / 3;
+      const spoke = svgEl("line");
+      spoke.setAttribute("x1", cx);
+      spoke.setAttribute("y1", cy);
+      spoke.setAttribute("x2", cx + Math.cos(a) * spokeR);
+      spoke.setAttribute("y2", cy + Math.sin(a) * spokeR);
+      spoke.setAttribute("stroke", color);
+      spoke.setAttribute("stroke-width", SPOKE_W);
+      gSpokes.appendChild(spoke);
+    }
+    // Small filled dots at spoke tips
+    for (let k = 0; k < 6; k++) {
+      const a = k * Math.PI / 3;
+      const dot = svgEl("circle");
+      dot.setAttribute("cx", cx + Math.cos(a) * spokeR);
+      dot.setAttribute("cy", cy + Math.sin(a) * spokeR);
+      dot.setAttribute("r", DOT_R);
+      dot.setAttribute("fill", color);
+      gSpokes.appendChild(dot);
+    }
+    // Glass fill — matches top-bar glass via CSS custom property
+    const glass = svgEl("circle");
+    glass.setAttribute("cx", cx);
+    glass.setAttribute("cy", cy);
+    glass.setAttribute("r", ringIn);  // fill to inner ring radius
+    glass.setAttribute("style", "fill: var(--valve-glass, var(--glass-bg))");
+    gFills.appendChild(glass);
+    // Two concentric rings (replace outline)
+    let outerRing = null;
+    for (const rr of [ringIn, ringOut]) {
+      const ring = svgEl("circle");
+      ring.setAttribute("cx", cx);
+      ring.setAttribute("cy", cy);
+      ring.setAttribute("r", rr);
+      ring.setAttribute("fill", "none");
+      ring.setAttribute("stroke", color);
+      ring.setAttribute("stroke-width", RING_W);
+      gFront.appendChild(ring);
+      if (rr === ringOut) outerRing = ring;
+    }
+    return outerRing;
+  }
+
+  /* ---- draw a pointy-top hex outline at (cx, cy) ---- */
+  function drawHex(cx, cy, color) {
+    const pts = [];
+    for (let k = 0; k < 6; k++) {
+      // Start from top vertex (-90°), go clockwise
+      const a = -Math.PI / 2 + k * Math.PI / 3;
+      pts.push(`${cx + HEX_R * Math.cos(a)},${cy + HEX_R * Math.sin(a)}`);
+    }
+    const hex = svgEl("polygon");
+    hex.setAttribute("points", pts.join(" "));
+    hex.setAttribute("fill", "none");
+    hex.setAttribute("stroke", color);
+    hex.setAttribute("stroke-width", 1);
+    hex.setAttribute("opacity", 0.2);
+    gHex.appendChild(hex);
+  }
+
+  /* ---- draw a text label at (cx, cy) ---- */
+  function drawLabel(cx, cy, label, color, italic, fontSize) {
+    const txt = svgEl("text");
+    txt.setAttribute("x", cx);
+    txt.setAttribute("y", cy);
+    txt.setAttribute("text-anchor", "middle");
+    txt.setAttribute("dominant-baseline", "central");
+    txt.setAttribute("fill", color);
+    txt.setAttribute("font-size", fontSize);
+    txt.setAttribute("font-family", "KaTeX_Main, 'Times New Roman', serif");
+    if (italic) txt.setAttribute("font-style", "italic");
+    txt.textContent = label;
+    txt.classList.add('pipe-upright');
+    gFront.appendChild(txt);
+  }
+
+  /** Value badge font size: use preferred (2x) but shrink if label won't fit in circle of radius r. */
+  function valueFontSize(preferred, label, r) {
+    const len = Math.max(1, (label || "").length);
+    const maxW = 2 * r * 0.9;
+    const fitSize = maxW / (0.6 * len);
+    return Math.min(preferred, Math.max(8, Math.floor(fitSize)));
+  }
+
+  /* ---- pipe-level badges (x, operators, intermediates, y); no hex outlines ---- */
+  for (const it of pipeItems) {
+    const cy = it.cy || pipeY;
+    if (it.isIntermediate) continue;
+    if (false) { // intermediates hidden
+      const glass = svgEl("circle");
+      glass.setAttribute("cx", it.cx); glass.setAttribute("cy", cy); glass.setAttribute("r", it.r);
+      glass.setAttribute("style", "fill: var(--valve-glass, var(--glass-bg))");
+      gFills.appendChild(glass);
+      const ring = svgEl("circle");
+      ring.setAttribute("cx", it.cx); ring.setAttribute("cy", cy); ring.setAttribute("r", it.r);
+      ring.setAttribute("fill", "none"); ring.setAttribute("stroke", it.color); ring.setAttribute("stroke-width", RING_W);
+      gFront.appendChild(ring);
+      it._valveRing = ring;
+      const fs = valueFontSize(it.fontSize, it.label, it.r);
+      drawLabel(it.cx, cy, it.label, it.color, true, fs);
+    } else if (it.italic) {
+      const glass = svgEl("circle");
+      glass.setAttribute("cx", it.cx); glass.setAttribute("cy", cy); glass.setAttribute("r", it.r);
+      glass.setAttribute("style", "fill: var(--valve-glass, var(--glass-bg))");
+      gFills.appendChild(glass);
+      const ring = svgEl("circle");
+      ring.setAttribute("cx", it.cx); ring.setAttribute("cy", cy); ring.setAttribute("r", it.r);
+      ring.setAttribute("fill", "none"); ring.setAttribute("stroke", it.color); ring.setAttribute("stroke-width", RING_W);
+      gFront.appendChild(ring);
+      it._valveRing = ring;
+      const fs = valueFontSize(it.fontSize, it.label, it.r);
+      drawLabel(it.cx, cy, it.label, it.color, it.italic, fs);
+    } else if (it.isBranchValue) {
+      const outerRing = drawValve(it.cx, cy, it.color, it.r);
+      it._valveRing = outerRing;
+      const fs = it.fontSize != null ? it.fontSize : valueFontSize(VALUE_BADGE_FONT_PREFERRED, it.label, it.r);
+      drawLabel(it.cx, cy, it.label, it.color, it.italic, fs);
+    } else if (it.isBranchOp || it.isSubBranchOp) {
+      const opFnColor = it.color;
+      const circ = svgEl("circle");
+      circ.setAttribute("cx", it.cx);
+      circ.setAttribute("cy", cy);
+      circ.setAttribute("r", it.r);
+      circ.setAttribute("fill", darkFill(opFnColor, 0.15));
+      circ.setAttribute("stroke", opFnColor);
+      circ.setAttribute("stroke-width", 1.5);
+      gFills.appendChild(circ);
+      drawLabel(it.cx, cy, it.label, opFnColor, it.italic, it.fontSize);
+    } else {
+      const opFnColor = it._opFnColor || it.color;
+      const opBadgeY = it.cy || pipeY;
+      const circ = svgEl("circle");
+      circ.setAttribute("cx", it.cx);
+      circ.setAttribute("cy", opBadgeY);
+      circ.setAttribute("r", it.r);
+      circ.setAttribute("fill", darkFill(opFnColor, 0.15));
+      circ.setAttribute("stroke", opFnColor);
+      circ.setAttribute("stroke-width", 1.5);
+      gFills.appendChild(circ);
+      drawLabel(it.cx, opBadgeY, it.label, opFnColor, it.italic, it.fontSize);
+    }
+  }
+
+  /* ---- operand badges: above even ops, below odd ops ---- */
+  for (const it of pipeItems) {
+    if (it.operand != null && !it.isBranchOp) {
+      const badgeColor = it._opOpndColor || it.color;
+      const opndY = it.isFlipped ? (oddOpY + 2 * ARM) : operandCY;
+      const outerRing = drawValve(it.cx, opndY, badgeColor, R);
+      it._operandRing = outerRing;
+      const fs = valueFontSize(40, it.operand, R);
+      drawLabel(it.cx, opndY, it.operand, badgeColor, false, fs);
+    }
+  }
+
+  /* ---- interactive hit areas for x / y / intermediate badges (hover highlight) ---- */
+  for (const it of pipeItems) {
+    if (!it.italic && !it.isIntermediate && !it.isBranchValue) continue;
+    if (it.isIntermediate) continue;
+    const cy = it.cy || pipeY;
+    const hit = svgEl("circle");
+    hit.setAttribute("cx", it.cx);
+    hit.setAttribute("cy", cy);
+    hit.setAttribute("r", it.r);
+    hit.setAttribute("fill", "transparent");
+    hit.setAttribute("stroke", "none");
+    hit.style.cursor = "default";
+    gInteract.appendChild(hit);
+    const ring = it._valveRing;
+    if (ring) {
+      hit.addEventListener("mouseenter", () => {
+        ring.setAttribute("stroke-width", 2.5);
+        ring.setAttribute("opacity", 1);
+      });
+      hit.addEventListener("mouseleave", () => {
+        ring.setAttribute("stroke-width", RING_W);
+        ring.removeAttribute("opacity");
+      });
+    }
+    if (it.isBranchValue && it.astNode && layout && it.astNode.type === "num") {
+      hit.style.cursor = "ns-resize";
+      hit.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const ast = it.astNode;
+        const curVal = Number(ast.value);
+        if (!Number.isFinite(curVal)) return;
+        const step = ast.value % 1 !== 0 ? 0.1 : 1;
+        const dir = getOperandScrollDir(e);
+        let newVal = curVal + dir * step;
+        if (step < 1) newVal = Math.round(newVal * 10) / 10;
+        ast.value = newVal;
+        const rootId = layout.mainPath.opIds[0];
+        const rootNode = layout.nodes[rootId];
+        const rootAst = rootNode && rootNode.ast;
+        if (rootAst && ui.exprEl) {
+          const newExpr = exprString(rootAst);
+          ui.exprEl.value = newExpr;
+          try {
+            state.fn = compileExpression(newExpr);
+            state.lastExpr = newExpr;
+            const { steps, ops } = parseAndLinearize(newExpr);
+            state.steps = steps;
+            state.ops = ops;
+            state.stepEyes.ops = ops.map(() => true);
+          } catch (_) { }
+          renderStepRepresentation();
+          updateLatexDisplay(newExpr);
+        }
+      }, { passive: false });
+      addTouchScroll(hit);
+    }
+  }
+
+  /* ---- interactive hit areas for operators (hover + scroll) ---- */
+  let _animating = false;   // global lock to prevent overlapping rotations
+
+  for (const it of pipeItems) {
+    if (it.italic || it.isIntermediate || it.isBranchValue) continue;
+    const opCy = it.cy || pipeY;
+    const hitRadius = ARM;
+    const hit = svgEl("circle");
+    hit.setAttribute("cx", it.cx);
+    hit.setAttribute("cy", opCy);
+    hit.setAttribute("r", hitRadius);
+    hit.setAttribute("fill", "transparent");
+    hit.setAttribute("stroke", "none");
+    hit.style.cursor = "default";
+    gInteract.appendChild(hit);
+
+    const ol = it._outline;
+    if (ol) {
+      hit.addEventListener("mouseenter", () => {
+        ol.setAttribute("stroke-width", 2);
+        ol.setAttribute("opacity", "0.8");
+      });
+      hit.addEventListener("mouseleave", () => {
+        ol.setAttribute("stroke-width", 1);
+        ol.setAttribute("opacity", "0.35");
+      });
+    }
+
+    // Scroll-to-rotate on any rotatable operator
+    if (it.op && isRotatable(it.op)) {
+      hit.style.cursor = "ns-resize";
+      hit.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        if (_animating) return;
+        _animating = true;
+
+        const info = getRotationInfo(it.op);
+        const dir = e.deltaY > 0 ? 1 : -1; // down=CW, up=CCW
+        // For 2-state families, always toggle: state 0→1 = CW, 1→0 = CCW
+        const visualDir = (info && info.states === 2)
+          ? (info.curState === 0 ? 1 : -1)
+          : dir;
+        const deg = visualDir * 120;
+
+        // Animate the arms group rotation
+        const ag = it._armsGroup;
+        if (ag) {
+          ag.style.transition = "transform 0.3s ease-in-out";
+          ag.style.transform = `rotate(${deg}deg)`;
+        }
+        // Counter-rotate labels so text stays horizontal
+        if (it._armLabels) {
+          for (const lbl of it._armLabels) {
+            lbl.style.transform = `rotate(${-deg}deg)`;
+          }
+        }
+        // Brighten the outline during rotation
+        if (ol) {
+          ol.style.transition = "stroke-width 0.3s, opacity 0.3s";
+          ol.setAttribute("stroke-width", 2.5);
+          ol.setAttribute("opacity", 1);
+        }
+
+        // After animation, mutate op and re-render
+        setTimeout(() => {
+          rotateOp(it.op, dir);
+          _animating = false;
+          applyOpsChange();
+        }, 320);
+      }, { passive: false });
+      addTouchScroll(hit, 40);
+    } else if (it.isSubBranchOp && layout && it.subBranchNode && it.subBranchNode.ast) {
+      const subNd = it.subBranchNode;
+      const subAst = subNd.ast;
+      const layoutOpType = subNd.opType;
+      const isExpFamily = layoutOpType === "power";
+      const isMulDivFamily = layoutOpType === "mul" || layoutOpType === "div";
+      const isAddSubFamily = layoutOpType === "add" || layoutOpType === "sub";
+      const isSubRotatable = isExpFamily || isMulDivFamily || isAddSubFamily;
+      if (isSubRotatable) {
+        if (isExpFamily && subNd._expState === undefined && subAst && typeof subAst.op === "string") {
+          subNd._expState = (subAst.op === "/" ? 1 : subAst.op === "**" && subAst.right && subAst.right.type === "binary" ? 2 : 0);
+        }
+        const numStates = isExpFamily ? 3 : 2;
+        // Derive base/exp from current AST state so we never use a wrong node (e.g. coefficient 3 instead of exponent 2)
+        function getSubExpBaseAndExp(ast, state) {
+          if (!ast || ast.type !== "binary") return { base: null, exp: null };
+          if (state === 0) {
+            if (ast.op === "**" && ast.left && ast.right)
+              return { base: ast.left, exp: (ast.right.type === "binary" && ast.right.op === "/" ? ast.right.right : ast.right) };
+            if (ast.op === "/" && ast.left && ast.left.type === "call" && ast.right && ast.right.type === "call")
+              return { base: ast.left.arg, exp: ast.right.arg };
+          }
+          if (state === 1 && ast.op === "/" && ast.left && ast.left.type === "call" && ast.right && ast.right.type === "call")
+            return { base: ast.left.arg, exp: ast.right.arg };
+          if (state === 2 && ast.op === "**" && ast.left && ast.right && ast.right.type === "binary" && ast.right.op === "/")
+            return { base: ast.left, exp: ast.right.right };
+          return { base: null, exp: null };
+        }
+        hit.style.cursor = "ns-resize";
+        hit.addEventListener("wheel", (e) => {
+          e.preventDefault();
+          if (_animating) return;
+          _animating = true;
+          const dir = e.deltaY > 0 ? 1 : -1;
+          // Determine visual rotation direction (for 2-state, always toggle)
+          let visualDir = dir;
+          if (numStates === 2) {
+            const curState = isMulDivFamily
+              ? (subAst.op === "/" ? 1 : 0)
+              : (subAst.op === "-" ? 1 : 0);
+            visualDir = curState === 0 ? 1 : -1;
+          }
+          const deg = visualDir * 120;
+          // Animate arms group rotation
+          const ag = it._armsGroup;
+          if (ag) {
+            ag.style.transition = "transform 0.3s ease-in-out";
+            ag.style.transform = `rotate(${deg}deg)`;
+          }
+          // Counter-rotate labels
+          if (it._armLabels) {
+            for (const lbl of it._armLabels) {
+              lbl.style.transform = `rotate(${-deg}deg)`;
+            }
+          }
+          if (ol) {
+            ol.style.transition = "stroke-width 0.3s, opacity 0.3s";
+            ol.setAttribute("stroke-width", 2.5);
+            ol.setAttribute("opacity", 1);
+          }
+          setTimeout(() => {
+            if (isExpFamily) {
+              const cur = subNd._expState || 0;
+              const next = ((cur + dir) % 3 + 3) % 3;
+              subNd._expState = next;
+              const { base, exp } = getSubExpBaseAndExp(subAst, cur);
+              if (!base || !exp) {
+                _animating = false;
+                return;
+              }
+              if (next === 0) {
+                subAst.op = "**";
+                subAst.left = base;
+                subAst.right = exp;
+                subNd.symbol = "^";
+              } else if (next === 1) {
+                subAst.op = "/";
+                subAst.left = { type: "call", fn: "ln", arg: base };
+                subAst.right = { type: "call", fn: "ln", arg: exp };
+                subNd.symbol = "log";
+              } else {
+                subAst.op = "**";
+                subAst.left = base;
+                subAst.right = {
+                  type: "binary", op: "/",
+                  left: { type: "num", value: 1 }, right: exp
+                };
+                subNd.symbol = "\u207F\u221A";
+              }
+            } else if (isMulDivFamily) {
+              subAst.op = subAst.op === "*" ? "/" : "*";
+              subNd.opType = subAst.op === "/" ? "div" : "mul";
+              subNd.symbol = subAst.op === "/" ? "\u00f7" : "\u00d7";
+            } else if (isAddSubFamily) {
+              subAst.op = subAst.op === "+" ? "-" : "+";
+              subNd.opType = subAst.op === "-" ? "sub" : "add";
+              subNd.symbol = subAst.op === "-" ? "\u2212" : "+";
+            }
+
+            if (state.pipeJunctionRotations == null) state.pipeJunctionRotations = {};
+            const sbKey = it.subBranchKey;
+            if (sbKey != null) state.pipeJunctionRotations[sbKey] = (state.pipeJunctionRotations[sbKey] || 0) + deg;
+
+            const rootId = layout.mainPath.opIds[0];
+            const rootNode = layout.nodes[rootId];
+            const rootAst = rootNode && rootNode.ast;
+            if (rootAst && ui.exprEl) {
+              const newExpr = exprString(rootAst);
+              ui.exprEl.value = newExpr;
+              try {
+                state.fn = compileExpression(newExpr);
+                state.lastExpr = newExpr;
+                const { steps, ops, pipeLayout } = parseAndLinearize(newExpr);
+                state.steps = steps;
+                state.ops = ops;
+                state.stepEyes.ops = ops.map(() => true);
+                if (pipeLayout != null && !isExpFamily) state.pipeLayout = pipeLayout;
+              } catch (_) { }
+              renderStepRepresentation();
+              updateLatexDisplay(newExpr);
+            }
+            _animating = false;
+          }, 320);
+        }, { passive: false });
+        addTouchScroll(hit, 40);
+      }
+    } else if (it.isBranchOp && layout && it.layoutOpNode && it.layoutOpNode.ast && (it.layoutOpNode.opType === "mul" || it.layoutOpNode.opType === "div")) {
+      hit.style.cursor = "ns-resize";
+      hit.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        if (_animating) return;
+        _animating = true;
+        // 2-state toggle: mul→CW, div→CCW (matches main-path pattern)
+        const deg = (it.layoutOpNode.opType === "mul" ? 1 : -1) * 120;
+
+        const ag = it._armsGroup;
+        if (ag) {
+          ag.style.transition = "transform 0.3s ease-in-out";
+          ag.style.transform = `rotate(${deg}deg)`;
+        }
+        // Counter-rotate labels so text stays horizontal (same as main path)
+        if (it._armLabels) {
+          for (const lbl of it._armLabels) {
+            lbl.style.transform = `rotate(${-deg}deg)`;
+          }
+        }
+        if (ol) {
+          ol.style.transition = "stroke-width 0.3s, opacity 0.3s";
+          ol.setAttribute("stroke-width", 2.5);
+          ol.setAttribute("opacity", 1);
+        }
+
+        setTimeout(() => {
+          const ast = it.layoutOpNode.ast;
+          if (ast && ast.type === "binary") {
+            const newOp = ast.op === "*" ? "/" : "*";
+            ast.op = newOp;
+            it.layoutOpNode.opType = newOp === "/" ? "div" : "mul";
+            it.layoutOpNode.symbol = newOp === "/" ? "\u00f7" : "\u00d7";
+            if (state.pipeJunctionRotations == null) state.pipeJunctionRotations = {};
+            const rotKey = it.feedsIntoMainOpIndex != null ? "branch-" + it.feedsIntoMainOpIndex : null;
+            if (rotKey != null) state.pipeJunctionRotations[rotKey] = (state.pipeJunctionRotations[rotKey] || 0) + deg;
+            const rootId = layout.mainPath.opIds[0];
+            const rootNode = layout.nodes[rootId];
+            const rootAst = rootNode && rootNode.ast;
+            if (rootAst && ui.exprEl) {
+              const newExpr = exprString(rootAst);
+              ui.exprEl.value = newExpr;
+              try {
+                state.fn = compileExpression(newExpr);
+                state.lastExpr = newExpr;
+                const { steps, ops, pipeLayout } = parseAndLinearize(newExpr);
+                state.steps = steps;
+                state.ops = ops;
+                state.stepEyes.ops = ops.map(() => true);
+                if (pipeLayout != null) state.pipeLayout = pipeLayout;
+              } catch (_) { }
+              renderStepRepresentation();
+              updateLatexDisplay(newExpr);
+              updateInputOverlay();
+            }
+          }
+          _animating = false;
+        }, 320);
+      }, { passive: false });
+      addTouchScroll(hit, 40);
+    }
+  }
+
+  /* ---- interactive hit areas for operand badges (hover + scroll to change value) ---- */
+  for (const it of pipeItems) {
+    if (it.operand == null || !it.op) continue;
+    const opndHitY = it.isFlipped ? (oddOpY + 2 * ARM) : operandCY;
+    const hit = svgEl("circle");
+    hit.setAttribute("cx", it.cx);
+    hit.setAttribute("cy", opndHitY);
+    hit.setAttribute("r", R);
+    hit.setAttribute("fill", "transparent");
+    hit.setAttribute("stroke", "none");
+    hit.style.cursor = "ns-resize";
+    gInteract.appendChild(hit);
+
+    // Hover highlight on outer ring
+    const oRing = it._operandRing;
+    if (oRing) {
+      hit.addEventListener("mouseenter", () => {
+        oRing.setAttribute("stroke-width", 2.5);
+        oRing.setAttribute("opacity", 1);
+      });
+      hit.addEventListener("mouseleave", () => {
+        oRing.setAttribute("stroke-width", RING_W);
+        oRing.removeAttribute("opacity");
+      });
+    }
+
+    hit.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const op = it.op;
+      const curStr = op.operand;
+      if (!curStr) return;
+      const curVal = parseFloat(curStr);
+      if (!Number.isFinite(curVal)) return;
+
+      // Determine step: store on first interaction so it stays consistent
+      if (op._scrollStep === undefined) {
+        op._scrollStep = curStr.includes(".") ? 0.1 : 1;
+      }
+      const step = op._scrollStep;
+      const dir = getOperandScrollDir(e);
+
+      let newVal = curVal + dir * step;
+      if (step < 1) newVal = Math.round(newVal * 10) / 10;
+      const newStr = step < 1 ? newVal.toFixed(1) : String(Math.round(newVal));
+
+      // Rebuild op with new operand
+      const expSt = getExpFamilyState(op);
+      if (expSt >= 0) {
+        setExpFamilyState(op, expSt, newStr);
+      } else {
+        op.operand = newStr;
+        const info = getRotationInfo(op);
+        if (info) setArithState(op, info.curState);
+      }
+      applyOpsChange();
+    }, { passive: false });
+    addTouchScroll(hit);
+  }
+
+  svg.appendChild(gHex);
+  svg.appendChild(gPipe);
+  svg.appendChild(gArms);
+  svg.appendChild(gSpokes);
+  svg.appendChild(gFills);
+  svg.appendChild(gFront);
+  svg.appendChild(gInteract);
+  return svg;
+}
+
+// ==================================================================
+// ---- Equals-marker drag interaction ------------------------------
+// Lets the user drag the "=" around a ring to rotate arms,
+// rearranging the equation.  Turnstile mode: the ring's arrows
+// follow the cursor angle in real-time and snap to the nearest
+// arm on release (or auto-snap when very close).
+// ==================================================================
+
+/** Module-level state for continuing drag across SVG rebuilds */
+let _eqDragContinuation = null; // { pointerId, clientX, clientY, fromId, toId, curT }
+
+function attachEqualsDrag(svg, layout) {
+  const grabs = svg.querySelectorAll('.equals-grab');
+  if (!grabs.length) return;
+  const { nodes } = layout;
+  const rootOpId = layout.mainPath.opIds[0];
+  const CR = layout._CR || 34.5;
+  const EQ_ALEN = 8, EQ_AHW = 3.5, EQ_GAP = 2;
+
+  /** Convert a pointer event to SVG-space coords */
+  function svgPoint(evt) {
+    const pt = svg.createSVGPoint();
+    pt.x = evt.clientX; pt.y = evt.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    return pt.matrixTransform(ctm.inverse());
+  }
+
+  // ================================================================
+  // Build the full pipe-edge network from the layout
+  // ================================================================
+  const networkEdges = []; // { fromId, toId, fromX, fromY, toX, toY, len, ux, uy }
+
+  function addEdge(fromId, toId) {
+    const fromN = fromId === 'y'
+      ? { x: layout._yX, y: layout._yY }
+      : nodes[fromId];
+    const toN = nodes[toId];
+    if (!fromN || !toN || fromN.x == null || toN.x == null) return;
+    const dx = toN.x - fromN.x, dy = toN.y - fromN.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return;
+    networkEdges.push({
+      fromId, toId,
+      fromX: fromN.x, fromY: fromN.y,
+      toX: toN.x, toY: toN.y,
+      len, ux: dx / len, uy: dy / len
+    });
+  }
+
+  addEdge('y', rootOpId);
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (!n) continue;
+    if (n.type === 'op') {
+      if (n.leftId != null) addEdge(i, n.leftId);
+      if (n.rightId != null && n.rightId !== n.leftId) addEdge(i, n.rightId);
+    } else if (n.type === 'intermediate') {
+      if (n.connectsToOpId != null) addEdge(i, n.connectsToOpId);
+    }
+  }
+
+
+  // ================================================================
+  // Helpers
+  // ================================================================
+
+  /** Find the edge index matching the current equalsEdge state */
+  function findCurrentEdgeIdx() {
+    const eq = state.equalsEdge;
+    if (!eq) {
+      return networkEdges.findIndex(
+        e => e.fromId === 'y' && e.toId === rootOpId
+      );
+    }
+    return networkEdges.findIndex(
+      e => String(e.fromId) === String(eq.fromId) &&
+        String(e.toId) === String(eq.toId)
+    );
+  }
+
+  const SLIDE_MARGIN = 5; // small margin from node centers
+
+  // ================================================================
+  // Drag state
+  // ================================================================
+  let dragging = false;
+  let curEdgeIdx = -1;
+  let curT = 0;                // world-unit parameter along current edge
+  let eqTriA = null, eqTriB = null, eqGrabEl = null;
+  let dragMoved = false;       // did the cursor actually move during the drag?
+  let savedPointerId = null;   // for re-capturing pointer after SVG rebuild
+  let lastClientX = 0, lastClientY = 0; // last pointer position
+
+  // ================================================================
+  // Visual marker update - sets SVG attributes directly, no rebuild
+  // ================================================================
+  function updateMarkerVisual(mx, my, ux, uy) {
+    const nx = -uy, ny = ux;
+    // Triangle A: tip toward to-end
+    const tax = mx - (EQ_GAP / 2) * ux, tay = my - (EQ_GAP / 2) * uy;
+    const abx = tax - EQ_ALEN * ux, aby = tay - EQ_ALEN * uy;
+    if (eqTriA) {
+      eqTriA.setAttribute('points',
+        `${tax},${tay} ${abx + EQ_AHW * nx},${aby + EQ_AHW * ny} ${abx - EQ_AHW * nx},${aby - EQ_AHW * ny}`);
+      eqTriA.removeAttribute('transform');
+    }
+    // Triangle B: tip toward from-end
+    const tbx = mx + (EQ_GAP / 2) * ux, tby = my + (EQ_GAP / 2) * uy;
+    const bbx = tbx + EQ_ALEN * ux, bby = tby + EQ_ALEN * uy;
+    if (eqTriB) {
+      eqTriB.setAttribute('points',
+        `${tbx},${tby} ${bbx + EQ_AHW * nx},${bby + EQ_AHW * ny} ${bbx - EQ_AHW * nx},${bby - EQ_AHW * ny}`);
+      eqTriB.removeAttribute('transform');
+    }
+
+    // Grab circle
+    if (eqGrabEl) {
+      eqGrabEl.setAttribute('cx', mx);
+      eqGrabEl.setAttribute('cy', my);
+    }
+  }
+
+  // ================================================================
+  // Core sliding logic — find the closest point on ANY edge in the
+  // network and place the marker there.  No junction transitions needed.
+  // ================================================================
+  function slideToPosition(cursorPt) {
+    const prevEdgeIdx = curEdgeIdx;
+    let bestEdge = -1, bestDist = Infinity, bestT = 0;
+    for (let i = 0; i < networkEdges.length; i++) {
+      const e = networkEdges[i];
+      const relX = cursorPt.x - e.fromX;
+      const relY = cursorPt.y - e.fromY;
+      let t = relX * e.ux + relY * e.uy;
+      const tMin = SLIDE_MARGIN;
+      const tMax = Math.max(tMin, e.len - SLIDE_MARGIN);
+      t = Math.max(tMin, Math.min(tMax, t));
+      // perpendicular distance from cursor to this clamped point
+      const px = e.fromX + t * e.ux;
+      const py = e.fromY + t * e.uy;
+      const dist = Math.hypot(cursorPt.x - px, cursorPt.y - py);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestT = t;
+        bestEdge = i;
+      }
+    }
+    if (bestEdge >= 0) {
+      curEdgeIdx = bestEdge;
+      curT = bestT;
+    }
+
+    // If the edge changed, do a live equation update + SVG rebuild
+    if (prevEdgeIdx >= 0 && curEdgeIdx !== prevEdgeIdx) {
+      liveEdgeUpdate();
+      return; // this closure is dead after SVG rebuild
+    }
+
+    // Update visual
+    const edge = networkEdges[curEdgeIdx];
+    if (!edge) return;
+    const mx = edge.fromX + curT * edge.ux;
+    const my = edge.fromY + curT * edge.uy;
+    updateMarkerVisual(mx, my, edge.ux, edge.uy);
+  }
+
+  // ================================================================
+  // Live edge update — called mid-drag when the marker crosses to a
+  // different pipe.  Updates the equation + rebuilds SVG + resumes drag.
+  // ================================================================
+  function liveEdgeUpdate() {
+    const edge = networkEdges[curEdgeIdx];
+    if (!edge) return;
+
+    // Compute new equalsEdge from current edge
+    let newEq;
+    if (edge.fromId === 'y') {
+      newEq = null;
+    } else {
+      newEq = { fromId: edge.fromId, toId: edge.toId };
+      newEq.atToEnd = curT > edge.len / 2;
+    }
+    state.equalsEdge = newEq;
+
+    // Save continuation so the new attachEqualsDrag can resume the drag
+    _eqDragContinuation = {
+      pointerId: savedPointerId,
+      clientX: lastClientX,
+      clientY: lastClientY,
+      fromId: edge.fromId,
+      toId: edge.toId,
+      curT: curT
+    };
+    dragging = false;
+
+    _swapInProgress = true;
+    try {
+      const eqResult = generateEquation(layout, state.equalsEdge);
+      if (eqResult) {
+        applyEqualsResult(eqResult);
+      } else {
+        const treeResult = _walkPipeTree(layout);
+        if (treeResult) {
+          if (ui.exprEl) { ui.exprEl.value = treeResult.text; autoSizeInput(); }
+          state.lastExpr = treeResult.text;
+          state.fn = compileExpression(treeResult.text);
+          state.displaySpans = treeResult.spans;
+        }
+      }
+      renderStepRepresentation();
+      updateInputOverlay();
+      updateLatexDisplay(ui.exprEl?.value ?? "");
+    } catch (err) {
+      console.error("[liveEdgeUpdate]", err);
+    } finally {
+      requestAnimationFrame(() => { _swapInProgress = false; });
+    }
+  }
+
+  /** Reset marker visuals to the official rendered position */
+  function resetMarkerVisual() {
+    const idx = findCurrentEdgeIdx();
+    if (idx < 0) return;
+    const edge = networkEdges[idx];
+    if (!edge) return;
+    const atToEnd = state.equalsEdge?.atToEnd;
+    const t = atToEnd ? (edge.len - CR) : CR;
+    const mx = edge.fromX + t * edge.ux;
+    const my = edge.fromY + t * edge.uy;
+    updateMarkerVisual(mx, my, edge.ux, edge.uy);
+  }
+
+  // ================================================================
+  // Commit - called on pointer release.  Sets state.equalsEdge and
+  // rebuilds the SVG exactly once.  Returns true if a rebuild happened.
+  // ================================================================
+  function commitPosition() {
+    if (curEdgeIdx < 0) return false;
+    const edge = networkEdges[curEdgeIdx];
+    if (!edge) return false;
+    if (!dragMoved) return false;
+
+    let newEq;
+    if (edge.fromId === 'y') {
+      newEq = null; // Y->root = default
+    } else {
+      newEq = { fromId: edge.fromId, toId: edge.toId };
+      newEq.atToEnd = curT > edge.len / 2;
+    }
+
+    // Skip rebuild if nothing changed
+    const oldEq = state.equalsEdge;
+    const same = (!newEq && !oldEq) ||
+      (newEq && oldEq &&
+        String(newEq.fromId) === String(oldEq.fromId) &&
+        String(newEq.toId) === String(oldEq.toId) &&
+        !!newEq.atToEnd === !!oldEq.atToEnd);
+    if (same) return false;
+
+    state.equalsEdge = newEq;
+    _swapInProgress = true;
+    try {
+      const eqResult = generateEquation(layout, state.equalsEdge);
+      if (eqResult) {
+        applyEqualsResult(eqResult);
+      } else {
+        const treeResult = _walkPipeTree(layout);
+        if (treeResult) {
+          if (ui.exprEl) { ui.exprEl.value = treeResult.text; autoSizeInput(); }
+          state.lastExpr = treeResult.text;
+          state.fn = compileExpression(treeResult.text);
+          state.displaySpans = treeResult.spans;
+        }
+      }
+      renderStepRepresentation();
+      updateInputOverlay();
+      updateLatexDisplay(ui.exprEl?.value ?? "");
+    } catch (err) {
+      console.error("[commitPosition]", err);
+    } finally {
+      requestAnimationFrame(() => { _swapInProgress = false; });
+    }
+    return true;
+  }
+
+  // ================================================================
+  // Pointer event handlers
+  // ================================================================
+  function onPointerDown(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const grab = e.currentTarget;
+
+    curEdgeIdx = findCurrentEdgeIdx();
+    if (curEdgeIdx < 0) return;
+    grab.setPointerCapture(e.pointerId);
+
+    const edge = networkEdges[curEdgeIdx];
+    const atToEnd = state.equalsEdge?.atToEnd;
+    curT = atToEnd ? (edge.len - CR) : CR;
+
+    eqTriA = svg.querySelector('.eq-tri-a');
+    eqTriB = svg.querySelector('.eq-tri-b');
+    eqGrabEl = grab;
+    dragMoved = false;
+    dragging = true;
+    savedPointerId = e.pointerId;
+    lastClientX = e.clientX;
+    lastClientY = e.clientY;
+    grab.style.cursor = 'grabbing';
+  }
+
+  function onPointerMove(e) {
+    if (!dragging) return;
+    dragMoved = true;
+    lastClientX = e.clientX;
+    lastClientY = e.clientY;
+    slideToPosition(svgPoint(e));
+    // Dim the accordion if the cursor is behind/over it
+    const ew = document.getElementById('expr-window');
+    if (ew) {
+      const r = ew.getBoundingClientRect();
+      const over = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      ew.classList.toggle('dragging-dimmed', over);
+    }
+  }
+
+  function onPointerUp(e) {
+    if (!dragging) return;
+    dragging = false;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    e.currentTarget.style.cursor = 'grab';
+    if (!commitPosition()) resetMarkerVisual();
+    const ew = document.getElementById('expr-window');
+    if (ew) ew.classList.remove('dragging-dimmed');
+  }
+
+  function onLostPointerCapture() {
+    if (!dragging) return;
+    dragging = false;
+    if (eqGrabEl) eqGrabEl.style.cursor = 'grab';
+    if (!commitPosition()) resetMarkerVisual();
+    const ew = document.getElementById('expr-window');
+    if (ew) ew.classList.remove('dragging-dimmed');
+  }
+
+  // Attach events to all grab circles
+  grabs.forEach(g => {
+    g.addEventListener('pointerdown', onPointerDown);
+    g.addEventListener('pointermove', onPointerMove);
+    g.addEventListener('pointerup', onPointerUp);
+    g.addEventListener('lostpointercapture', onLostPointerCapture);
+  });
+
+  // ================================================================
+  // Continuation: resume drag after SVG rebuild from liveEdgeUpdate
+  // ================================================================
+  if (_eqDragContinuation) {
+    const cont = _eqDragContinuation;
+    _eqDragContinuation = null;
+
+    // Find the edge matching the continuation state
+    const matchIdx = networkEdges.findIndex(
+      e => String(e.fromId) === String(cont.fromId) &&
+        String(e.toId) === String(cont.toId)
+    );
+    if (matchIdx < 0) return;
+
+    curEdgeIdx = matchIdx;
+    curT = cont.curT;
+
+    // Find the closest grab circle to the last pointer position
+    let bestGrab = null, bestDist = Infinity;
+    const ctm = svg.getScreenCTM();
+    if (ctm) {
+      grabs.forEach(g => {
+        const cx = parseFloat(g.getAttribute('cx'));
+        const cy = parseFloat(g.getAttribute('cy'));
+        const pt = svg.createSVGPoint();
+        pt.x = cx; pt.y = cy;
+        const scr = pt.matrixTransform(ctm);
+        const d = Math.hypot(scr.x - cont.clientX, scr.y - cont.clientY);
+        if (d < bestDist) { bestDist = d; bestGrab = g; }
+      });
+    }
+
+    if (bestGrab) {
+      try {
+        bestGrab.setPointerCapture(cont.pointerId);
+        eqTriA = svg.querySelector('.eq-tri-a');
+        eqTriB = svg.querySelector('.eq-tri-b');
+        eqGrabEl = bestGrab;
+        savedPointerId = cont.pointerId;
+        lastClientX = cont.clientX;
+        lastClientY = cont.clientY;
+        dragging = true;
+        dragMoved = true;
+        bestGrab.style.cursor = 'grabbing';
+
+        // Position the marker at the continued position
+        const edge = networkEdges[curEdgeIdx];
+        if (edge) {
+          const mx = edge.fromX + curT * edge.ux;
+          const my = edge.fromY + curT * edge.uy;
+          updateMarkerVisual(mx, my, edge.ux, edge.uy);
+        }
+      } catch (_) {
+        // Pointer was released during rebuild — no continuation
+      }
+    }
+  }
+}
+
+/** Perform one step of equals rotation: the equals marker moves from
+ *  one arm position to another on a given operator node's ring.
+ *  This does NOT change arm assignments — the math stays the same.
+ *  It only moves the equals cut point and regenerates the equation display.
+ */
+function performEqualsRotation(nodeId, fromArm, toArm, layout, opts) {
+  if (!opts) opts = {};
+  const { nodes } = layout;
+  const node = nodes[nodeId];
+  if (!node) return;
+
+  // ---- Handle intermediate nodes ----
+  if (node.type === 'intermediate') {
+    if (toArm === 'child') {
+      // Moving deeper through the intermediate toward its child op
+      state.equalsEdge = { fromId: nodeId, toId: node.connectsToOpId };
+    } else if (toArm === 'output') {
+      // Moving back toward parent
+      let parentId = null;
+      for (let i = 0; i < nodes.length; i++) {
+        const pn = nodes[i];
+        if (pn && pn.type === 'op' && (pn.leftId === nodeId || pn.rightId === nodeId)) {
+          parentId = i; break;
+        }
+      }
+      if (parentId != null) {
+        state.equalsEdge = { fromId: parentId, toId: nodeId };
+      }
+    }
+    // Fall through to equation regeneration below
+  } else if (!node.armAssignment) {
+    return;
+  } else {
+    // ---- Handle op nodes (existing logic) ----
+    // Update the equals edge: from fromArm to toArm on this node's ring
+    if (toArm === 'output') {
+      // Equals moved back toward Y
+      const rootOpId = layout.mainPath.opIds[0];
+      if (nodeId === rootOpId) {
+        state.equalsEdge = null; // back to Y→root (default)
+      } else {
+        // Find the parent node
+        let parentId = null;
+        for (let i = 0; i < nodes.length; i++) {
+          const pn = nodes[i];
+          if (pn && (pn.leftId === nodeId || pn.rightId === nodeId)) {
+            parentId = i; break;
+          }
+          if (pn && pn.type === "intermediate" && pn.connectsToOpId === nodeId) {
+            parentId = i; break;
+          }
+        }
+        if (parentId != null) {
+          state.equalsEdge = { fromId: parentId, toId: nodeId };
+        } else {
+          state.equalsEdge = null;
+        }
+      }
+    } else {
+      // Equals moved toward a child
+      const childId = toArm === 'left' ? node.leftId : node.rightId;
+      state.equalsEdge = { fromId: nodeId, toId: childId };
+    }
+  }
+
+  // Apply atToEnd positioning if specified by the caller
+  if (opts.atToEnd !== undefined && state.equalsEdge) {
+    state.equalsEdge.atToEnd = opts.atToEnd;
+  }
+
+  _swapInProgress = true;
+  try {
+    const eqResult = generateEquation(layout, state.equalsEdge);
+    if (eqResult) {
+      applyEqualsResult(eqResult);
+    } else {
+      // Back to default (equalsEdge = null): restore normal expression display
+      state.equalsLhsSpans = null;
+      state.equalsFullSpans = null;
+      state.equalsRhsExpr = null;
+      const treeResult = _walkPipeTree(layout);
+      if (treeResult) {
+        if (ui.exprEl) { ui.exprEl.value = treeResult.text; autoSizeInput(); }
+        state.lastExpr = treeResult.text;
+        state.fn = compileExpression(treeResult.text);
+        state.displaySpans = treeResult.spans;
+      }
+    }
+    renderStepRepresentation();
+    updateInputOverlay();
+    updateLatexDisplay(ui.exprEl?.value ?? "");
+  } catch (err) {
+    console.error("[equalsRotation]", err);
+  } finally {
+    requestAnimationFrame(() => { _swapInProgress = false; });
+  }
+}
+
+/**
+ * Generate a full equation (LHS = RHS) based on the equals edge position.
+ * Traces from Y down to the cut point, applying inverse operations at each
+ * node along the path. Builds coloured spans for both sides.
+ *
+ * Returns { fullText, fullSpans, lhsSpans, lhsText, rhsExpr } where:
+ *   fullText = "LHS = RHS" for display
+ *   fullSpans = coloured spans for the full equation (tree order)
+ *   lhsSpans = coloured spans for the LHS only
+ *   lhsText  = raw LHS text
+ *   rhsExpr  = the RHS as a compilable expression (for the plot function)
+ */
+function generateEquation(layout, equalsEdge) {
+  if (!equalsEdge) return null; // default position = standard y = expr
+
+  const { nodes } = layout;
+  const rootOpId = layout.mainPath.opIds[0];
+
+  // Build the path from root down to the equals edge target node.
+  // At each operator node on the path, the "other" arm (not on the path) 
+  // gets peeled off and applied as an inverse to the LHS.
+  function findPathToNode(targetNodeId) {
+    // BFS/DFS from root to find the path to targetNodeId
+    const path = []; // array of { nodeId, armToChild: 'left'|'right' }
+    function dfs(nodeId) {
+      if (nodeId == null) return false;
+      const nd = nodes[nodeId];
+      if (!nd) return false;
+      if (nodeId === targetNodeId) return true;
+      if (nd.type === "intermediate") {
+        if (nd.connectsToOpId != null && dfs(nd.connectsToOpId)) {
+          return true;
+        }
+        return false;
+      }
+      if (nd.type !== "op") return false;
+      // Try left
+      if (nd.leftId != null && dfs(nd.leftId)) {
+        path.push({ nodeId, armToChild: 'left' });
+        return true;
+      }
+      // Try right
+      if (nd.rightId != null && nd.rightId !== nd.leftId && dfs(nd.rightId)) {
+        path.push({ nodeId, armToChild: 'right' });
+        return true;
+      }
+      return false;
+    }
+    dfs(rootOpId);
+    path.reverse(); // root at index 0
+    return path;
+  }
+
+  // Determine the target: the deeper node of the equals edge
+  const targetId = equalsEdge.toId;
+  const pathDown = findPathToNode(targetId);
+
+  // Verify the layout tree is walkable
+  if (!_walkPipeTree(layout)) return null;
+
+  // For now, produce a simple display: the full expression with "=" marker
+  // More sophisticated LHS/RHS splitting to come
+  // Placeholder: show "y = expr" still but with the equals position noted
+  function sp(text, color, opacity) {
+    const s = { text, color };
+    if (opacity !== undefined) s.opacity = opacity;
+    return s;
+  }
+
+  // Build LHS by tracing from Y to the equals edge, inverting each op
+  let lhsText = "y";
+  let lhsSpans = [sp("y", OP_COLORS.y)];
+
+  for (const step of pathDown) {
+    const nd = nodes[step.nodeId];
+    if (!nd || !nd.armAssignment) continue;
+    const cat = nd.armCategory || _categoryForOpType(nd.opType);
+    const roles = nd.armAssignment;
+    if (!cat || !roles) continue;
+
+    // The "output" arm is what feeds toward Y.
+    // The arm going toward the child on the path is step.armToChild.
+    // The "other" arm is the one NOT on the path and NOT the output.
+    const positions = ['output', 'left', 'right'];
+    const otherArm = positions.find(p => p !== 'output' && p !== step.armToChild);
+    if (!otherArm) continue;
+
+    // Get the subtree expression for the "other" arm
+    const otherNodeId = otherArm === 'left' ? nd.leftId : nd.rightId;
+    const otherResult = _walkSubtree(layout, otherNodeId);
+    const otherText = otherResult ? otherResult.text : "?";
+    const rawOtherSpans = otherResult ? otherResult.spans : [sp("?", "var(--muted)")];
+
+    // Determine what inverse to apply based on the operator and which arm is which
+    const outputRole = roles.output;
+    const pathRole = roles[step.armToChild];
+    const otherRole = roles[otherArm];
+    const badge = OP_COLORS[cat] || OP_COLORS.misc;
+
+    // Apply arm color to uncolored spans (var(--text) means _walkSubtree left them default)
+    const otherArmColor = (ARM_COLORS[cat] && ARM_COLORS[cat][otherRole]) || badge;
+    const otherSpans = rawOtherSpans.map(s =>
+      s.color === "var(--text)" ? { ...s, color: otherArmColor } : s
+    );
+
+    // Apply the inverse: LHS = inverse(LHS, otherArm)
+    if (cat === "addSub") {
+      // a + b = c → if output=c (sum), path=a, other=b: LHS - b
+      // if output=c, path=b, other=a: LHS - a
+      // if output=a (difference), path is going toward sum(c) or subtrahend(b)
+      if (outputRole === "3") {
+        // output is the sum; we're peeling off the "other" addend
+        lhsText = `${lhsText} - ${otherText}`;
+        lhsSpans = [...lhsSpans, sp(" - ", badge), ...otherSpans];
+      } else if (outputRole === "1" || outputRole === "2") {
+        // output is a part; the sum is on one of the child arms
+        // If other = the sum arm: LHS = other - LHS... no.
+        // Actually: output = sum - other_part. So sum = output + other_part.
+        // LHS (which started as y = output) going deeper...
+        // If path goes toward sum (role 3): LHS - other = path_arm
+        // If path goes toward subtrahend: need to invert differently
+        if (pathRole === "3") {
+          // LHS + other = sum
+          lhsText = `${lhsText} + ${otherText}`;
+          lhsSpans = [...lhsSpans, sp(" + ", badge), ...otherSpans];
+        } else {
+          // Path goes to the subtrahend. output = sum - path → path = sum - output
+          // LHS = output, so path = other(sum) - LHS → LHS = other - path
+          // Actually this gets complex. For addSub:
+          // role 1 + role 2 = role 3
+          // If output = "1": y = role3 - role2. Path goes deeper into role3 or role2.
+          //   If path → role3 (sum side): need to invert: role3 = y + role2 → LHS + other
+          //   If path → role2 (subtrahend side): role2 = role3 - y → LHS = other(role3) - LHS... tricky
+          // Let's handle the simple cases first
+          lhsText = `${otherText} - ${lhsText}`;
+          lhsSpans = [...otherSpans, sp(" - ", badge), ...lhsSpans];
+        }
+      }
+    } else if (cat === "mulDiv") {
+      if (outputRole === "8") {
+        // output is the product: LHS / other
+        lhsText = `${lhsText}/${otherText}`;
+        lhsSpans = [...lhsSpans, sp("/", badge), ...otherSpans];
+      } else if (pathRole === "8") {
+        // path goes to the product side: LHS * other = product
+        lhsText = `${lhsText}*${otherText}`;
+        lhsSpans = [...lhsSpans, sp(" \u00d7 ", badge), ...otherSpans];
+      } else {
+        // path goes to the other factor: product / LHS = path
+        lhsText = `${otherText}/${lhsText}`;
+        lhsSpans = [...otherSpans, sp("/", badge), ...lhsSpans];
+      }
+    } else if (cat === "exp") {
+      if (outputRole === "power") {
+        // output is the power: base^exp = y → base = y^(1/exp) or exp = log_base(y)
+        if (pathRole === "base") {
+          lhsText = `nthrt_${otherText}(${lhsText})`;
+          lhsSpans = [sp("nthrt_", badge), ...otherSpans, sp("(", "var(--muted)", 0.35), ...lhsSpans, sp(")", "var(--muted)", 0.35)];
+        } else {
+          lhsText = `log_${otherText}(${lhsText})`;
+          lhsSpans = [sp("log_", badge), ...otherSpans, sp("(", "var(--muted)", 0.35), ...lhsSpans, sp(")", "var(--muted)", 0.35)];
+        }
+      } else if (outputRole === "base") {
+        if (pathRole === "power") {
+          lhsText = `${lhsText}^${otherText}`;
+          lhsSpans = [...lhsSpans, sp("^", badge), ...otherSpans];
+        } else {
+          lhsText = `log_${lhsText}(${otherText})`;
+          lhsSpans = [sp("log_", badge), ...lhsSpans, sp("(", "var(--muted)", 0.35), ...otherSpans, sp(")", "var(--muted)", 0.35)];
+        }
+      } else if (outputRole === "exponent") {
+        if (pathRole === "power") {
+          lhsText = `${otherText}^${lhsText}`;
+          lhsSpans = [...otherSpans, sp("^", badge), ...lhsSpans];
+        } else {
+          lhsText = `nthrt_${lhsText}(${otherText})`;
+          lhsSpans = [sp("nthrt_", badge), ...lhsSpans, sp("(", "var(--muted)", 0.35), ...otherSpans, sp(")", "var(--muted)", 0.35)];
+        }
+      }
+    }
+  }
+
+  // RHS: the subtree below the cut
+  const rhsResult = _walkSubtree(layout, targetId);
+  const rhsText = rhsResult ? rhsResult.text : "?";
+  const rhsSpans = rhsResult ? rhsResult.spans : [sp("?", "var(--muted)")];
+
+  // Combine: LHS = RHS
+  const fullText = `${lhsText} = ${rhsText}`;
+  const fullSpans = [
+    ...lhsSpans,
+    sp(" = ", "var(--text)"),
+    ...rhsSpans
+  ];
+
+  return { fullText, fullSpans, lhsSpans, lhsText, rhsExpr: rhsText };
+}
+
+/**
+ * Rebuild displaySpans for equalsEdge mode based on the current display order
+ * (sequential vs traditional).  Updates the input text and state accordingly.
+ * Called when equalsEdge data changes or when the display order toggles.
+ */
+function rebuildEqualsDisplaySpans() {
+  if (!state.equalsEdge || !state.equalsLhsSpans || !state.equalsRhsExpr) return;
+
+  let displaySpans;
+  if (state.latexOpsOrder) {
+    // Sequential mode: linearize the RHS and build ops-order spans
+    try {
+      const { ops: rhsOps } = parseAndLinearize(state.equalsRhsExpr);
+      const seqResult = buildDisplayExpr(rhsOps);
+      displaySpans = [
+        ...state.equalsLhsSpans,
+        { text: " = ", color: "var(--text)" },
+        ...seqResult.spans
+      ];
+    } catch {
+      displaySpans = state.equalsFullSpans;
+    }
+  } else {
+    displaySpans = state.equalsFullSpans;
+  }
+
+  state.displaySpans = displaySpans;
+  const inputText = displaySpans.map(s => s.text).join('');
+  if (ui.exprEl) { ui.exprEl.value = inputText; autoSizeInput(); }
+  state.lastExpr = inputText;
+}
+
+/**
+ * Store generateEquation results in state and rebuild the display.
+ * Used by all three equalsEdge handler call sites.
+ */
+function applyEqualsResult(eqResult) {
+  const { fullSpans, lhsSpans, rhsExpr } = eqResult;
+  state.equalsLhsSpans = lhsSpans;
+  state.equalsFullSpans = fullSpans;
+  state.equalsRhsExpr = rhsExpr;
+  state.fn = compileExpression(rhsExpr);
+  rebuildEqualsDisplaySpans();
+}
+
 function renderStepRepresentation() {
   const el = document.getElementById("step-rep");
   const label = document.getElementById("step-rep-label");
   if (!el) return;
   el.innerHTML = "";
   const ops = state.ops;
+  const pipeLayout = state.pipeLayout || null;
 
-  // Always show the sequence (at minimum x → y)
   el.classList.remove("step-rep--empty");
-  if (label) label.style.display = "";
+  // label is kept hidden; checkboxes preserved for JS state only
 
-  // Sync stepEyes.ops length with current ops
-  while (state.stepEyes.ops.length < ops.length) state.stepEyes.ops.push(true);
-  state.stepEyes.ops.length = ops.length;
+  try {
+    const intCb = document.getElementById("show-intermediates");
+    const showInt = intCb ? intCb.checked : true;
+    const horzCb = document.getElementById("pipe-horizontal");
+    const horz = horzCb ? horzCb.checked : false;
+    const dbgCb = document.getElementById("pipe-debug-labels");
+    const showDbg = dbgCb ? dbgCb.checked : false;
+    const armCb = document.getElementById("pipe-arm-labels");
+    const showArm = armCb ? armCb.checked : false;
+    const svg = pipeLayout
+      ? renderPipeDiagramDag(ops, pipeLayout, showInt, horz, showDbg, showArm)
+      : renderPipeDiagram(ops, null, showInt);
+    el.appendChild(svg);
 
-  const flow = document.createElement("div");
-  flow.className = "step-flow";
-
-  // SVG eye icon generators
-  function eyeOpenSvg(col) {
-    return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="' + col + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
-  }
-  function eyeClosedSvg(col) {
-    return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="' + col + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
-  }
-
-  function getEyeColor(stepKey) {
-    if (stepKey === "x") return OP_COLORS.x;
-    if (stepKey === "y") return OP_COLORS.y;
-    const idx = parseInt(stepKey);
-    if (!isNaN(idx) && state.ops[idx]) return OP_COLORS[getOpCategory(state.ops[idx])] || OP_COLORS.misc;
-    return OP_COLORS.misc;
-  }
-
-  // Helper: create an eye toggle button for a step
-  function createEyeBtn(stepKey, isVisible) {
-    const btn = document.createElement("button");
-    btn.className = "eye-btn" + (isVisible ? " eye-btn--on" : "");
-    btn.type = "button";
-    const col = getEyeColor(stepKey);
-    btn.innerHTML = isVisible ? eyeOpenSvg(col) : eyeClosedSvg(col);
-    btn.title = isVisible ? "Hide" : "Show";
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (stepKey === "x") {
-        state.stepEyes.x = !state.stepEyes.x;
-        btn.classList.toggle("eye-btn--on", state.stepEyes.x);
-        btn.innerHTML = state.stepEyes.x ? eyeOpenSvg(col) : eyeClosedSvg(col);
-        btn.title = state.stepEyes.x ? "Hide" : "Show";
-      } else if (stepKey === "y") {
-        state.stepEyes.y = !state.stepEyes.y;
-        btn.classList.toggle("eye-btn--on", state.stepEyes.y);
-        btn.innerHTML = state.stepEyes.y ? eyeOpenSvg(col) : eyeClosedSvg(col);
-        btn.title = state.stepEyes.y ? "Hide" : "Show";
-      } else {
-        const idx = parseInt(stepKey);
-        state.stepEyes.ops[idx] = !state.stepEyes.ops[idx];
-        btn.classList.toggle("eye-btn--on", state.stepEyes.ops[idx]);
-        btn.innerHTML = state.stepEyes.ops[idx] ? eyeOpenSvg(col) : eyeClosedSvg(col);
-        btn.title = state.stepEyes.ops[idx] ? "Hide" : "Show";
-      }
-    });
-    return btn;
-  }
-
-  // Helper: wrap an element with an eye button in a column
-  function wrapWithEye(element, stepKey, isVisible) {
-    const col = document.createElement("div");
-    col.className = "step-col";
-    col.appendChild(element);
-    // In eye mode, the eye is inside the box; skip standalone eye below
-    if (!state.stepEyeMode) {
-      const eye = createEyeBtn(stepKey, isVisible);
-      col.appendChild(eye);
+    // ---- Attach equals-marker drag interaction ----
+    if (pipeLayout) {
+      attachEqualsDrag(svg, pipeLayout);
     }
-    // Hover: set hoveredStep for glow effect
-    col.addEventListener("mouseenter", () => {
-      state.hoveredStep = stepKey;
-    });
-    col.addEventListener("mouseleave", () => {
-      if (state.hoveredStep === stepKey) state.hoveredStep = null;
-    });
-    return col;
+  } catch (err) {
+    console.error("[PipeDiagram] render error:", err);
+    el.textContent = "⚠ " + err.message;
   }
-
-  // x endpoint
-  const xBox = document.createElement("div");
-  xBox.className = "step-endpoint step-box--x";
-  xBox.dataset.liveRole = "x";
-  if (state.stepEyeMode) {
-    xBox.appendChild(createEyeBtn("x", state.stepEyes.x));
-    xBox.classList.add("step-endpoint--eye-mode");
-  } else {
-    xBox.textContent = "x";
-  }
-  flow.appendChild(wrapWithEye(xBox, "x", state.stepEyes.x));
-
-  let dragSrcIdx = null;
-  let dragCurrIdx = null;
-  let dragPreviewOps = null;
-  let dragClone = null;
-  let dragOffsetX = 0;
-  let dragOffsetY = 0;
-  let dragSwapTime = 0;
-
-  function makeArrowCol() {
-    const col = document.createElement("div");
-    col.className = "step-arrows-col";
-    const arrowR = '<svg width="10" height="8" viewBox="0 0 10 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,1 8,4 4,7"/></svg>';
-    const arrowL = '<svg width="10" height="8" viewBox="0 0 10 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6,1 2,4 6,7"/></svg>';
-    col.innerHTML = '<div class="connector-fwd">' + arrowR + '</div><div class="connector-inv">' + arrowL + '</div>';
-    return col;
-  }
-
-  // ---- Drag-to-slide value handler ----
-  function attachValDragHandler(valRow, opIdx) {
-    valRow.style.cursor = "ew-resize";
-    valRow.style.userSelect = "none";
-    valRow.style.touchAction = "none";
-
-    let slideActive = false;
-    let slideStartX = 0;
-    let slideStartY = 0;
-    let slideStartVal = 0;
-    let slideDirection = null; // 'horizontal' or 'vertical' — decided after threshold
-
-    valRow.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const op = state.ops[opIdx];
-      const numVal = parseFloat(op.operand);
-      if (isNaN(numVal)) return; // can't slide non-numeric operands
-
-      slideActive = true;
-      slideStartX = e.clientX;
-      slideStartY = e.clientY;
-      slideStartVal = numVal;
-      slideDirection = null;
-      valRow.setPointerCapture(e.pointerId);
-      valRow.classList.add("op-block__val--sliding");
-    });
-
-    valRow.addEventListener("pointermove", (e) => {
-      if (!slideActive) return;
-      const dx = e.clientX - slideStartX;
-      const dy = e.clientY - slideStartY;
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-
-      // Determine direction on first significant movement
-      if (slideDirection === null && (absDx > 8 || absDy > 8)) {
-        slideDirection = absDy > absDx ? 'vertical' : 'horizontal';
-      }
-
-      // If vertical swipe detected, cancel slide and trigger swap
-      if (slideDirection === 'vertical' && _isMobile && dy > 30 && absDy > absDx * 1.5) {
-        slideActive = false;
-        slideDirection = null;
-        valRow.classList.remove("op-block__val--sliding");
-        try { valRow.releasePointerCapture(e.pointerId); } catch { }
-        // Trigger swap
-        const swapped = swapOp(state.ops[opIdx]);
-        if (swapped) {
-          state.ops[opIdx] = swapped;
-          applyOpsChange();
-        }
-        return;
-      }
-
-      // Only do horizontal val-slide if direction is horizontal (or undecided)
-      if (slideDirection === 'vertical') return;
-      // Sensitivity: scale relative to the magnitude of the value
-      const magnitude = Math.max(Math.abs(slideStartVal), 1);
-      const sensitivity = magnitude * 0.01;
-      let newVal = slideStartVal + dx * sensitivity;
-      // Snap to nice values: round to reasonable precision
-      const decimals = magnitude >= 100 ? 0 : magnitude >= 10 ? 1 : magnitude >= 1 ? 2 : 3;
-      newVal = parseFloat(newVal.toFixed(decimals));
-
-      const op = state.ops[opIdx];
-      const newOperand = String(newVal);
-      if (newOperand === op.operand) return;
-
-      // Rebuild the op with the new operand
-      const labelPrefixes = { add: "+ ", sub: "− ", mul: "× ", div: "/ " };
-      const opChars = { add: "+", sub: "-", mul: "*", div: "/" };
-      if (labelPrefixes[op.type]) {
-        state.ops[opIdx] = {
-          type: op.type,
-          label: labelPrefixes[op.type] + newOperand,
-          operand: newOperand,
-          applyToExpr: (prev) => "(" + prev + ")" + opChars[op.type] + "(" + newOperand + ")",
-        };
-      } else if (getPowerExponent(op) !== null) {
-        state.ops[opIdx] = {
-          type: "other",
-          label: "^ " + newOperand,
-          operand: newOperand,
-          applyToExpr: (prev) => "(" + prev + ")**(" + newOperand + ")",
-        };
-      } else if (getRootN(op) !== null) {
-        state.ops[opIdx] = {
-          type: "other",
-          label: "ⁿ√ " + newOperand,
-          operand: newOperand,
-          applyToExpr: (prev) => "(" + prev + ")**(1/(" + newOperand + "))",
-        };
-      } else if (getExpBase(op) !== null) {
-        state.ops[opIdx] = {
-          type: "other",
-          label: newOperand + "^x",
-          operand: newOperand,
-          applyToExpr: (prev) => "(" + newOperand + ")**(" + prev + ")",
-        };
-      } else if (getLogBase(op) !== null) {
-        state.ops[opIdx] = {
-          type: "other",
-          label: "log_" + newOperand + "()",
-          operand: newOperand,
-          applyToExpr: (prev) => "ln(" + prev + ")/ln(" + newOperand + ")",
-        };
-      } else if (getModOperand(op) !== null) {
-        state.ops[opIdx] = {
-          type: "other",
-          label: "% " + newOperand,
-          operand: newOperand,
-          applyToExpr: (prev) => "mod(" + prev + "," + newOperand + ")",
-        };
-      } else {
-        return; // can't slide this type
-      }
-
-      // Update display in real time
-      valRow.textContent = newOperand;
-      try {
-        const steps = rebuildStepsFromOps(state.ops);
-        state.steps = steps;
-        state.fn = steps.length > 0 ? steps[steps.length - 1].fn : null;
-        syncInputFromOps();
-        setStatusForCurrentMode();
-      } catch { }
-    });
-
-    const endSlide = () => {
-      if (!slideActive) return;
-      slideActive = false;
-      valRow.classList.remove("op-block__val--sliding");
-      syncInputFromOps();
-      renderStepRepresentation();
-    };
-    valRow.addEventListener("pointerup", endSlide);
-    valRow.addEventListener("pointercancel", endSlide);
-  }
-
-  function buildOpBlock(op, i) {
-    const opBlock = document.createElement("div");
-    const fwdSym = getOpSymbol(op);
-    const invSym = getInverseOpSymbol(op);
-    const val = getOpValue(op);
-    const isSimple = fwdSym !== null;
-
-    // Use category for CSS class so colours match OP_COLORS
-    const cat = getOpCategory(op);
-    opBlock.className = "op-block op-block--" + cat;
-    opBlock.dataset.idx = String(i);
-
-    // Delete button (top-right, shown on hover)
-    const deleteBtn = document.createElement("button");
-    deleteBtn.className = "op-block__delete";
-    deleteBtn.innerHTML = "&times;";
-    deleteBtn.title = "Remove";
-    deleteBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      // Clear any active delete preview first
-      clearDeletePreview();
-      const idx = parseInt(opBlock.dataset.idx);
-      const cx = e.clientX, cy = e.clientY;
-
-      state.ops.splice(idx, 1);
-      state.stepEyes.ops.splice(idx, 1);
-      applyOpsChange();
-
-      // Cursor-based approach: after DOM rebuild, find whatever op-block
-      // is now under the cursor and activate its delete-preview state
-      requestAnimationFrame(() => {
-        const el = document.elementFromPoint(cx, cy);
-        if (!el) return;
-        const ob = el.closest('.op-block');
-        if (ob) {
-          const newIdx = parseInt(ob.dataset.idx);
-          const delBtn = ob.querySelector('.op-block__delete');
-          // Force-show the delete button (CSS :hover may not re-fire)
-          if (delBtn) delBtn.style.display = 'flex';
-          // Activate delete preview for the op now under cursor
-          enterDeletePreview(newIdx);
-          ob.classList.add('op-block--delete-preview');
-          // Clean up when mouse actually leaves this op-block
-          const cleanup = () => {
-            clearDeletePreview();
-            ob.classList.remove('op-block--delete-preview');
-            if (delBtn) delBtn.style.display = '';
-            ob.removeEventListener('mouseleave', cleanup);
-          };
-          ob.addEventListener('mouseleave', cleanup);
-        }
-      });
-    });
-    // Delete preview on hover
-    deleteBtn.addEventListener("mouseenter", () => {
-      const idx = parseInt(opBlock.dataset.idx);
-      enterDeletePreview(idx);
-      opBlock.classList.add("op-block--delete-preview");
-    });
-    deleteBtn.addEventListener("mouseleave", () => {
-      clearDeletePreview();
-      opBlock.classList.remove("op-block--delete-preview");
-    });
-    opBlock.appendChild(deleteBtn);
-
-    // Build swap handler
-    function addSwapBtn() {
-      const swapBtn = document.createElement("button");
-      swapBtn.className = "op-block__swap";
-      swapBtn.title = "Swap forward/inverse";
-      swapBtn.textContent = "⇅";
-      swapBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const idx = parseInt(opBlock.dataset.idx);
-        const swapped = swapOp(state.ops[idx]);
-        if (swapped) {
-          state.ops[idx] = swapped;
-          applyOpsChange();
-        }
-      });
-      opBlock.appendChild(swapBtn);
-    }
-
-    if (isSimple) {
-      const fwdRow = document.createElement("div");
-      fwdRow.className = "op-block__fwd";
-      fwdRow.textContent = val ? fwdSym + "\u00A0" + val : fwdSym;
-      fwdRow.dataset.liveSym = fwdSym;
-      if (val) fwdRow.dataset.liveOperand = val;
-      opBlock.appendChild(fwdRow);
-
-      if (val) {
-        const valRow = document.createElement("div");
-        valRow.className = "op-block__val";
-        valRow.textContent = val;
-        attachValDragHandler(valRow, i);
-        opBlock.appendChild(valRow);
-      } else {
-        const spacer = document.createElement("div");
-        spacer.className = "op-block__val op-block__val--empty";
-        opBlock.appendChild(spacer);
-      }
-
-      const invRow = document.createElement("div");
-      invRow.className = "op-block__inv";
-      invRow.textContent = val ? invSym + "\u00A0" + val : invSym;
-      invRow.dataset.liveSym = invSym;
-      if (val) invRow.dataset.liveOperand = val;
-      opBlock.appendChild(invRow);
-      addSwapBtn();
-    } else {
-      const exp = getPowerExponent(op);
-      const rootN = getRootN(op);
-      const expBaseVal = getExpBase(op);
-      const logBaseVal = getLogBase(op);
-      const invLabel = getInverseFunctionLabel(op);
-
-      if (exp !== null || rootN !== null) {
-        // Power or root op: show fwd/value/inv layout
-        const valStr = exp || rootN;
-        const isRoot = rootN !== null;
-        const fwdRow = document.createElement("div");
-        fwdRow.className = "op-block__fwd";
-        // Power: [sym] [operand]; Root exception: [operand] [sym]
-        fwdRow.textContent = isRoot ? (valStr + "\u00A0ⁿ√") : ("^" + "\u00A0" + valStr);
-        fwdRow.dataset.liveSym = isRoot ? "ⁿ√" : "^";
-        fwdRow.dataset.liveOperand = valStr;
-        if (isRoot) fwdRow.dataset.liveOrder = "root";
-        opBlock.appendChild(fwdRow);
-
-        const valRow = document.createElement("div");
-        valRow.className = "op-block__val";
-        valRow.textContent = valStr;
-        attachValDragHandler(valRow, i);
-        opBlock.appendChild(valRow);
-
-        const invRow = document.createElement("div");
-        invRow.className = "op-block__inv";
-        // Power inv is root (exception); Root inv is power (normal)
-        invRow.textContent = isRoot ? ("^" + "\u00A0" + valStr) : (valStr + "\u00A0ⁿ√");
-        invRow.dataset.liveSym = isRoot ? "^" : "ⁿ√";
-        invRow.dataset.liveOperand = valStr;
-        if (!isRoot) invRow.dataset.liveOrder = "root";
-        opBlock.appendChild(invRow);
-        addSwapBtn();
-      } else if (expBaseVal !== null) {
-        // b^x op: draggable base value
-        const fwdRow = document.createElement("div");
-        fwdRow.className = "op-block__fwd";
-        fwdRow.textContent = "b^x";
-        opBlock.appendChild(fwdRow);
-
-        const valRow = document.createElement("div");
-        valRow.className = "op-block__val";
-        valRow.textContent = expBaseVal;
-        attachValDragHandler(valRow, i);
-        opBlock.appendChild(valRow);
-
-        const invRow = document.createElement("div");
-        invRow.className = "op-block__inv";
-        invRow.textContent = invLabel || "log_b";
-        opBlock.appendChild(invRow);
-        addSwapBtn();
-      } else if (logBaseVal !== null) {
-        // log_b op: draggable base value
-        const fwdRow = document.createElement("div");
-        fwdRow.className = "op-block__fwd";
-        fwdRow.textContent = "log_b";
-        opBlock.appendChild(fwdRow);
-
-        const valRow = document.createElement("div");
-        valRow.className = "op-block__val";
-        valRow.textContent = logBaseVal;
-        attachValDragHandler(valRow, i);
-        opBlock.appendChild(valRow);
-
-        const invRow = document.createElement("div");
-        invRow.className = "op-block__inv";
-        invRow.textContent = invLabel || "b^x";
-        opBlock.appendChild(invRow);
-        addSwapBtn();
-      } else if (getModOperand(op) !== null) {
-        // mod op: show fwd=% val, draggable val, no inverse
-        const modVal = getModOperand(op);
-        const fwdRow = document.createElement("div");
-        fwdRow.className = "op-block__fwd";
-        fwdRow.textContent = "%\u00A0" + modVal;
-        fwdRow.dataset.liveSym = "%";
-        fwdRow.dataset.liveOperand = modVal;
-        opBlock.appendChild(fwdRow);
-
-        const valRow = document.createElement("div");
-        valRow.className = "op-block__val";
-        valRow.textContent = modVal;
-        attachValDragHandler(valRow, i);
-        opBlock.appendChild(valRow);
-
-        const spacer = document.createElement("div");
-        spacer.className = "op-block__inv";
-        spacer.textContent = "mod";
-        opBlock.appendChild(spacer);
-      } else if (invLabel) {
-        const fwdRow = document.createElement("div");
-        fwdRow.className = "op-block__fwd";
-        fwdRow.textContent = op.label;
-        opBlock.appendChild(fwdRow);
-
-        const spacer = document.createElement("div");
-        spacer.className = "op-block__val op-block__val--empty";
-        opBlock.appendChild(spacer);
-
-        const invRow = document.createElement("div");
-        invRow.className = "op-block__inv";
-        invRow.textContent = invLabel;
-        opBlock.appendChild(invRow);
-        addSwapBtn();
-      } else {
-        const labelRow = document.createElement("div");
-        labelRow.className = "op-block__label";
-        labelRow.textContent = op.label;
-        opBlock.appendChild(labelRow);
-      }
-    }
-    // Tag fwd/inv rows for live value overlay
-    const fwd = opBlock.querySelector('.op-block__fwd');
-    const inv = opBlock.querySelector('.op-block__inv');
-    if (fwd) { fwd.dataset.liveRole = 'fwd'; fwd.dataset.liveDefault = fwd.textContent; }
-    if (inv) { inv.dataset.liveRole = 'inv'; inv.dataset.liveDefault = inv.textContent; }
-    return opBlock;
-  }
-
-  function rebuildFlowPreview(previewOps) {
-    while (flow.children.length > 1) flow.removeChild(flow.lastChild);
-    for (let i = 0; i < previewOps.length; i++) {
-      flow.appendChild(makeArrowCol());
-      const block = buildOpBlock(previewOps[i], i);
-      attachDragHandlers(block);
-      if (dragSrcIdx !== null) {
-        const origOp = state.ops[dragSrcIdx];
-        if (previewOps[i] === origOp) block.classList.add("op-block--dragging");
-      }
-      const vis = state.stepEyes.ops[i] !== false;
-      flow.appendChild(wrapWithEye(block, String(i), vis));
-    }
-    flow.appendChild(makeArrowCol());
-    const yBox = document.createElement("div");
-    yBox.className = "step-endpoint step-box--y";
-    yBox.textContent = "y";
-    flow.appendChild(wrapWithEye(yBox, "y", state.stepEyes.y));
-  }
-
-  /* FLIP-animated rebuild: records old block rects, rebuilds DOM, then
-     slides each block from its old position to its new one. */
-  function animatedRebuildFlowPreview(newOps, prevOps) {
-    // FIRST: record old positions keyed by op object reference
-    const oldRects = new Map();
-    flow.querySelectorAll('.op-block').forEach(block => {
-      const idx = parseInt(block.dataset.idx);
-      if (idx >= 0 && idx < prevOps.length) {
-        oldRects.set(prevOps[idx], block.getBoundingClientRect());
-      }
-    });
-
-    // Rebuild DOM (destroys old blocks)
-    rebuildFlowPreview(newOps);
-
-    // LAST + INVERT + PLAY
-    flow.querySelectorAll('.op-block').forEach(block => {
-      const idx = parseInt(block.dataset.idx);
-      if (idx >= 0 && idx < newOps.length) {
-        const oldRect = oldRects.get(newOps[idx]);
-        if (oldRect) {
-          const newRect = block.getBoundingClientRect();
-          const dx = oldRect.left - newRect.left;
-          if (Math.abs(dx) > 1) {
-            block.style.transform = `translateX(${dx}px)`;
-            block.style.transition = 'none';
-            block.offsetHeight; // force reflow
-            block.style.transition = 'transform 0.2s ease-out';
-            block.style.transform = '';
-            block.addEventListener('transitionend', () => {
-              block.style.transition = '';
-            }, { once: true });
-          }
-        }
-      }
-    });
-  }
-
-  // ---- Pointer-event drag system (iOS-like) ----
-  const _isMobile = document.body.classList.contains('mobile');
-  const _trashZone = document.getElementById('trash-zone');
-
-  function onDragMove(e) {
-    if (dragSrcIdx === null || !dragClone) return;
-    dragClone.style.left = (e.clientX - dragOffsetX) + "px";
-    dragClone.style.top = (e.clientY - dragOffsetY) + "px";
-
-    // Mobile: check if over trash zone (bottom of screen)
-    if (_isMobile && _trashZone) {
-      const trashRect = _trashZone.getBoundingClientRect();
-      const overTrash = e.clientY > trashRect.top;
-      _trashZone.classList.toggle('hovering', overTrash);
-    }
-
-    // Hit test: temporarily hide clone to see what's underneath
-    dragClone.style.display = "none";
-    const hit = document.elementFromPoint(e.clientX, e.clientY);
-    dragClone.style.display = "";
-    const target = hit?.closest(".op-block");
-    if (target && target.dataset.idx !== undefined) {
-      const dstIdx = parseInt(target.dataset.idx);
-      if (dstIdx !== dragCurrIdx && Date.now() - dragSwapTime > 200) {
-        const prevOps = dragPreviewOps || state.ops;
-        // Always build from original state.ops
-        const preview = [...state.ops];
-        const [moved] = preview.splice(dragSrcIdx, 1);
-        preview.splice(dstIdx, 0, moved);
-        dragPreviewOps = preview;
-        dragCurrIdx = dstIdx;
-        dragSwapTime = Date.now();
-        animatedRebuildFlowPreview(preview, prevOps);
-        // Live-preview the reordered graph
-        try {
-          const previewSteps = rebuildStepsFromOps(preview);
-          state.steps = previewSteps;
-          state.fn = previewSteps.length > 0 ? previewSteps[previewSteps.length - 1].fn : null;
-        } catch { /* keep old graph on error */ }
-      }
-    }
-  }
-
-  function onDragEnd(e) {
-    document.removeEventListener("pointermove", onDragMove);
-    document.removeEventListener("pointerup", onDragEnd);
-
-    // Mobile: check if dropped on trash zone (bottom of screen)
-    let deletedByTrash = false;
-    if (_isMobile && _trashZone && dragSrcIdx !== null) {
-      const trashRect = _trashZone.getBoundingClientRect();
-      const dropY = e?.clientY ?? Infinity;
-      if (dropY <= window.innerHeight && dropY > trashRect.top && _trashZone.classList.contains('hovering')) {
-        deletedByTrash = true;
-        const idx = dragSrcIdx;
-        state.ops.splice(idx, 1);
-        state.stepEyes.ops.splice(idx, 1);
-        applyOpsChange();
-      }
-      _trashZone.classList.remove('visible', 'hovering');
-      // Restore toolbox visibility
-      const toolboxWrap = document.querySelector('.toolbox-wrapper');
-      if (toolboxWrap) toolboxWrap.style.visibility = '';
-    }
-
-    if (dragClone) { dragClone.remove(); dragClone = null; }
-
-    if (!deletedByTrash) {
-      // Only apply reorder if item actually moved from its original position
-      if (dragPreviewOps && dragCurrIdx !== dragSrcIdx) {
-        state.ops = dragPreviewOps;
-        dragPreviewOps = null;
-        dragSrcIdx = null;
-        dragCurrIdx = null;
-        try {
-          const steps = rebuildStepsFromOps(state.ops);
-          state.steps = steps;
-          state.fn = steps.length > 0 ? steps[steps.length - 1].fn : null;
-          syncInputFromOps();
-          setStatusForCurrentMode();
-        } catch (err) {
-          setStatus(err?.message ?? String(err), "error");
-        }
-      } else {
-        // Dropped in original position or never moved — restore original graph
-        if (dragPreviewOps) {
-          try {
-            const steps = rebuildStepsFromOps(state.ops);
-            state.steps = steps;
-            state.fn = steps.length > 0 ? steps[steps.length - 1].fn : null;
-          } catch { /* ignore */ }
-        }
-        dragPreviewOps = null;
-        dragSrcIdx = null;
-        dragCurrIdx = null;
-      }
-    } else {
-      dragPreviewOps = null;
-      dragSrcIdx = null;
-      dragCurrIdx = null;
-    }
-    renderStepRepresentation();
-  }
-
-  function attachDragHandlers(opBlock) {
-    opBlock.style.touchAction = "none"; // prevent touch scroll interference
-
-    // ---- Swipe-down-to-swap gesture (mobile) ----
-    if (_isMobile) {
-      let swipeStartY = null;
-      let swipeStartX = null;
-      let swipeTriggered = false;
-
-      opBlock.addEventListener("pointerdown", (e) => {
-        if (e.target.closest('.eye-btn') || e.target.closest('.op-block__val')) return;
-        swipeStartY = e.clientY;
-        swipeStartX = e.clientX;
-        swipeTriggered = false;
-      });
-
-      const onSwipeMove = (e) => {
-        if (swipeStartY === null || swipeTriggered) return;
-        const dy = e.clientY - swipeStartY;
-        const dx = Math.abs(e.clientX - swipeStartX);
-        // Swipe down: vertical movement > 30px, more vertical than horizontal
-        if (dy > 30 && dy > dx * 1.5) {
-          swipeTriggered = true;
-          const idx = parseInt(opBlock.dataset.idx);
-          const swapped = swapOp(state.ops[idx]);
-          if (swapped) {
-            state.ops[idx] = swapped;
-            applyOpsChange();
-            // Brief flash feedback
-            opBlock.style.transition = 'transform 0.15s';
-            opBlock.style.transform = 'translateY(4px)';
-            setTimeout(() => { opBlock.style.transform = ''; }, 150);
-          }
-          swipeStartY = null;
-        }
-      };
-
-      opBlock.addEventListener("pointermove", onSwipeMove);
-      opBlock.addEventListener("pointerup", () => { swipeStartY = null; });
-      opBlock.addEventListener("pointercancel", () => { swipeStartY = null; });
-    }
-
-    // ---- Drag-to-reorder (+ drag-to-trash on mobile) ----
-    opBlock.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      if (e.target.closest('.op-block__swap')) return;
-      if (e.target.closest('.op-block__delete')) return;
-      if (e.target.closest('.eye-btn')) return;
-      if (e.target.closest('.op-block__val')) return;
-      e.preventDefault();
-      e.stopPropagation();
-
-      // On mobile, use a hold delay to distinguish tap/swipe from drag
-      if (_isMobile) {
-        const holdTimer = setTimeout(() => {
-          startDrag(e);
-        }, 250); // 250ms hold to start drag
-
-        const abortHold = () => {
-          clearTimeout(holdTimer);
-          opBlock.removeEventListener('pointermove', checkHoldAbort);
-          opBlock.removeEventListener('pointerup', abortHold);
-          opBlock.removeEventListener('pointercancel', abortHold);
-        };
-        const checkHoldAbort = (me) => {
-          // If moved too much before hold timer, cancel drag (allow swipe)
-          const dx = Math.abs(me.clientX - e.clientX);
-          const dy = Math.abs(me.clientY - e.clientY);
-          if (dx > 8 || dy > 8) abortHold();
-        };
-        opBlock.addEventListener('pointermove', checkHoldAbort);
-        opBlock.addEventListener('pointerup', abortHold);
-        opBlock.addEventListener('pointercancel', abortHold);
-      } else {
-        startDrag(e);
-      }
-
-      function startDrag(startEvt) {
-        dragSrcIdx = parseInt(opBlock.dataset.idx);
-        dragCurrIdx = dragSrcIdx;
-        dragPreviewOps = null;
-        const rect = opBlock.getBoundingClientRect();
-        dragOffsetX = startEvt.clientX - rect.left;
-        dragOffsetY = startEvt.clientY - rect.top;
-        // Create a floating clone
-        dragClone = opBlock.cloneNode(true);
-        dragClone.style.cssText =
-          "position:fixed;z-index:9999;pointer-events:none;" +
-          "width:" + rect.width + "px;height:" + rect.height + "px;" +
-          "left:" + rect.left + "px;top:" + rect.top + "px;" +
-          "opacity:0.92;box-shadow:0 10px 30px rgba(0,0,0,0.35);" +
-          "transform:scale(1.06);transition:none;border-radius:6px;" +
-          "font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;font-size:0.9rem;";
-        document.body.appendChild(dragClone);
-        opBlock.classList.add("op-block--dragging");
-        // Show trash zone on mobile (overlays toolbox area)
-        if (_isMobile && _trashZone) {
-          _trashZone.classList.add('visible');
-          // Hide toolbox content but keep space (visibility:hidden preserves layout)
-          const toolboxWrap = document.querySelector('.toolbox-wrapper');
-          if (toolboxWrap) toolboxWrap.style.visibility = 'hidden';
-        }
-        document.addEventListener("pointermove", onDragMove);
-        document.addEventListener("pointerup", onDragEnd);
-      }
-    });
-  }
-
-  for (let i = 0; i < ops.length; i++) {
-    flow.appendChild(makeArrowCol());
-    if (state.stepEyeMode) {
-      // In eye mode: op-block just contains a large eye toggle
-      const cat = getOpCategory(ops[i]);
-      const eyeBlock = document.createElement("div");
-      eyeBlock.className = "op-block op-block--" + cat + " op-block--eye-mode";
-      eyeBlock.dataset.idx = String(i);
-      eyeBlock.appendChild(createEyeBtn(String(i), state.stepEyes.ops[i]));
-      flow.appendChild(wrapWithEye(eyeBlock, String(i), state.stepEyes.ops[i]));
-    } else {
-      const opBlock = buildOpBlock(ops[i], i);
-      attachDragHandlers(opBlock);
-      flow.appendChild(wrapWithEye(opBlock, String(i), state.stepEyes.ops[i]));
-    }
-  }
-
-  // Final arrow column
-  flow.appendChild(makeArrowCol());
-
-  // y endpoint
-  const yBox = document.createElement("div");
-  yBox.className = "step-endpoint step-box--y";
-  yBox.dataset.liveRole = "y";
-  if (state.stepEyeMode) {
-    yBox.appendChild(createEyeBtn("y", state.stepEyes.y));
-    yBox.classList.add("step-endpoint--eye-mode");
-  } else {
-    yBox.textContent = "y";
-  }
-  flow.appendChild(wrapWithEye(yBox, "y", state.stepEyes.y));
-
-  el.appendChild(flow);
 }
 
-/**
- * Live-update the step-flow UI with computed values at the cursor's x.
- * When xVal is null (cursor off canvas), revert to default labels.
- */
+// Hook up pipe diagram toggles
+(function () {
+  const ids = ["show-intermediates", "pipe-horizontal", "pipe-debug-labels", "pipe-arm-labels"];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("change", () => renderStepRepresentation());
+  });
+})();
+
 /**
  * Apply step-derived colors to connectors (arrows between op boxes).
  * Called both when cursor is on canvas AND when it's off, so connectors stay colored.
@@ -2787,34 +9345,302 @@ function applyConnectorColors(arrowCols) {
   }
 }
 
+// ==================================================================
+// ---- DAG live-value evaluator for the expression tree --------
+// ==================================================================
+
+/**
+ * Evaluate every node in a pipeLayout DAG at the given x value.
+ * Returns a Map<nodeId, number>.  Respects arm-assignment swaps.
+ */
+function evaluateDagAtX(layout, x) {
+  if (!layout || !layout.nodes) return null;
+  const nodes = layout.nodes;
+  const vals = new Map();
+
+  function catFor(opType) {
+    if (opType === "add" || opType === "sub") return "addSub";
+    if (opType === "mul" || opType === "div") return "mulDiv";
+    if (opType === "power") return "exp";
+    return null;
+  }
+
+  function ev(id) {
+    if (vals.has(id)) return vals.get(id);
+    const n = nodes[id];
+    if (!n) { vals.set(id, NaN); return NaN; }
+    let result;
+
+    if (n.type === "value") {
+      if (n.value === "x") result = x;
+      else if (n.value === "pi") result = Math.PI;
+      else if (n.value === "e") result = Math.E;
+      else if (n.value === "tau") result = 2 * Math.PI;
+      else { result = parseFloat(n.value); if (!Number.isFinite(result)) result = NaN; }
+    } else if (n.type === "intermediate") {
+      result = ev(n.sourceOpId);
+    } else if (n.type === "op") {
+      const cat = n.armCategory || catFor(n.opType);
+      const roles = n.armAssignment;
+
+      if (n.opType === "call" && (!cat || cat === null)) {
+        // Function call — apply named function to left child
+        const arg = ev(n.leftId);
+        const fn = (n.ast && n.ast.fn) || (n.symbol ? n.symbol.replace("()", "") : "");
+        switch (fn) {
+          case "sin": result = Math.sin(arg); break;
+          case "cos": result = Math.cos(arg); break;
+          case "tan": result = Math.tan(arg); break;
+          case "asin": result = Math.asin(arg); break;
+          case "acos": result = Math.acos(arg); break;
+          case "atan": result = Math.atan(arg); break;
+          case "sqrt": result = arg < 0 ? NaN : Math.sqrt(arg); break;
+          case "abs": result = Math.abs(arg); break;
+          case "exp": result = Math.exp(arg); break;
+          case "log": result = Math.log(arg) / Math.LN10; break;
+          case "ln": result = Math.log(arg); break;
+          case "floor": result = Math.floor(arg); break;
+          case "ceil": result = Math.ceil(arg); break;
+          case "round": result = Math.round(arg); break;
+          default: result = NaN;
+        }
+      } else if (roles && cat) {
+        // Category-aware evaluation with arm-swap support
+        const leftVal = ev(n.leftId);
+        const rightVal = n.rightId != null ? ev(n.rightId) : NaN;
+        const byRole = {};
+        byRole[roles.left] = leftVal;
+        if (roles.right) byRole[roles.right] = rightVal;
+
+        if (cat === "addSub") {
+          // arm1 + arm2 = arm3
+          if (roles.output === "3") result = (byRole["1"] || 0) + (byRole["2"] || 0);
+          else if (roles.output === "1") result = (byRole["3"] || 0) - (byRole["2"] || 0);
+          else if (roles.output === "2") result = (byRole["3"] || 0) - (byRole["1"] || 0);
+          else result = NaN;
+        } else if (cat === "mulDiv") {
+          // arm2 × arm4 = arm8
+          if (roles.output === "8") result = (byRole["2"] || 0) * (byRole["4"] || 0);
+          else if (roles.output === "2") result = (byRole["8"] || 0) / (byRole["4"] || 1);
+          else if (roles.output === "4") result = (byRole["8"] || 0) / (byRole["2"] || 1);
+          else result = NaN;
+        } else if (cat === "exp") {
+          // base ^ exponent = power
+          const base = byRole.base, expo = byRole.exponent, pow = byRole.power;
+          if (roles.output === "power") {
+            result = (base >= 0 || expo === Math.floor(expo)) ? Math.pow(base, expo) : NaN;
+          } else if (roles.output === "base") {
+            result = (pow >= 0 || (1 / expo) === Math.floor(1 / expo)) ? Math.pow(pow, 1 / expo) : NaN;
+          } else if (roles.output === "exponent") {
+            result = Math.log(pow) / Math.log(base);
+          } else result = NaN;
+        } else result = NaN;
+      } else {
+        // No arm assignment — use basic opType
+        const lv = ev(n.leftId);
+        const rv = n.rightId != null ? ev(n.rightId) : NaN;
+        switch (n.opType) {
+          case "add": result = lv + rv; break;
+          case "sub": result = lv - rv; break;
+          case "mul": result = lv * rv; break;
+          case "div": result = lv / rv; break;
+          case "power": result = (lv >= 0 || rv === Math.floor(rv)) ? Math.pow(lv, rv) : NaN; break;
+          case "mod": result = ((lv % rv) + rv) % rv; break;
+          default: result = NaN;
+        }
+      }
+    } else {
+      result = NaN;
+    }
+
+    vals.set(id, result);
+    return result;
+  }
+
+  for (let i = 0; i < nodes.length; i++) ev(i);
+  return vals;
+}
+
+/**
+ * Update the live value display inside the expression-tree SVG.
+ * Called every frame while the cursor is on the canvas.
+ * Pass xVal = null to revert to default labels.
+ */
+function updateLiveDagValues(xVal) {
+  const layout = state.pipeLayout;
+  if (!layout || !layout.nodes) return;
+  const nodes = layout.nodes;
+
+  if (xVal === null || xVal === undefined) {
+    // Revert: restore original text on value nodes and y-node, hide op/intermediate live labels
+    for (const n of nodes) {
+      if (n.type === "value" && n._textEl) {
+        n._textEl.textContent = n.value;
+        // Restore italic for variables, normal for numbers
+        const isNumeric = /^-?[\d.]+$/.test(n.value);
+        n._textEl.setAttribute("font-style", isNumeric ? "normal" : "italic");
+        n._textEl.setAttribute("font-size", 32);
+        try {
+          const bbox = n._textEl.getBBox();
+          if (bbox.width > 35) {
+            const scaled = Math.floor(32 * 35 / bbox.width);
+            n._textEl.setAttribute("font-size", Math.max(8, scaled));
+          }
+        } catch (_) { }
+      }
+      if (n.type === "op" && n._liveValueEl) {
+        n._liveValueEl.setAttribute("display", "none");
+      }
+      if (n.type === "intermediate" && n._liveValueEl) {
+        n._liveValueEl.setAttribute("display", "none");
+        // Restore original intermediate badge size & transform
+        if (n._circleEl) n._circleEl.removeAttribute("transform");
+        n._liveValueEl.style.transformBox = "";
+        n._liveValueEl.style.transformOrigin = "";
+        if (n._liveValueOrigTransform) {
+          n._liveValueEl.setAttribute("transform", n._liveValueOrigTransform);
+        } else {
+          n._liveValueEl.removeAttribute("transform");
+        }
+      }
+    }
+    if (layout._yTextEl) {
+      layout._yTextEl.textContent = "y";
+      layout._yTextEl.setAttribute("font-style", "italic");
+      layout._yTextEl.setAttribute("font-size", 32);
+    }
+    return;
+  }
+
+  // Evaluate the full DAG at this x
+  const vals = evaluateDagAtX(layout, xVal);
+  if (!vals) return;
+
+  // Root op is the last op on the main path → its value is "y"
+  const rootOpId = layout.mainPath ? layout.mainPath.opIds[0] : null;
+
+  for (const n of nodes) {
+    if (n.type === "value" && n._textEl) {
+      if (n.value === "x") {
+        // Show live x value (non-italic for numbers)
+        const v = vals.get(n.id);
+        const txt = Number.isFinite(v) ? formatLiveNumber(v) : "\u2014";
+        n._textEl.textContent = txt;
+        n._textEl.setAttribute("font-style", "normal");
+        // Auto-size to fit circle
+        n._textEl.setAttribute("font-size", 24);
+        try {
+          const bbox = n._textEl.getBBox();
+          if (bbox.width > 35) {
+            const scaled = Math.floor(24 * 35 / bbox.width);
+            n._textEl.setAttribute("font-size", Math.max(8, scaled));
+          }
+        } catch (_) { }
+      }
+      // Constants keep their label — no change needed
+    }
+
+    if (n.type === "op" && n._liveValueEl) {
+      // Op live values are now displayed on intermediate nodes instead
+      n._liveValueEl.setAttribute("display", "none");
+    }
+
+    if (n.type === "intermediate" && n._liveValueEl) {
+      // Intermediate shows the output value of its sourceOp (the child op it wraps)
+      const srcId = n.sourceOpId != null ? n.sourceOpId : n.connectsToOpId;
+      const v = srcId != null ? vals.get(srcId) : undefined;
+      if (v !== undefined) {
+        const txt = Number.isFinite(v) ? formatLiveNumber(v) : "\u2014";
+        n._liveValueEl.textContent = txt;
+        n._liveValueEl.setAttribute("display", "");
+        // Scale intermediate badge up to full value-badge size
+        const intRad = 22 * 0.55; // R * 0.55
+        const intScale = 22 / intRad; // ≈ 1.82
+        const ix = n.x, iy = n.y;
+        const circleXform = `translate(${ix},${iy}) scale(${intScale}) translate(${-ix},${-iy})`;
+        if (n._circleEl) n._circleEl.setAttribute("transform", circleXform);
+        // Override CSS transform-box so the SVG-coordinate scale works correctly
+        n._liveValueEl.style.transformBox = "view-box";
+        n._liveValueEl.style.transformOrigin = "0 0";
+        // Scale & preserve original text transform (counter-rotation)
+        const origT = n._liveValueOrigTransform || "";
+        const rMatch = origT.match(/rotate\(([^\s,)]+)/);
+        const cDeg = rMatch ? rMatch[1] : null;
+        const textXform = cDeg
+          ? `translate(${ix},${iy}) scale(${intScale}) rotate(${cDeg}) translate(${-ix},${-iy})`
+          : circleXform;
+        n._liveValueEl.setAttribute("transform", textXform);
+        // Auto-size text to fit enlarged circle
+        // Font-size and maxW are in LOCAL (pre-transform) coordinates;
+        // both circle and text are scaled by intScale, so use intRad-based limits.
+        const localFont = Math.round(24 / intScale); // visually ≈24 after scale
+        const maxW = (22 * 1.6) / intScale;           // visually ≈35 after scale
+        n._liveValueEl.setAttribute("font-size", localFont);
+        try {
+          const bbox = n._liveValueEl.getBBox();
+          if (bbox.width > maxW) {
+            const scaled = Math.floor(localFont * maxW / bbox.width);
+            n._liveValueEl.setAttribute("font-size", Math.max(4, scaled));
+          }
+        } catch (_) { }
+      } else {
+        n._liveValueEl.setAttribute("display", "none");
+        // Restore original size & transform
+        if (n._circleEl) n._circleEl.removeAttribute("transform");
+        if (n._liveValueOrigTransform) {
+          n._liveValueEl.setAttribute("transform", n._liveValueOrigTransform);
+        } else {
+          n._liveValueEl.removeAttribute("transform");
+        }
+      }
+    }
+  }
+
+  // Update y-node
+  if (layout._yTextEl && rootOpId != null) {
+    const yVal = vals.get(rootOpId);
+    const txt = Number.isFinite(yVal) ? formatLiveNumber(yVal) : "\u2014";
+    layout._yTextEl.textContent = txt;
+    layout._yTextEl.setAttribute("font-style", "normal");
+    layout._yTextEl.setAttribute("font-size", 24);
+    try {
+      const bbox = layout._yTextEl.getBBox();
+      if (bbox.width > 35) {
+        const scaled = Math.floor(24 * 35 / bbox.width);
+        layout._yTextEl.setAttribute("font-size", Math.max(8, scaled));
+      }
+    } catch (_) { }
+  }
+}
+
 function updateLiveOpValues(xVal) {
   const flow = document.querySelector('.step-flow');
-  if (!flow) return;
-
-  const xEl = flow.querySelector('[data-live-role="x"]');
-  const yEl = flow.querySelector('[data-live-role="y"]');
-  const opBlocks = flow.querySelectorAll('.op-block');
-  const arrowCols = flow.querySelectorAll('.step-arrows-col');
 
   if (xVal === null || !state.fn) {
     // Revert text to defaults (but keep connector colors)
-    if (xEl) { xEl.textContent = 'x'; xEl.style.color = ''; }
-    if (yEl) { yEl.textContent = 'y'; yEl.style.color = ''; }
-    for (const block of opBlocks) {
-      const fwd = block.querySelector('[data-live-role="fwd"]');
-      const inv = block.querySelector('[data-live-role="inv"]');
-      if (fwd) { fwd.textContent = fwd.dataset.liveDefault || ''; fwd.style.color = ''; }
-      if (inv) { inv.textContent = inv.dataset.liveDefault || ''; inv.style.color = ''; }
+    if (flow) {
+      const xEl = flow.querySelector('[data-live-role="x"]');
+      const yEl = flow.querySelector('[data-live-role="y"]');
+      const opBlocks = flow.querySelectorAll('.op-block');
+      const arrowCols = flow.querySelectorAll('.step-arrows-col');
+      if (xEl) { xEl.textContent = 'x'; xEl.style.color = ''; }
+      if (yEl) { yEl.textContent = 'y'; yEl.style.color = ''; }
+      for (const block of opBlocks) {
+        const fwd = block.querySelector('[data-live-role="fwd"]');
+        const inv = block.querySelector('[data-live-role="inv"]');
+        if (fwd) { fwd.textContent = fwd.dataset.liveDefault || ''; fwd.style.color = ''; }
+        if (inv) { inv.textContent = inv.dataset.liveDefault || ''; inv.style.color = ''; }
+      }
+      // Always keep connectors colored — apply colors even when cursor is off
+      applyConnectorColors(arrowCols);
     }
-    // Always keep connectors colored — apply colors even when cursor is off
-    applyConnectorColors(arrowCols);
     // Revert input overlay
     updateInputOverlay();
     return;
   }
 
   // Compute values through the forward chain
-  const steps = state.steps;
+  const steps = state.steps || [];
   const values = [xVal];
   for (let k = 0; k < steps.length; k++) {
     let v;
@@ -2834,92 +9660,100 @@ function updateLiveOpValues(xVal) {
     return OP_COLORS.x;
   }
 
-  // x endpoint: x-color
-  if (xEl) {
-    xEl.textContent = formatLiveX(xVal);
-    xEl.style.color = OP_COLORS.x;
-  }
+  // ---- Update step-flow UI (only if present) ----
+  if (flow) {
+    const xEl = flow.querySelector('[data-live-role="x"]');
+    const yEl = flow.querySelector('[data-live-role="y"]');
+    const opBlocks = flow.querySelectorAll('.op-block');
+    const arrowCols = flow.querySelectorAll('.step-arrows-col');
 
-  // y endpoint: color of the last op (or x if no ops)
-  const yVal = values[values.length - 1];
-  const lastHex = state.ops.length > 0
-    ? (OP_COLORS[getOpCategory(state.ops[state.ops.length - 1])] || OP_COLORS.misc)
-    : OP_COLORS.x;
-  if (yEl) {
-    yEl.textContent = Number.isFinite(yVal) ? formatLiveNumber(yVal) : '\u2014';
-    yEl.style.color = lastHex;
-  }
+    // x endpoint: x-color
+    if (xEl) {
+      xEl.textContent = formatLiveX(xVal);
+      xEl.style.color = OP_COLORS.x;
+    }
 
-  // Color connectors: fwd by preceding (left) box, inv by succeeding (right) box
-  applyConnectorColors(arrowCols);
+    // y endpoint: color of the last op (or x if no ops)
+    const yVal = values[values.length - 1];
+    const lastHex = state.ops.length > 0
+      ? (OP_COLORS[getOpCategory(state.ops[state.ops.length - 1])] || OP_COLORS.misc)
+      : OP_COLORS.x;
+    if (yEl) {
+      yEl.textContent = Number.isFinite(yVal) ? formatLiveNumber(yVal) : '\u2014';
+      yEl.style.color = lastHex;
+    }
 
-  // Each op block
-  for (let i = 0; i < opBlocks.length; i++) {
-    const block = opBlocks[i];
-    const fwd = block.querySelector('[data-live-role="fwd"]');
-    const inv = block.querySelector('[data-live-role="inv"]');
+    // Color connectors: fwd by preceding (left) box, inv by succeeding (right) box
+    applyConnectorColors(arrowCols);
 
-    const inputVal = (i + 1 < values.length) ? values[i + 1] : NaN;
-    const outputVal = (i + 2 < values.length) ? values[i + 2] : NaN;
+    // Each op block
+    for (let i = 0; i < opBlocks.length; i++) {
+      const block = opBlocks[i];
+      const fwd = block.querySelector('[data-live-role="fwd"]');
+      const inv = block.querySelector('[data-live-role="inv"]');
 
-    // Fwd value colored by box to the LEFT, inv value colored by box to the RIGHT
-    const prevHex = i === 0
-      ? OP_COLORS.x
-      : (OP_COLORS[getOpCategory(state.ops[i - 1])] || OP_COLORS.misc);
-    // Box to the right: ops[i+1] if exists, else y
-    const nextHex = i < state.ops.length - 1
-      ? (OP_COLORS[getOpCategory(state.ops[i + 1])] || OP_COLORS.misc)
-      : OP_COLORS.y;
+      const inputVal = (i + 1 < values.length) ? values[i + 1] : NaN;
+      const outputVal = (i + 2 < values.length) ? values[i + 2] : NaN;
 
-    if (fwd) {
-      const def = fwd.dataset.liveDefault || '';
-      const sym = fwd.dataset.liveSym || def;
-      const operand = fwd.dataset.liveOperand || '';
-      const isRootOrder = fwd.dataset.liveOrder === 'root';
-      if (Number.isFinite(inputVal)) {
-        const v = formatLiveNumber(inputVal);
-        if (sym.endsWith('()')) {
-          const fn = sym.slice(0, -2);
-          fwd.innerHTML = fn + '(<span style="color:' + prevHex + '">' + v + '</span>)';
-        } else if (isRootOrder) {
-          // Root exception: [operand] [sym] [input]
-          fwd.innerHTML = operand + '&nbsp;' + sym + '&nbsp;<span style="color:' + prevHex + '">' + v + '</span>';
-        } else if (operand) {
-          // Normal: [input] [sym] [operand]
-          fwd.innerHTML = '<span style="color:' + prevHex + '">' + v + '</span>&nbsp;' + sym + '&nbsp;' + operand;
+      // Fwd value colored by box to the LEFT, inv value colored by box to the RIGHT
+      const prevHex = i === 0
+        ? OP_COLORS.x
+        : (OP_COLORS[getOpCategory(state.ops[i - 1])] || OP_COLORS.misc);
+      // Box to the right: ops[i+1] if exists, else y
+      const nextHex = i < state.ops.length - 1
+        ? (OP_COLORS[getOpCategory(state.ops[i + 1])] || OP_COLORS.misc)
+        : OP_COLORS.y;
+
+      if (fwd) {
+        const def = fwd.dataset.liveDefault || '';
+        const sym = fwd.dataset.liveSym || def;
+        const operand = fwd.dataset.liveOperand || '';
+        const isRootOrder = fwd.dataset.liveOrder === 'root';
+        if (Number.isFinite(inputVal)) {
+          const v = formatLiveNumber(inputVal);
+          if (sym.endsWith('()')) {
+            const fn = sym.slice(0, -2);
+            fwd.innerHTML = fn + '(<span style="color:' + prevHex + '">' + v + '</span>)';
+          } else if (isRootOrder) {
+            // Root exception: [operand] [sym] [input]
+            fwd.innerHTML = operand + '&nbsp;' + sym + '&nbsp;<span style="color:' + prevHex + '">' + v + '</span>';
+          } else if (operand) {
+            // Normal: [input] [sym] [operand]
+            fwd.innerHTML = '<span style="color:' + prevHex + '">' + v + '</span>&nbsp;' + sym + '&nbsp;' + operand;
+          } else {
+            fwd.innerHTML = '<span style="color:' + prevHex + '">' + v + '</span>&nbsp;' + sym;
+          }
         } else {
-          fwd.innerHTML = '<span style="color:' + prevHex + '">' + v + '</span>&nbsp;' + sym;
+          fwd.textContent = def;
+          fwd.style.color = '';
         }
-      } else {
-        fwd.textContent = def;
-        fwd.style.color = '';
+      }
+      if (inv) {
+        const def = inv.dataset.liveDefault || '';
+        const sym = inv.dataset.liveSym || def;
+        const operand = inv.dataset.liveOperand || '';
+        const isRootOrder = inv.dataset.liveOrder === 'root';
+        if (Number.isFinite(outputVal)) {
+          const v = formatLiveNumber(outputVal);
+          if (sym.endsWith('()')) {
+            const fn = sym.slice(0, -2);
+            inv.innerHTML = fn + '(<span style="color:' + nextHex + '">' + v + '</span>)';
+          } else if (isRootOrder) {
+            inv.innerHTML = operand + '&nbsp;' + sym + '&nbsp;<span style="color:' + nextHex + '">' + v + '</span>';
+          } else if (operand) {
+            inv.innerHTML = '<span style="color:' + nextHex + '">' + v + '</span>&nbsp;' + sym + '&nbsp;' + operand;
+          } else {
+            inv.innerHTML = '<span style="color:' + nextHex + '">' + v + '</span>&nbsp;' + sym;
+          }
+        } else {
+          inv.textContent = def;
+          inv.style.color = '';
+        }
       }
     }
-    if (inv) {
-      const def = inv.dataset.liveDefault || '';
-      const sym = inv.dataset.liveSym || def;
-      const operand = inv.dataset.liveOperand || '';
-      const isRootOrder = inv.dataset.liveOrder === 'root';
-      if (Number.isFinite(outputVal)) {
-        const v = formatLiveNumber(outputVal);
-        if (sym.endsWith('()')) {
-          const fn = sym.slice(0, -2);
-          inv.innerHTML = fn + '(<span style="color:' + nextHex + '">' + v + '</span>)';
-        } else if (isRootOrder) {
-          inv.innerHTML = operand + '&nbsp;' + sym + '&nbsp;<span style="color:' + nextHex + '">' + v + '</span>';
-        } else if (operand) {
-          inv.innerHTML = '<span style="color:' + nextHex + '">' + v + '</span>&nbsp;' + sym + '&nbsp;' + operand;
-        } else {
-          inv.innerHTML = '<span style="color:' + nextHex + '">' + v + '</span>&nbsp;' + sym;
-        }
-      } else {
-        inv.textContent = def;
-        inv.style.color = '';
-      }
-    }
   }
 
-  // Update the text input box with live values
+  // Always update the text input box with live values (even without step-flow)
   updateLiveInputOverlay(xVal, values);
 }
 
@@ -2929,29 +9763,42 @@ function updateLiveOpValues(xVal) {
  */
 function updateLiveInputOverlay(xVal, values) {
   if (!ui.exprOverlay || !ui.exprEl) return;
-  if (!state.displaySpans || !state.displaySpans.length) return;
+
+  // Resolve source spans: prefer displaySpans, fall back to pipe-layout spans
+  let srcSpans = state.displaySpans && state.displaySpans.length ? state.displaySpans : null;
+  if (!srcSpans && state.pipeLayout && state.pipeLayout.nodes && state.pipeLayout.mainPath) {
+    srcSpans = pipeLayoutToColoredSpans(state.pipeLayout);
+  }
+  if (!srcSpans || !srcSpans.length) return;
 
   const controlEl = ui.exprEl.closest('.control--expr');
-  const yVal = values[values.length - 1];
+  // Always prefer state.fn for y-value (steps chain may be incomplete for tree expressions)
+  let yVal;
+  if (state.fn) {
+    try { yVal = state.fn(xVal); } catch { yVal = NaN; }
+  } else {
+    yVal = values[values.length - 1];
+  }
   const xStr = formatLiveX(xVal);
   const yStr = Number.isFinite(yVal) ? formatLiveNumber(yVal) : '\u2014';
 
-  // Rebuild the overlay from displaySpans, replacing 'x' with the live value
-  const html = state.displaySpans.map(s => {
-    const opacity = s.isBracket ? 0.35 : 1;
+  // Rebuild the overlay from spans, replacing 'x' with the live value
+  const html = srcSpans.map(s => {
+    const opacity = s.isBracket ? 0.35 : (s.opacity || 1);
     if (s.text === 'x') {
       return '<span style="color:' + OP_COLORS.x + ';opacity:' + opacity + '">' + escapeHtml(xStr) + '</span>';
     }
     return '<span style="color:' + s.color + ';opacity:' + opacity + '">' + escapeHtml(s.text) + '</span>';
   }).join('');
 
-  // Append " = yVal" in y-color
-  const lastHex = state.ops.length > 0
-    ? (OP_COLORS[getOpCategory(state.ops[state.ops.length - 1])] || OP_COLORS.misc)
-    : OP_COLORS.x;
-  const suffix = '<span style="color:var(--muted);opacity:0.5"> = </span><span style="color:' + OP_COLORS.y + '">' + escapeHtml(yStr) + '</span>';
-
-  ui.exprOverlay.innerHTML = html + suffix;
+  // Replace "y" prefix with the live y-value instead of appending "= yVal"
+  const yValHtml = '<span style="color:' + OP_COLORS.y + '">' + escapeHtml(yStr) + '</span>'
+    + '<span style="color:var(--muted);opacity:0.5"> = </span>';
+  if (state.equalsEdge) {
+    ui.exprOverlay.innerHTML = html;
+  } else {
+    ui.exprOverlay.innerHTML = yValHtml + html;
+  }
   if (controlEl) controlEl.classList.add('has-overlay');
   // Auto-size input to fit live-value overlay
   autoSizeExprInput();
@@ -2978,6 +9825,11 @@ function compileExpression(exprRaw) {
   // Normalize
   let normalized = expr.replace(/\s+/g, "");
   normalized = normalized.replace(/\^/g, "**");
+
+  // Pre-process log_base(value) → (ln(value)/ln(base)) before validation
+  normalized = expandLogBase(normalized);
+  // Pre-process nthrt_n(value) → ((value)**(1/(n))) before validation
+  normalized = expandNthRoot(normalized);
 
   const allowed = new Set([
     "x",
@@ -3066,11 +9918,19 @@ function autoSizeInput() {
     overlayContentW = ui.exprOverlay.scrollWidth;
     ui.exprOverlay.style.right = sr;
   }
-  el.style.width = Math.max(180, needed + 32, overlayContentW + 20) + 'px';
+  el.style.width = Math.max(180, needed + 16, overlayContentW + 12) + 'px';
 }
 
+let _swapInProgress = false;  // guard: prevent liveParse from rebuilding pipeLayout during swap
 function liveParse() {
+  if (_swapInProgress) { return; }
   const expr = ui.exprEl?.value ?? "";
+  // If the expression hasn't changed and we already have a layout, skip rebuild.
+  // This prevents async input events (e.g. Safari programmatic .value set) from
+  // nuking a freshly-swapped pipeLayout.
+  if (expr && state.lastExpr === expr && state.pipeLayout) {
+    return;
+  }
   if (!expr.trim()) {
     state.fn = null;
     state.steps = [];
@@ -3080,6 +9940,7 @@ function liveParse() {
     updateTimelineVisibility();
     renderStepRepresentation();
     updateInputOverlay();
+    updateLatexDisplay("");
     setStatus("", "info");
     return;
   }
@@ -3087,11 +9948,14 @@ function liveParse() {
     const fn = compileExpression(expr);
     state.fn = fn;
     state.lastExpr = expr;
-    const { steps, ops } = parseAndLinearize(expr);
+    const { steps, ops, pipeLayout } = parseAndLinearize(expr);
     state.steps = steps;
     state.ops = ops;
+    state.pipeLayout = pipeLayout || null;
     state.stepEyes.ops = ops.map(() => true);
-    // Detect t usage
+    // Clear expanded discrete columns since the expression changed
+    state.expandedCols.clear();
+    state.expandedSubCols.clear();
     const normalized = expr.replace(/\s+/g, "");
     state.usesT = /\bt\b/.test(normalized);
     updateTimelineVisibility();
@@ -3105,6 +9969,7 @@ function liveParse() {
       state.displaySpans = null;
     }
     updateInputOverlay();
+    updateLatexDisplay(expr);
     if (!state.hasPlotted) {
       state.hasPlotted = true;
       if (ui.infoBtn) ui.infoBtn.style.display = "";
@@ -3117,22 +9982,42 @@ function liveParse() {
 }
 
 function plotFunction() {
+  if (_swapInProgress) { return; }
   const expr = ui.exprEl?.value ?? "";
+  // Clear any equals rotation state from previous expression
+  state.equalsEdge = null;
+  state.equalsLhsSpans = null;
+  state.equalsFullSpans = null;
+  state.equalsRhsExpr = null;
   try {
     const fn = compileExpression(expr);
     state.fn = fn;
     state.lastExpr = expr;
-    const { steps, ops } = parseAndLinearize(expr);
+    const { steps, ops, pipeLayout } = parseAndLinearize(expr);
     state.steps = steps;
     state.ops = ops;
+    state.pipeLayout = pipeLayout || null;
     state.stepEyes.ops = ops.map(() => true);
-    // Detect t usage
+    // Clear expanded discrete columns since the expression changed
+    state.expandedCols.clear();
+    state.expandedSubCols.clear();
     const normalized = expr.replace(/\s+/g, "");
     state.usesT = /\bt\b/.test(normalized);
     updateTimelineVisibility();
     renderStepRepresentation();
     setStatusForCurrentMode();
-    if (ops.length > 0) {
+    // Use pipe-tree expression (with brackets + correct coloring) when available;
+    // fall back to sequential buildDisplayExpr only if there's no pipe layout.
+    if (state.pipeLayout) {
+      const treeResult = _walkPipeTree(state.pipeLayout);
+      if (treeResult) {
+        ui.exprEl.value = treeResult.text;
+        state.lastExpr = treeResult.text;
+        state.displaySpans = treeResult.spans;
+      } else {
+        state.displaySpans = null;
+      }
+    } else if (ops.length > 0) {
       const { text, spans } = buildDisplayExpr(ops);
       state.displaySpans = spans;
       ui.exprEl.value = text;
@@ -3141,11 +10026,13 @@ function plotFunction() {
       state.displaySpans = null;
     }
     updateInputOverlay();
+    updateLatexDisplay(ui.exprEl?.value ?? expr);
     if (!state.hasPlotted) {
       state.hasPlotted = true;
       if (ui.infoBtn) ui.infoBtn.style.display = "";
     }
   } catch (err) {
+    console.error('[plotFunction]', err);
     state.fn = null;
     state.steps = [];
     state.ops = [];
@@ -3185,15 +10072,15 @@ function setup() {
     ui.exprOverlay = overlay;
 
     // Position overlay to match the input's left edge within the control
-    const positionOverlay = () => {
+    ui._positionOverlay = () => {
       const ctrlRect = controlLabel.getBoundingClientRect();
       const inputRect = ui.exprEl.getBoundingClientRect();
       const leftOffset = inputRect.left - ctrlRect.left;
       overlay.style.left = leftOffset + "px";
       overlay.style.right = "0";
     };
-    positionOverlay();
-    window.addEventListener("resize", positionOverlay);
+    ui._positionOverlay();
+    window.addEventListener("resize", ui._positionOverlay);
 
     // Sync overlay scroll/position with input
     ui.exprEl.addEventListener("scroll", () => {
@@ -3220,7 +10107,7 @@ function setup() {
   // Prevent browser image-drag when dragging on the canvas
   canvas.elt.addEventListener('dragstart', e => e.preventDefault());
 
-  // Create reset view overlay button (will be placed inside toggle bar)
+  // Create reset view overlay button
   const resetOverlay = document.createElement("button");
   resetOverlay.className = "reset-overlay";
   resetOverlay.textContent = "Reset view";
@@ -3231,6 +10118,57 @@ function setup() {
     resetOverlay.style.display = "none";
   });
   ui.resetOverlay = resetOverlay;
+  document.body.appendChild(resetOverlay);
+
+  // Position reset button relative to accordion
+  const exprWin = document.getElementById('expr-window');
+  const portraitMQ = window.matchMedia(
+    '(max-width: 600px) and (orientation: portrait), ' +
+    '(hover: none) and (pointer: coarse) and (orientation: portrait)');
+
+  function positionResetButton() {
+    if (resetOverlay.style.display === 'none' || !exprWin) return;
+    const r = exprWin.getBoundingClientRect();
+    if (portraitMQ.matches) {
+      // Mobile portrait: above the pane, centred horizontally
+      resetOverlay.style.top = '';
+      resetOverlay.style.bottom = (window.innerHeight - r.top + 6) + 'px';
+      resetOverlay.style.left = '50%';
+      resetOverlay.style.transform = 'translateX(-50%)';
+    } else {
+      // Desktop: below the accordion window, centred on it
+      resetOverlay.style.bottom = '';
+      resetOverlay.style.top = (r.bottom + 6) + 'px';
+      resetOverlay.style.left = (r.left + r.width / 2) + 'px';
+      resetOverlay.style.transform = 'translateX(-50%)';
+    }
+  }
+
+  // Observe accordion size/position changes
+  if (exprWin) {
+    new ResizeObserver(positionResetButton).observe(exprWin);
+    new MutationObserver(positionResetButton).observe(exprWin, {
+      attributes: true, attributeFilter: ['style', 'class'],
+      subtree: true, childList: true
+    });
+
+    // ---- Recentre graph when pane height changes (mobile portrait) ----
+    let _prevPaneTop = null;
+    new ResizeObserver(() => {
+      if (!portraitMQ.matches) { _prevPaneTop = null; return; }
+      const paneTop = exprWin.getBoundingClientRect().top;
+      if (_prevPaneTop !== null && _prevPaneTop !== paneTop) {
+        // Shift origin so the same world point stays at the visible centre.
+        // Visible centre Y = paneTop / 2, so delta = (newTop - oldTop) / 2.
+        view.originY += (paneTop - _prevPaneTop) / 2;
+      }
+      _prevPaneTop = paneTop;
+    }).observe(exprWin);
+  }
+
+  // Also reposition when shown
+  const _resetShowObserver = new MutationObserver(() => positionResetButton());
+  _resetShowObserver.observe(resetOverlay, { attributes: true, attributeFilter: ['style'] });
 
   resetView();
 
@@ -3271,6 +10209,582 @@ function setup() {
   }
 
   // Info button toggle
+  // ---- Toolbox visibility toggle ----
+  const toolboxCb = document.getElementById('show-toolbox');
+  const toolboxWrapper = document.querySelector('.toolbox-wrapper');
+  if (toolboxCb && toolboxWrapper) {
+    // Default: hidden (checkbox unchecked)
+    toolboxWrapper.style.display = toolboxCb.checked ? '' : 'none';
+    toolboxCb.addEventListener('change', () => {
+      toolboxWrapper.style.display = toolboxCb.checked ? '' : 'none';
+    });
+  }
+
+  // ---- Floating expression window: drag ----
+  (function setupExprWindowDrag() {
+    const win = document.getElementById('expr-window');
+    const bar = document.getElementById('expr-window-titlebar');
+    if (!win || !bar) return;
+    let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+
+    // Media query: disable dragging in mobile portrait mode
+    const portraitMQ = window.matchMedia(
+      '(max-width: 600px) and (orientation: portrait), ' +
+      '(hover: none) and (pointer: coarse) and (orientation: portrait)');
+
+    function isPortraitMobile() { return portraitMQ.matches; }
+
+    // Remove the initial centering transform so we can position with left/top
+    // (only when not in portrait-mobile mode)
+    function initPosition() {
+      if (isPortraitMobile()) {
+        // Portrait mobile: let CSS handle positioning
+        win.style.left = '';
+        win.style.top = '';
+        win.style.transform = '';
+        return;
+      }
+      const winRect = win.getBoundingClientRect();
+      win.style.left = winRect.left + 'px';
+      win.style.top = winRect.top + 'px';
+      win.style.transform = 'none';
+    }
+    initPosition();
+
+    // Re-init when orientation changes
+    portraitMQ.addEventListener('change', initPosition);
+
+    bar.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || isPortraitMobile()) return;
+      dragging = true;
+      sx = e.clientX; sy = e.clientY;
+      const r = win.getBoundingClientRect();
+      ox = r.left; oy = r.top;
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      win.style.left = (ox + e.clientX - sx) + 'px';
+      win.style.top = (oy + e.clientY - sy) + 'px';
+    });
+    document.addEventListener('mouseup', () => { dragging = false; });
+  })();
+
+  // ---- Floating expression window: section collapse/options toggles ----
+  (function setupExprWindowSections() {
+    document.querySelectorAll('.ew-section__header').forEach(header => {
+      header.style.cursor = 'pointer';
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('.ew-section__options-btn')) return;
+        if (e.target.closest('.ew-swipe-tab')) return; // don't collapse on tab click
+        const section = header.closest('.ew-section');
+        if (section) section.classList.toggle('collapsed');
+      });
+    });
+    document.querySelectorAll('.ew-section__options-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sName = btn.dataset.section;
+        const optPanel = document.getElementById('ew-options-' + sName);
+        if (!optPanel) return;
+        const visible = optPanel.style.display !== 'none';
+        optPanel.style.display = visible ? 'none' : '';
+        btn.classList.toggle('active', !visible);
+      });
+    });
+  })();
+
+  // ---- Mobile portrait: merge Text + LaTeX into a single swipeable section ----
+  (function setupSwipeableTextLatex() {
+    const secText = document.getElementById('ew-section-text');
+    const secLatex = document.getElementById('ew-section-latex');
+    if (!secText || !secLatex) return;
+
+    const bodyText = document.getElementById('ew-body-text');
+    const bodyLatex = document.getElementById('ew-body-latex');
+    if (!bodyText || !bodyLatex) return;
+
+    const optionsLatex = document.getElementById('ew-options-latex');
+
+    // Create merged section
+    const merged = document.createElement('div');
+    merged.className = 'ew-section ew-section--swipe';
+    merged.id = 'ew-section-textlatex';
+
+    // Header with tabs
+    const header = document.createElement('div');
+    header.className = 'ew-section__header';
+    header.style.cursor = 'pointer';
+    const collapseBtn = document.createElement('button');
+    collapseBtn.className = 'ew-section__collapse';
+    collapseBtn.title = 'Collapse';
+    collapseBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10"><polyline points="2,3 5,7 8,3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    header.appendChild(collapseBtn);
+
+    const tabs = document.createElement('span');
+    tabs.className = 'ew-swipe-tabs';
+    const tabText = document.createElement('span');
+    tabText.className = 'ew-swipe-tab active';
+    tabText.dataset.tab = 'text';
+    tabText.textContent = 'Text';
+    const tabLatex = document.createElement('span');
+    tabLatex.className = 'ew-swipe-tab';
+    tabLatex.dataset.tab = 'latex';
+    tabLatex.textContent = 'LaTeX';
+    tabs.appendChild(tabText);
+    tabs.appendChild(tabLatex);
+    header.appendChild(tabs);
+
+    // Options button (for latex)
+    const optBtn = document.createElement('button');
+    optBtn.className = 'ew-section__options-btn';
+    optBtn.dataset.section = 'latex';
+    optBtn.title = 'Options';
+    optBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>';
+    header.appendChild(optBtn);
+    merged.appendChild(header);
+
+    // Collapse on header click (but not on tabs or options)
+    header.addEventListener('click', (e) => {
+      if (e.target.closest('.ew-swipe-tab') || e.target.closest('.ew-section__options-btn')) return;
+      merged.classList.toggle('collapsed');
+    });
+
+    // Options toggle
+    optBtn.addEventListener('click', () => {
+      if (!optionsLatex) return;
+      const vis = optionsLatex.style.display !== 'none';
+      optionsLatex.style.display = vis ? 'none' : '';
+      optBtn.classList.toggle('active', !vis);
+    });
+
+    // Swipe container
+    const swipe = document.createElement('div');
+    swipe.className = 'ew-swipe-container';
+
+    const pageText = document.createElement('div');
+    pageText.className = 'ew-swipe-page';
+    const pageLatex = document.createElement('div');
+    pageLatex.className = 'ew-swipe-page';
+
+    swipe.appendChild(pageText);
+    swipe.appendChild(pageLatex);
+    merged.appendChild(swipe);
+
+    // Move options drawer into merged section
+    if (optionsLatex) merged.appendChild(optionsLatex);
+
+    function activate() {
+      // Move bodies into swipe pages
+      pageText.appendChild(bodyText);
+      pageLatex.appendChild(bodyLatex);
+      // Insert merged section and hide originals
+      secText.style.display = 'none';
+      secLatex.style.display = 'none';
+      const exprWin = document.getElementById('expr-window');
+      // Insert before the tree section (which is order:1 in column-reverse, i.e. last child)
+      exprWin.insertBefore(merged, secText);
+      merged.style.display = '';
+    }
+
+    function deactivate() {
+      // Move bodies back to originals
+      const origBodyText = secText.querySelector('.ew-section__body') || secText;
+      const origBodyLatex = secLatex.querySelector('.ew-section__body') || secLatex;
+      // bodyText/bodyLatex are the actual body elements with IDs, reinsert into parent sections
+      const textBodySlot = secText.querySelector('.ew-section__header');
+      const latexBodySlot = secLatex.querySelector('.ew-section__header');
+      if (textBodySlot) textBodySlot.after(bodyText);
+      if (latexBodySlot) latexBodySlot.after(bodyLatex);
+      // Move options back
+      if (optionsLatex) secLatex.appendChild(optionsLatex);
+      secText.style.display = '';
+      secLatex.style.display = '';
+      merged.style.display = 'none';
+      if (merged.parentNode) merged.parentNode.removeChild(merged);
+    }
+
+    // Tab switching
+    function switchTab(tab) {
+      if (tab === 'text') {
+        swipe.scrollTo({ left: 0, behavior: 'smooth' });
+        tabText.classList.add('active');
+        tabLatex.classList.remove('active');
+      } else {
+        swipe.scrollTo({ left: swipe.scrollWidth / 2, behavior: 'smooth' });
+        tabText.classList.remove('active');
+        tabLatex.classList.add('active');
+      }
+    }
+    tabText.addEventListener('click', (e) => { e.stopPropagation(); switchTab('text'); });
+    tabLatex.addEventListener('click', (e) => { e.stopPropagation(); switchTab('latex'); });
+
+    // Update active tab on scroll
+    swipe.addEventListener('scroll', () => {
+      const half = swipe.scrollWidth / 2;
+      if (swipe.scrollLeft > half * 0.4) {
+        tabText.classList.remove('active');
+        tabLatex.classList.add('active');
+      } else {
+        tabText.classList.add('active');
+        tabLatex.classList.remove('active');
+      }
+    });
+
+    // Activate/deactivate based on media query
+    if (portraitMQ.matches) activate();
+    portraitMQ.addEventListener('change', (e) => {
+      if (e.matches) activate();
+      else deactivate();
+    });
+  })();
+
+  // ---- Resizable section bodies (LaTeX + Expression Tree) ----
+  (function setupSectionResizers() {
+    function addResizer(sectionId) {
+      const section = document.getElementById(sectionId);
+      if (!section) return;
+      const body = section.querySelector('.ew-section__body');
+      if (!body) return;
+
+      // Create resize handle element
+      const handle = document.createElement('div');
+      handle.className = 'ew-resize-handle';
+      // Insert after the body (before options drawer or next section)
+      body.after(handle);
+
+      // Mark body as resizable — don't set a fixed height initially;
+      // let content determine natural height. Only apply fixed height
+      // once the user actually drags.
+      body.classList.add('ew-resizable');
+
+      let dragging = false, startY = 0, startH = 0;
+
+      handle.addEventListener('mousedown', (e) => {
+        if (section.classList.contains('collapsed')) return;
+        dragging = true;
+        startY = e.clientY;
+        startH = body.offsetHeight;
+        body.style.height = startH + 'px'; // pin current height on first drag
+        body.style.transition = 'none';
+        document.body.style.cursor = 'ns-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const delta = e.clientY - startY;
+        const newH = Math.max(30, startH + delta);
+        body.style.height = newH + 'px';
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        body.style.transition = '';
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      });
+
+      // Touch support
+      handle.addEventListener('touchstart', (e) => {
+        if (section.classList.contains('collapsed')) return;
+        dragging = true;
+        startY = e.touches[0].clientY;
+        startH = body.offsetHeight;
+        body.style.height = startH + 'px';
+        body.style.transition = 'none';
+        e.preventDefault();
+      }, { passive: false });
+
+      document.addEventListener('touchmove', (e) => {
+        if (!dragging) return;
+        const delta = e.touches[0].clientY - startY;
+        const newH = Math.max(30, startH + delta);
+        body.style.height = newH + 'px';
+      });
+
+      document.addEventListener('touchend', () => {
+        if (!dragging) return;
+        dragging = false;
+        body.style.transition = '';
+      });
+    }
+
+    addResizer('ew-section-latex');
+    addResizer('ew-section-tree');
+
+    // Re-scale LaTeX when the section body is resized
+    const latexEl = document.getElementById('latex-display');
+    const latexBody = document.getElementById('ew-body-latex');
+    if (latexEl && latexBody) {
+      new ResizeObserver(() => scaleLatexToFit(latexEl)).observe(latexBody);
+    }
+  })();
+
+  // ---- Expression tree: scroll-to-rotate + compass ----
+  (function setupTreeRotation() {
+    const treeBody = document.getElementById('ew-body-tree');
+    if (!treeBody) return;
+
+    const STEP_DEG = 30; // discrete rotation steps (12 positions)
+    let _animating = false; // true while chase loop is running
+    let _targetDeg = state.treeRotationDeg || 0;  // desired cumulative angle (scroll accumulates here)
+    let _compassCumAngle = state.treeRotationDeg || 0; // cumulative (unwrapped) compass angle
+
+    // Build compass element – SVG dial showing "down" direction with 12 segment marks
+    const compass = document.createElement('div');
+    compass.className = 'tree-compass';
+    compass.title = 'Scroll to rotate tree, click to reset';
+    const compassSize = 48;
+    const cR = 20; // compass circle radius
+    const cx0 = compassSize / 2, cy0 = compassSize / 2;
+    // Build tick marks for 12 positions (every 30°)
+    let tickMarksSvg = '';
+    for (let i = 0; i < 12; i++) {
+      const angle = i * 30 * Math.PI / 180;
+      const inner = cR - 3;
+      const outer = cR;
+      const x1 = cx0 + inner * Math.sin(angle);
+      const y1 = cy0 - inner * Math.cos(angle);
+      const x2 = cx0 + outer * Math.sin(angle);
+      const y2 = cy0 - outer * Math.cos(angle);
+      const sw = (i % 3 === 0) ? 1.5 : 0.8; // thicker marks at 0°/90°/180°/270°
+      tickMarksSvg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="currentColor" stroke-width="${sw}" opacity="0.4"/>`;
+    }
+    compass.innerHTML =
+      `<svg width="${compassSize}" height="${compassSize}" viewBox="0 0 ${compassSize} ${compassSize}">` +
+      `<circle cx="${cx0}" cy="${cy0}" r="${cR}" fill="none" stroke="currentColor" stroke-width="1" opacity="0.25"/>` +
+      tickMarksSvg +
+      `<g class="tree-compass__needle" style="transform-origin: ${cx0}px ${cy0}px;">` +
+      `<line x1="${cx0}" y1="${cy0 - cR + 7}" x2="${cx0}" y2="${cy0 + cR - 5}" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>` +
+      `<polyline points="${cx0 - 3.5},${cy0 + cR - 9} ${cx0},${cy0 + cR - 4.5} ${cx0 + 3.5},${cy0 + cR - 9}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `</g>` +
+      `</svg>`;
+
+    // Insert compass into the tree section body (before the step-rep wrapper)
+    const stepRepWrapper = treeBody.querySelector('.step-rep-wrapper');
+    if (stepRepWrapper) treeBody.insertBefore(compass, stepRepWrapper);
+    else treeBody.prepend(compass);
+
+    function updateCompass() {
+      const needle = compass.querySelector('.tree-compass__needle');
+      if (!needle) return;
+      needle.style.transform = `rotate(${_compassCumAngle}deg)`;
+    }
+
+    /** Parse "x y w h" viewBox string into an object. */
+    function parseVB(str) {
+      if (!str) return null;
+      const p = str.split(/\s+/).map(Number);
+      return { x: p[0], y: p[1], w: p[2], h: p[3] };
+    }
+
+    /**
+     * Compute a predicted viewBox for a given additional rotation delta,
+     * plus the centroid of the (unrotated) content.
+     * The CSS rotation uses the centroid as its pivot, so we must rotate
+     * each point around that same centroid (not the origin) to predict
+     * the correct bounding box.
+     */
+    function predictViewBoxForDelta(svgEl, deltaDeg) {
+      const layout = state.pipeLayout;
+      if (!layout || !layout.nodes || layout._yX == null) return null;
+      const R = 22, PAD = 18;
+      const rad = deltaDeg * Math.PI / 180;
+      const cos = Math.cos(rad), sin = Math.sin(rad);
+      const yX = layout._yX, yY = layout._yY;
+
+      // Collect pre-baked positions (centroid of these = CSS rotation pivot)
+      const pts = [[yX, yY]];
+      for (const n of layout.nodes) {
+        if (n.x != null) pts.push([n.x, n.y]);
+      }
+      const centX = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+      const centY = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+
+      // Rotate each point around the centroid to match the SVG rotate() pivot
+      const allX = [], allY = [];
+      for (const [px, py] of pts) {
+        const dx = px - centX, dy = py - centY;
+        allX.push(dx * cos - dy * sin + centX);
+        allY.push(dx * sin + dy * cos + centY);
+      }
+
+      const bMinX = Math.min(...allX) - R - PAD;
+      const bMaxX = Math.max(...allX) + R + PAD;
+      const bMinY = Math.min(...allY) - R - PAD;
+      const bMaxY = Math.max(...allY) + R + PAD;
+      const vbW = Math.max(bMaxX - bMinX, 80);
+      const vbH = Math.max(bMaxY - bMinY, 80);
+      const cxMid = (bMinX + bMaxX) / 2;
+      const cyMid = (bMinY + bMaxY) / 2;
+      return { x: cxMid - vbW / 2, y: cyMid - vbH / 2, w: vbW, h: vbH, centX, centY };
+    }
+
+    /**
+     * Exponential-chase animation loop.
+     * `_displayDeg` smoothly chases `_targetDeg`; on each rAF frame the
+     * SVG `<g>` wrapper is rotated around the content centroid, upright labels
+     * are counter-rotated around their own positions, and the viewBox is updated
+     * to encompass the rotated bounding box.
+     */
+    let _rafId = null;
+    let _displayDeg = state.treeRotationDeg || 0;
+    const CHASE_SPEED = 0.14;   // fraction of remaining gap consumed per frame
+    const SNAP_THRESH = 0.4;    // degrees: if closer than this, snap to target
+
+    function startChaseLoop() {
+      if (_rafId) return;
+      _animating = true;
+      const stepRep = document.getElementById('step-rep');
+
+      function tick() {
+        const targetNorm = ((_targetDeg % 360) + 360) % 360;
+        const displayNorm = ((_displayDeg % 360) + 360) % 360;
+
+        let delta = targetNorm - displayNorm;
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+
+        if (Math.abs(delta) < SNAP_THRESH) {
+          /* ──── snap & finalize ──── */
+          _displayDeg = _targetDeg;
+          state.treeRotationDeg = targetNorm;
+
+          const curSvg = stepRep?.querySelector('svg.pipe-diagram');
+          if (curSvg) {
+            const wrapper = curSvg.querySelector('.rotation-wrapper');
+            if (wrapper) {
+              wrapper.removeAttribute('transform');
+              while (wrapper.firstChild) curSvg.appendChild(wrapper.firstChild);
+              wrapper.remove();
+            }
+            curSvg.style.transition = 'none';
+            curSvg.style.transform = 'none';
+          }
+          renderStepRepresentation();
+          _animating = false;
+          _rafId = null;
+          return;
+        }
+
+        /* ──── chase: move a fraction of the remaining gap ──── */
+        _displayDeg += delta * CHASE_SPEED;
+
+        const curSvg = stepRep?.querySelector('svg.pipe-diagram');
+        if (curSvg) {
+          let cssDelta = _displayDeg - state.treeRotationDeg;
+          cssDelta = ((cssDelta % 360) + 360 + 180) % 360 - 180;
+
+          // Compute predicted viewBox and content centroid
+          const predicted = predictViewBoxForDelta(curSvg, cssDelta);
+          const pivotX = predicted ? predicted.centX : 0;
+          const pivotY = predicted ? predicted.centY : 0;
+
+          // Ensure wrapper exists
+          let wrapper = curSvg.querySelector('.rotation-wrapper');
+          if (!wrapper) {
+            const NS = 'http://www.w3.org/2000/svg';
+            wrapper = document.createElementNS(NS, 'g');
+            wrapper.classList.add('rotation-wrapper');
+            while (curSvg.firstChild) wrapper.appendChild(curSvg.firstChild);
+            curSvg.appendChild(wrapper);
+          }
+
+          // Rotate around content centroid — stable visual pivot
+          wrapper.setAttribute('transform',
+            `rotate(${cssDelta}, ${pivotX}, ${pivotY})`);
+
+          // Counter-rotate upright labels around their own positions
+          wrapper.querySelectorAll('.pipe-upright').forEach(el => {
+            const t = el.tagName === 'text' ? el : el.querySelector('text');
+            if (!t) return;
+            const cx = parseFloat(t.getAttribute('x'));
+            const cy = parseFloat(t.getAttribute('y'));
+            if (isNaN(cx) || isNaN(cy)) return;
+            // Disable CSS transitions during animation to prevent flyout
+            el.style.transition = 'none';
+            el.setAttribute('transform', `rotate(${-cssDelta}, ${cx}, ${cy})`);
+          });
+
+          // Update viewBox
+          if (predicted) {
+            curSvg.setAttribute('viewBox',
+              `${predicted.x} ${predicted.y} ${predicted.w} ${predicted.h}`);
+          }
+        }
+
+        _rafId = requestAnimationFrame(tick);
+      }
+
+      _rafId = requestAnimationFrame(tick);
+    }
+
+    /**
+     * Queue a rotation of `deltaDeg`.  The compass updates immediately;
+     * the chase loop drives the tree toward the new target.
+     */
+    function animateRotation(deltaDeg) {
+      _targetDeg += deltaDeg;
+      _compassCumAngle += deltaDeg;
+      updateCompass();
+      startChaseLoop();
+    }
+
+    // Scroll on compass to rotate the tree (discrete 30° steps)
+    compass.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const dir = e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0;
+      if (dir === 0) return;
+
+      animateRotation(dir * STEP_DEG);
+    }, { passive: false });
+
+    // Touch drag on compass to rotate the tree
+    {
+      let _tcStartY = null, _tcAccum = 0;
+      const TC_THRESH = 30;
+      compass.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        _tcStartY = e.touches[0].clientY;
+        _tcAccum = 0;
+      }, { passive: false });
+      compass.addEventListener('touchmove', (e) => {
+        if (_tcStartY == null) return;
+        e.preventDefault();
+        const dy = _tcStartY - e.touches[0].clientY;
+        _tcStartY = e.touches[0].clientY;
+        _tcAccum += dy;
+        while (Math.abs(_tcAccum) >= TC_THRESH) {
+          const dir = _tcAccum > 0 ? -1 : 1; // finger-up = CCW
+          _tcAccum -= (_tcAccum > 0 ? 1 : -1) * TC_THRESH;
+          animateRotation(dir * STEP_DEG);
+        }
+      }, { passive: false });
+      compass.addEventListener('touchend', () => { _tcStartY = null; });
+      compass.addEventListener('touchcancel', () => { _tcStartY = null; });
+    }
+
+    // Click compass to reset to 0°
+    compass.addEventListener('click', () => {
+      if (state.treeRotationDeg === 0 && _compassCumAngle === 0 && _targetDeg === 0) return;
+
+      // Shortest path back to 0° for the compass needle
+      const remainder = ((_compassCumAngle % 360) + 360) % 360;
+      const shortDelta = remainder <= 180 ? -remainder : (360 - remainder);
+      _compassCumAngle += shortDelta;
+      _targetDeg = 0;
+      updateCompass();
+      startChaseLoop();
+    });
+
+    // Initial state
+    updateCompass();
+  })();
+
   ui.infoBtn?.addEventListener("click", () => {
     const popup = ui.infoPopup;
     if (popup) popup.classList.toggle("info-popup--visible");
@@ -3291,6 +10805,10 @@ function setup() {
   // ---- Toggle bar (bottom of graph) ----
   buildToggleBar();
 
+  // ---- Graph Controls + Visibility sections in expr-window ----
+  populateGraphControlsSection();
+  populateVisibilitySection();
+
   // ---- Mobile: eye-icon visibility toggle panel ----
   setupMobileTogglePanel();
 
@@ -3300,12 +10818,17 @@ function setup() {
   // ---- Mobile: topbar collapse, pseudo-fullscreen, tap-to-show, bar positioning ----
   setupMobileBarControls();
 
-  // ---- HUD overlay (top-right, below topbar) ----
+  // ---- HUD overlay (top-left of canvas area) ----
   const hudEl = document.createElement("div");
   hudEl.className = "graph-hud";
   hudEl.id = "graph-hud";
-  document.body.appendChild(hudEl);
+  const canvasWrap = document.getElementById("canvas-wrap");
+  if (canvasWrap) canvasWrap.appendChild(hudEl);
+  else document.body.appendChild(hudEl);
   ui.hudEl = hudEl;
+
+  // ---- LaTeX display element ----
+  ui.latexEl = document.getElementById("latex-display");
 
   // ---- Rotation segmented button ----
   const rotToggle = document.getElementById('rot-toggle');
@@ -3360,6 +10883,118 @@ function setup() {
       state.equalizeColors = !state.equalizeColors;
       equalizeOpColors(state.equalizeColors);
       eqBtn.classList.toggle('mode-btn--active', state.equalizeColors);
+      // Re-render LaTeX with updated colours
+      updateLatexDisplay(ui.exprEl?.value ?? "");
+    });
+  }
+
+  // ---- LaTeX order segmented control (sequential ↔ traditional) ----
+  const segOrderSeq = document.getElementById('seg-order-seq');
+  const segOrderTrad = document.getElementById('seg-order-trad');
+  if (segOrderSeq && segOrderTrad) {
+    // Initialise from state (latexOpsOrder=true → sequential/ops, false → traditional/AST)
+    segOrderSeq.classList.toggle('seg-btn--active', state.latexOpsOrder);
+    segOrderTrad.classList.toggle('seg-btn--active', !state.latexOpsOrder);
+    const pickOrder = (useOps) => {
+      state.latexOpsOrder = useOps;
+      segOrderSeq.classList.toggle('seg-btn--active', useOps);
+      segOrderTrad.classList.toggle('seg-btn--active', !useOps);
+      // When equalsEdge is active, rebuild displaySpans for the new order
+      if (state.equalsEdge) {
+        rebuildEqualsDisplaySpans();
+        updateInputOverlay();
+      }
+      _lastLatexLiveKey = '__force__';
+      updateLatexDisplay(ui.exprEl?.value ?? "");
+    };
+    segOrderSeq.addEventListener('click', () => pickOrder(true));
+    segOrderTrad.addEventListener('click', () => pickOrder(false));
+  }
+
+  // ---- LaTeX multiplication symbol segmented control (× ↔ ·) ----
+  const segMulTimes = document.getElementById('seg-mul-times');
+  const segMulDot = document.getElementById('seg-mul-dot');
+  if (segMulTimes && segMulDot) {
+    segMulTimes.classList.toggle('seg-btn--active', state.latexMulSymbol === 'times');
+    segMulDot.classList.toggle('seg-btn--active', state.latexMulSymbol === 'dot');
+    const pickMul = (sym) => {
+      state.latexMulSymbol = sym;
+      segMulTimes.classList.toggle('seg-btn--active', sym === 'times');
+      segMulDot.classList.toggle('seg-btn--active', sym === 'dot');
+      _lastLatexLiveKey = '__force__';
+      updateLatexDisplay(ui.exprEl?.value ?? "");
+    };
+    segMulTimes.addEventListener('click', () => pickMul('times'));
+    segMulDot.addEventListener('click', () => pickMul('dot'));
+  }
+
+  // ---- LaTeX copy button ----
+  const latexCopyBtn = document.getElementById('latex-copy-btn');
+  if (latexCopyBtn) {
+    latexCopyBtn.addEventListener('click', async () => {
+      const raw = getRawLatex();
+      if (!raw) return;
+      try {
+        await navigator.clipboard.writeText(raw);
+        latexCopyBtn.textContent = '✓';
+        setTimeout(() => { latexCopyBtn.textContent = 'copy'; }, 1200);
+      } catch { /* clipboard denied */ }
+    });
+  }
+
+  // ---- LaTeX paste button ----
+  const latexPasteBtn = document.getElementById('latex-paste-btn');
+  if (latexPasteBtn) {
+    latexPasteBtn.addEventListener('click', async () => {
+      try {
+        const clip = await navigator.clipboard.readText();
+        const expr = latexToExpr(clip);
+        if (expr && ui.exprEl) {
+          ui.exprEl.value = expr;
+          ui.exprEl.dispatchEvent(new Event('input', { bubbles: true }));
+          latexPasteBtn.textContent = '✓';
+          setTimeout(() => { latexPasteBtn.textContent = 'paste'; }, 1200);
+        } else {
+          latexPasteBtn.textContent = '✗';
+          setTimeout(() => { latexPasteBtn.textContent = 'paste'; }, 1200);
+        }
+      } catch { /* clipboard denied */ }
+    });
+  }
+
+  // ---- Expression copy button ----
+  const exprCopyBtn = document.getElementById('expr-copy-btn');
+  if (exprCopyBtn) {
+    exprCopyBtn.addEventListener('click', async () => {
+      // When equalsEdge is active, copy the full equation (LHS = RHS)
+      let val;
+      if (state.equalsEdge && state.displaySpans && state.displaySpans.length) {
+        val = state.displaySpans.map(s => s.text).join('');
+      } else {
+        val = ui.exprEl?.value ? ("y = " + ui.exprEl.value) : "";
+      }
+      if (!val) return;
+      try {
+        await navigator.clipboard.writeText(val);
+        exprCopyBtn.textContent = '✓';
+        setTimeout(() => { exprCopyBtn.textContent = 'copy'; }, 1200);
+      } catch { /* clipboard denied */ }
+    });
+  }
+
+  // ---- Expression paste button ----
+  const exprPasteBtn = document.getElementById('expr-paste-btn');
+  if (exprPasteBtn) {
+    exprPasteBtn.addEventListener('click', async () => {
+      try {
+        const clip = await navigator.clipboard.readText();
+        if (clip && ui.exprEl) {
+          ui.exprEl.value = clip.trim();
+          ui.exprEl.dispatchEvent(new Event('input', { bubbles: true }));
+          exprPasteBtn.textContent = '✓';
+          setTimeout(() => { exprPasteBtn.textContent = 'paste'; }, 1200);
+        }
+      } catch { /* clipboard denied */ }
     });
   }
 
@@ -3400,6 +11035,14 @@ function setup() {
 
   // First plot
   plotFunction();
+
+  // KaTeX loads with defer — if it wasn't ready during plotFunction, retry
+  if (typeof katex === "undefined") {
+    const katexScript = document.querySelector('script[src*="katex"]');
+    if (katexScript) katexScript.addEventListener("load", () => {
+      updateLatexDisplay(ui.exprEl?.value ?? "");
+    });
+  }
 
   // Set initial rotation to vertical (90°)
   view.rotation = -Math.PI / 2;
@@ -3492,7 +11135,7 @@ function createOpFromToolboxItem(item) {
   if (item.type === "function") {
     return {
       type: "other",
-      label: item.fn + "()",
+      label: item.fn,
       operand: null,
       applyToExpr: (prev) => item.fn + "(" + prev + ")",
     };
@@ -3564,10 +11207,10 @@ function attachToolboxDrag(el, itemDef) {
       if (invLabel) { const inv = document.createElement("div"); inv.className = "op-block__inv"; inv.textContent = invLabel; ghost.appendChild(inv); }
     }
 
-    const rect = el.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
     ghost.style.cssText =
       "position:fixed;z-index:9999;pointer-events:none;" +
-      "left:" + rect.left + "px;top:" + rect.top + "px;" +
+      "left:" + elRect.left + "px;top:" + elRect.top + "px;" +
       "opacity:0.85;box-shadow:0 8px 24px rgba(0,0,0,0.3);" +
       "transform:scale(1.05);transition:none;";
     document.body.appendChild(ghost);
@@ -3621,7 +11264,7 @@ function attachToolboxDrag(el, itemDef) {
       // Insert the op
       state.ops.splice(insertIdx, 0, op);
       state.stepEyes.ops.splice(insertIdx, 0, true);
-      applyOpsChange();
+      applyOpsChange(true);
     };
 
     document.addEventListener("pointermove", onMove);
@@ -3633,10 +11276,12 @@ function attachToolboxDrag(el, itemDef) {
 
 function setupFullscreenButton() {
   const btn = document.getElementById("fullscreen-btn");
-  if (!btn) return;
+  const btnEW = document.getElementById("fullscreen-btn-ew");
 
   const expandSVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
   const compressSVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+  const expandSmall = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+  const compressSmall = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
 
   // Cross-browser fullscreen helpers
   function requestFS(el) {
@@ -3657,23 +11302,28 @@ function setupFullscreenButton() {
     return document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
   }
 
-  btn.innerHTML = expandSVG;
+  if (btn) btn.innerHTML = expandSVG;
+  if (btnEW) btnEW.innerHTML = expandSmall;
 
-  btn.addEventListener("click", () => {
+  function doToggle() {
     if (!getFS()) {
       requestFS(document.documentElement).catch(() => {
-        // iOS Safari: no fullscreen API — try scrolling to hide address bar
         window.scrollTo(0, 1);
       });
     } else {
       exitFS().catch(() => { });
     }
-  });
+  }
+
+  if (btn) btn.addEventListener("click", doToggle);
+  if (btnEW) btnEW.addEventListener("click", (e) => { e.stopPropagation(); doToggle(); });
 
   // Listen for all vendor-prefixed fullscreenchange events
   ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach(evt => {
     document.addEventListener(evt, () => {
-      btn.innerHTML = getFS() ? compressSVG : expandSVG;
+      const fs = getFS();
+      if (btn) btn.innerHTML = fs ? compressSVG : expandSVG;
+      if (btnEW) btnEW.innerHTML = fs ? compressSmall : expandSmall;
     });
   });
 }
@@ -3682,8 +11332,9 @@ function setupFullscreenButton() {
 
 function setupSettingsGear() {
   const gear = document.getElementById("settingsGear");
+  const gearEW = document.getElementById("settingsGear-ew");
   const menu = document.getElementById("settingsMenu");
-  if (!gear || !menu) return;
+  if (!menu) return;
 
   let menuOpen = false;
   let hoverTimeout = null;
@@ -3721,8 +11372,16 @@ function setupSettingsGear() {
     toggleSettingsMenu();
   });
 
+  // Titlebar gear triggers same menu
+  if (gearEW) {
+    gearEW.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleSettingsMenu();
+    });
+  }
+
   // Hover behavior with delay
-  const hoverZone = [gear, menu];
+  const hoverZone = [gear, menu].filter(Boolean);
   hoverZone.forEach((el) => {
     el.addEventListener("mouseenter", () => {
       clearTimeout(hoverTimeout);
@@ -3772,6 +11431,7 @@ function setupSettingsGear() {
       document.body.style.removeProperty("--panel2");
       document.body.style.removeProperty("--settings-menu-bg");
       document.body.style.removeProperty("--glass-bg");
+      document.body.style.removeProperty("--valve-glass");
       document.body.style.removeProperty("--topbar-bg");
       // Dark mode: accent derived from dark bg defaults
       if (typeof clearAccentOverrides === 'function') clearAccentOverrides();
@@ -3785,6 +11445,7 @@ function setupSettingsGear() {
         document.body.style.setProperty("--panel2", state.bgColor);
         document.body.style.setProperty("--settings-menu-bg", state.bgColor);
         document.body.style.setProperty("--glass-bg", `rgba(${r},${g},${b},0.55)`);
+        document.body.style.setProperty("--valve-glass", `rgba(${r},${g},${b},0.85)`);
         document.body.style.setProperty("--topbar-bg",
           `linear-gradient(180deg, rgba(${r},${g},${b},0.95) 0%, rgba(${r},${g},${b},0.9) 100%)`);
         if (typeof applyAccentFromBg === 'function') applyAccentFromBg(r, g, b);
@@ -3855,6 +11516,7 @@ function setupSettingsGear() {
         document.body.style.setProperty("--panel2", col);
         document.body.style.setProperty("--settings-menu-bg", col);
         document.body.style.setProperty("--glass-bg", `rgba(${r},${g},${b},0.55)`);
+        document.body.style.setProperty("--valve-glass", `rgba(${r},${g},${b},0.85)`);
         document.body.style.setProperty("--topbar-bg",
           `linear-gradient(180deg, rgba(${r},${g},${b},0.95) 0%, rgba(${r},${g},${b},0.9) 100%)`);
         applyAccentFromBg(r, g, b);
@@ -3867,10 +11529,13 @@ function setupSettingsGear() {
       document.body.style.removeProperty("--panel2");
       document.body.style.removeProperty("--settings-menu-bg");
       document.body.style.removeProperty("--glass-bg");
+      document.body.style.removeProperty("--valve-glass");
       document.body.style.removeProperty("--topbar-bg");
       clearAccentOverrides();
     }
     try { localStorage.setItem("gc-bg-color", id); } catch { }
+    // Re-render tree to pick up new glass fill
+    if (typeof renderStepRepresentation === 'function') renderStepRepresentation();
   }
 
   Object.keys(bgColors).forEach((id) => {
@@ -4058,10 +11723,248 @@ function buildToggleBar() {
     }
   });
 
-  // Reset button inside bar (positioned absolutely via CSS)
-  if (ui.resetOverlay) {
-    bar.appendChild(ui.resetOverlay);
+  // ---- HUD toggle inside the visibility toggles bar ----
+  {
+    const hudBtn = document.createElement("button");
+    hudBtn.className = "graph-toggle-btn" + (state.hudVisible ? " graph-toggle-btn--on" : "");
+    hudBtn.type = "button";
+    hudBtn.id = "hud-toggle";
+    hudBtn.title = "Show / hide coordinate info overlay";
+    const span = document.createElement("span");
+    span.textContent = "HUD";
+    hudBtn.appendChild(span);
+    hudBtn.addEventListener("click", () => {
+      state.hudVisible = !state.hudVisible;
+      hudBtn.classList.toggle("graph-toggle-btn--on", state.hudVisible);
+      if (ui.hudEl) ui.hudEl.style.display = state.hudVisible ? 'block' : 'none';
+    });
+    bar.appendChild(hudBtn);
   }
+
+  // Reset button placed just below the expression window accordion
+  if (ui.resetOverlay) {
+    const exprWindow = document.getElementById('expr-window');
+    if (exprWindow) exprWindow.after(ui.resetOverlay);
+  }
+}
+
+/* ========== Graph Controls section in expr-window ========== */
+
+function populateGraphControlsSection() {
+  const body = document.getElementById('ew-body-controls');
+  if (!body) return;
+  body.innerHTML = '';
+
+  // Move all button groups from mode-toggle-overlay into the section
+  const overlay = document.getElementById('mode-toggle-overlay');
+  if (overlay) {
+    const groups = Array.from(overlay.querySelectorAll('.mode-toggle__buttons'));
+    const wrap = document.createElement('div');
+    wrap.className = 'ew-controls-wrap';
+    groups.forEach(g => {
+      const clone = g.cloneNode(true);
+      wrap.appendChild(clone);
+    });
+    body.appendChild(wrap);
+
+    // Wire up cloned mode buttons
+    const modeBtns = body.querySelectorAll('#mode-toggle .mode-btn, [data-mode]');
+    modeBtns.forEach(btn => {
+      if (!btn.dataset.mode) return;
+      btn.addEventListener('click', () => {
+        state.mode = btn.dataset.mode;
+        // Sync both overlay and section
+        body.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('mode-btn--active', b.dataset.mode === btn.dataset.mode));
+        overlay.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('mode-btn--active', b.dataset.mode === btn.dataset.mode));
+        if (ui.modeButtons) ui.modeButtons.forEach(b => b.classList.toggle('mode-btn--active', b.dataset.mode === btn.dataset.mode));
+        setStatusForCurrentMode();
+      });
+    });
+
+    // Wire up cloned rotation buttons
+    const rotBtns = body.querySelectorAll('[data-rot]');
+    rotBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const angle = parseFloat(btn.dataset.rot);
+        view.rotation = angle;
+        body.querySelectorAll('[data-rot]').forEach(b => b.classList.toggle('mode-btn--active', b === btn));
+        if (ui.rotBtns) ui.rotBtns.forEach(b => b.classList.toggle('mode-btn--active', parseFloat(b.dataset.rot) === angle));
+        state.viewDirty = true;
+        if (ui.resetOverlay && angle !== 0) ui.resetOverlay.style.display = "";
+      });
+    });
+
+    // Wire up cloned discrete buttons
+    const discBtns = body.querySelectorAll('[data-discrete]');
+    discBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.discreteMode = btn.dataset.discrete;
+        body.querySelectorAll('[data-discrete]').forEach(b => b.classList.toggle('mode-btn--active', b.dataset.discrete === state.discreteMode));
+        document.querySelectorAll('.discrete-btn').forEach(b => b.classList.toggle('mode-btn--active', b.dataset.discrete === state.discreteMode));
+      });
+    });
+
+    // Wire up simple toggle buttons (tau, glow, numeral, EQ)
+    const tauBtn = body.querySelector('#tau-toggle') || body.querySelector('.tau-toggle');
+    if (tauBtn) {
+      // Clone has same id — remove it to avoid duplicates, use class instead
+      tauBtn.removeAttribute('id');
+      tauBtn.addEventListener('click', () => {
+        state.tauMode = !state.tauMode;
+        tauBtn.classList.toggle('mode-btn--active', state.tauMode);
+        const orig = document.getElementById('tau-toggle');
+        if (orig) orig.classList.toggle('mode-btn--active', state.tauMode);
+      });
+    }
+    const glowBtn = body.querySelector('#glow-toggle');
+    if (glowBtn) {
+      glowBtn.removeAttribute('id');
+      glowBtn.addEventListener('click', () => {
+        state.glowCurves = !state.glowCurves;
+        glowBtn.classList.toggle('mode-btn--active', state.glowCurves);
+        const orig = document.getElementById('glow-toggle');
+        if (orig) orig.classList.toggle('mode-btn--active', state.glowCurves);
+      });
+    }
+    const numBtn = body.querySelector('#numeral-toggle');
+    if (numBtn) {
+      numBtn.removeAttribute('id');
+      numBtn.addEventListener('click', () => {
+        state.numeralMode = !state.numeralMode;
+        numBtn.classList.toggle('mode-btn--active', state.numeralMode);
+        const orig = document.getElementById('numeral-toggle');
+        if (orig) orig.classList.toggle('mode-btn--active', state.numeralMode);
+      });
+    }
+    const eqBtn = body.querySelector('#eq-toggle');
+    if (eqBtn) {
+      eqBtn.removeAttribute('id');
+      eqBtn.addEventListener('click', () => {
+        state.equalizeColors = !state.equalizeColors;
+        eqBtn.classList.toggle('mode-btn--active', state.equalizeColors);
+        const orig = document.getElementById('eq-toggle');
+        if (orig) orig.classList.toggle('mode-btn--active', state.equalizeColors);
+      });
+    }
+  }
+}
+
+/* ========== Visibility section in expr-window ========== */
+
+function populateVisibilitySection() {
+  const body = document.getElementById('ew-body-visibility');
+  if (!body) return;
+  body.innerHTML = '';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'ew-visibility-wrap';
+
+  toggleDefs.forEach((def) => {
+    if (def.type === 'group') {
+      const group = document.createElement('div');
+      group.className = 'toggle-group graph-toggle-btn';
+      group.setAttribute('role', 'button');
+      group.tabIndex = 0;
+
+      const allOn = def.keys.every(k => state.toggles[k]);
+      const anyOn = def.keys.some(k => state.toggles[k]);
+      if (allOn) group.classList.add('graph-toggle-btn--on');
+      else if (anyOn) group.classList.add('graph-toggle-btn--partial');
+
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'toggle-group__label';
+      labelSpan.textContent = def.label;
+      group.appendChild(labelSpan);
+
+      group.addEventListener('click', (e) => {
+        if (e.target.closest('.toggle-group__sub')) return;
+        const allCurrentlyOn = def.keys.every(k => state.toggles[k]);
+        const newVal = !allCurrentlyOn;
+        def.keys.forEach(k => {
+          state.toggles[k] = newVal;
+          if (!newVal) state.toggleJustTurnedOff[k] = true;
+        });
+        updateToggleGroupUI(group, def);
+      });
+      group.addEventListener('mouseenter', () => { state.hoveredToggle = [...def.keys]; });
+      group.addEventListener('mouseleave', () => {
+        if (Array.isArray(state.hoveredToggle)) state.hoveredToggle = null;
+        def.keys.forEach(k => delete state.toggleJustTurnedOff[k]);
+      });
+
+      const subContainer = document.createElement('div');
+      subContainer.className = 'toggle-group__subs';
+      def.children.forEach(child => {
+        const subBtn = document.createElement('button');
+        subBtn.className = 'toggle-group__sub' + (state.toggles[child.key] ? ' toggle-group__sub--on' : '');
+        subBtn.type = 'button';
+        subBtn.dataset.toggleKey = child.key;
+        if (child.colorKey && userColors[child.colorKey]) {
+          const hex = userColors[child.colorKey];
+          const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+          subBtn.style.setProperty('--sub-toggle-color', hex);
+          subBtn.style.setProperty('--sub-toggle-bg', `rgba(${r},${g},${b},0.15)`);
+          subBtn.style.setProperty('--sub-toggle-bg-light', `rgba(${r},${g},${b},0.12)`);
+        }
+        const subSpan = document.createElement('span');
+        subSpan.textContent = child.label;
+        subBtn.appendChild(subSpan);
+        subBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          state.toggles[child.key] = !state.toggles[child.key];
+          if (!state.toggles[child.key]) state.toggleJustTurnedOff[child.key] = true;
+          subBtn.classList.toggle('toggle-group__sub--on', state.toggles[child.key]);
+          updateToggleGroupUI(group, def);
+        });
+        subBtn.addEventListener('mouseenter', () => { state.hoveredToggle = child.key; });
+        subBtn.addEventListener('mouseleave', () => {
+          if (state.hoveredToggle === child.key) state.hoveredToggle = null;
+          delete state.toggleJustTurnedOff[child.key];
+        });
+        subContainer.appendChild(subBtn);
+      });
+      group.appendChild(subContainer);
+      wrap.appendChild(group);
+    } else {
+      const btn = document.createElement('button');
+      btn.className = 'graph-toggle-btn' + (state.toggles[def.key] ? ' graph-toggle-btn--on' : '');
+      btn.type = 'button';
+      btn.dataset.toggleKey = def.key;
+      const span = document.createElement('span');
+      span.textContent = def.label;
+      btn.appendChild(span);
+      btn.addEventListener('click', () => {
+        state.toggles[def.key] = !state.toggles[def.key];
+        btn.classList.toggle('graph-toggle-btn--on', state.toggles[def.key]);
+        if (!state.toggles[def.key]) state.toggleJustTurnedOff[def.key] = true;
+      });
+      btn.addEventListener('mouseenter', () => { state.hoveredToggle = def.key; });
+      btn.addEventListener('mouseleave', () => {
+        if (state.hoveredToggle === def.key) state.hoveredToggle = null;
+        delete state.toggleJustTurnedOff[def.key];
+      });
+      wrap.appendChild(btn);
+    }
+  });
+
+  // HUD toggle
+  {
+    const hudBtn = document.createElement('button');
+    hudBtn.className = 'graph-toggle-btn' + (state.hudVisible ? ' graph-toggle-btn--on' : '');
+    hudBtn.type = 'button';
+    hudBtn.title = 'Show / hide coordinate info overlay';
+    const span = document.createElement('span');
+    span.textContent = 'HUD';
+    hudBtn.appendChild(span);
+    hudBtn.addEventListener('click', () => {
+      state.hudVisible = !state.hudVisible;
+      hudBtn.classList.toggle('graph-toggle-btn--on', state.hudVisible);
+      if (ui.hudEl) ui.hudEl.style.display = state.hudVisible ? 'block' : 'none';
+    });
+    wrap.appendChild(hudBtn);
+  }
+
+  body.appendChild(wrap);
 }
 
 function windowResized() {
@@ -4326,6 +12229,9 @@ function setupTouchHandlers() {
   }, { passive: false });
 
   canvasWrap.addEventListener('touchend', (e) => {
+    const prevPanning = state.isPanning;
+    const panSX = state.panStartMouseX;
+    const panSY = state.panStartMouseY;
     activeTouches = Array.from(e.touches);
     if (activeTouches.length < 2) {
       if (isPinching && activeTouches.length === 1) {
@@ -4340,6 +12246,15 @@ function setupTouchHandlers() {
     }
     if (activeTouches.length === 0) {
       state.isPanning = false;
+      // Check for tap (small drag) in discrete mode
+      if (prevPanning && e.changedTouches && e.changedTouches.length > 0) {
+        const ct = e.changedTouches[0];
+        const tdx = ct.clientX - panSX;
+        const tdy = ct.clientY - panSY;
+        if (Math.sqrt(tdx * tdx + tdy * tdy) < 10 && isDiscreteAny()) {
+          handleDiscreteColumnClick(ct.clientX, ct.clientY);
+        }
+      }
       setTimeout(() => {
         touchActive = false;
         window._mobileTouchCursor = { x: -1, y: -1, active: false };
@@ -4619,7 +12534,11 @@ function isOverUI(cx, cy) {
   const mobileEye = document.getElementById('mobile-eye-toggle');
   const settingsGear = document.getElementById('settingsGear');
   const trashZoneEl = document.getElementById('trash-zone');
-  const els = [topbar, toggles, settingsMenu, modeOverlay, timelineCtrl, mobilePanel, mobileEye, settingsGear, trashZoneEl];
+  const exprWindow = document.getElementById('expr-window');
+  const radialBackdrop = document.getElementById('radial-menu-backdrop');
+  const radialPortal = document.getElementById('radial-menu-portal');
+  const nodeTooltip = document.querySelector('.node-tooltip');
+  const els = [topbar, toggles, settingsMenu, modeOverlay, timelineCtrl, mobilePanel, mobileEye, settingsGear, trashZoneEl, exprWindow, radialBackdrop, radialPortal, nodeTooltip];
   for (const el of els) {
     if (!el || el.style.display === 'none') continue;
     const r = el.getBoundingClientRect();
@@ -4650,7 +12569,16 @@ function mouseDragged() {
 }
 
 function mouseReleased() {
-  state.isPanning = false;
+  if (state.isPanning) {
+    const dx = mouseX - state.panStartMouseX;
+    const dy = mouseY - state.panStartMouseY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    state.isPanning = false;
+    // Treat as a click if the drag distance was tiny
+    if (dist < 5 && isDiscreteAny()) {
+      handleDiscreteColumnClick(mouseX, mouseY);
+    }
+  }
 }
 
 function mouseWheel(event) {
@@ -4773,8 +12701,6 @@ function drawCursorStarburst() {
   const armCols = [yCol, xCol, yCol, xCol];
 
   push();
-  drawingContext.shadowColor = 'rgba(255, 255, 255, 0.6)';
-  drawingContext.shadowBlur = 18;
 
   // Draw the full starburst shape once per arm, clipped to that arm's quadrant.
   // This preserves the exact 4-point shape while giving each arm its own color.
@@ -4817,8 +12743,6 @@ function drawCursorStarburst() {
 
     ctx.restore();
   }
-
-  drawingContext.shadowBlur = 0;
 
   // Coordinate labels with glass backgrounds
   const xLabel = formatLiveX(world.x);
@@ -5053,6 +12977,143 @@ function getDiscreteCellMetrics(xStep) {
   return { cellW, mx };
 }
 
+/* ========== Expanded-column mapping for discrete click-to-inspect ========== */
+
+/**
+ * Build a complete column layout for the visible range.
+ * Returns an array of column descriptors sorted by visual slot:
+ *   { slot, worldX, kind, ix, opIdx?, subIdx?, evalFn?, color?, label? }
+ * kind: 'data' (original), 'intermediate', 'subintermediate'
+ */
+function buildExpandedColumnLayout(ix0, ix1, xStep, eS) {
+  const steps = state.steps;
+  const ops = state.ops;
+  const nOps = steps.length - 1;
+  const isDelta = state.mode === "delta";
+  const cols = [];
+
+  const allExpanded = [...state.expandedCols].sort((a, b) => a - b);
+
+  // Extend ix0 leftward to include expanded columns whose intermediates
+  // might spill into the visible range
+  let effIx0 = ix0;
+  for (const src of allExpanded) {
+    if (src >= ix0) break;
+    let cnt = nOps;
+    for (let opIdx = 0; opIdx < ops.length; opIdx++) {
+      if (state.expandedSubCols.has(src + ':' + opIdx)) {
+        cnt += getSubintermediateFns(steps[opIdx].fn, ops[opIdx]).length;
+      }
+    }
+    // If intermediates extend to slot ≥ ix0 in display space, include this source
+    if (src + cnt >= ix0) effIx0 = Math.min(effIx0, src);
+  }
+
+  // Pre-calculate total offset for effIx0 (sum of all insertions before effIx0)
+  let offsetForStart = 0;
+  for (const src of allExpanded) {
+    if (src < effIx0) {
+      offsetForStart += nOps;
+      for (let opIdx = 0; opIdx < ops.length; opIdx++) {
+        if (state.expandedSubCols.has(src + ':' + opIdx)) {
+          offsetForStart += getSubintermediateFns(steps[opIdx].fn, ops[opIdx]).length;
+        }
+      }
+    }
+  }
+
+  let slot = offsetForStart;
+  for (let ix = effIx0; ix <= ix1; ix++) {
+    const worldX = (ix + slot) * xStep;
+    cols.push({ slot: ix + slot, worldX, kind: 'data', ix });
+
+    if (state.expandedCols.has(ix) && nOps > 0) {
+      for (let opIdx = 0; opIdx < nOps; opIdx++) {
+        slot++;
+        const intWorldX = (ix + slot) * xStep;
+        const step = steps[opIdx + 1];
+        const prevStep = steps[opIdx];
+        cols.push({
+          slot: ix + slot, worldX: intWorldX, kind: 'intermediate',
+          ix, opIdx, evalFn: step.fn, prevFn: prevStep.fn,
+          step, prevStep,
+        });
+
+        const subKey = ix + ':' + opIdx;
+        if (state.expandedSubCols.has(subKey) && opIdx < ops.length) {
+          const subFns = getSubintermediateFns(steps[opIdx].fn, ops[opIdx]);
+          for (let si = 0; si < subFns.length; si++) {
+            slot++;
+            const subWorldX = (ix + slot) * xStep;
+            cols.push({
+              slot: ix + slot, worldX: subWorldX, kind: 'subintermediate',
+              ix, opIdx, subIdx: si, evalFn: subFns[si].fn,
+              category: subFns[si].category,
+            });
+          }
+        }
+      }
+    }
+  }
+  return cols;
+}
+
+/**
+ * Convert a screen click position to the logical ix of the clicked column,
+ * accounting for expanded intermediate columns.
+ * Returns { ix, kind, opIdx? } or null if not on a column.
+ */
+function screenToDiscreteColumn(sx, sy) {
+  const { xStep } = getDiscreteStep();
+  const eS = state.tauMode ? 2 * Math.PI : 1;
+  const w = screenToWorld(sx, sy);
+  const { minX, maxX } = getVisibleWorldBounds();
+  const ix0 = Math.floor(minX / xStep) - 1;
+  const ix1 = Math.ceil(maxX / xStep) + 1;
+
+  const cols = buildExpandedColumnLayout(ix0, ix1, xStep, eS);
+  // Find which column slot the click lands in
+  const clickSlot = Math.round(w.x / xStep);
+  for (const col of cols) {
+    if (col.slot === clickSlot) return col;
+  }
+  return null;
+}
+
+/**
+ * Handle a click/tap on the discrete grid.
+ * - Click on a data column: toggle intermediate expansion
+ * - Click on an intermediate column: toggle subintermediate expansion
+ * - Click on a subintermediate column: no action (for now)
+ */
+function handleDiscreteColumnClick(sx, sy) {
+  if (!isDiscreteAny() || !state.fn) return false;
+  const col = screenToDiscreteColumn(sx, sy);
+  if (!col) return false;
+
+  if (col.kind === 'data') {
+    if (state.expandedCols.has(col.ix)) {
+      // Collapse: remove expansion and all subexpansions for this ix
+      state.expandedCols.delete(col.ix);
+      for (const key of [...state.expandedSubCols.keys()]) {
+        if (key.startsWith(col.ix + ':')) state.expandedSubCols.delete(key);
+      }
+    } else {
+      state.expandedCols.add(col.ix);
+    }
+    return true;
+  } else if (col.kind === 'intermediate') {
+    const subKey = col.ix + ':' + col.opIdx;
+    if (state.expandedSubCols.has(subKey)) {
+      state.expandedSubCols.delete(subKey);
+    } else {
+      state.expandedSubCols.set(subKey, true);
+    }
+    return true;
+  }
+  return false;
+}
+
 /**
  * Draw the entire discrete scene: inactive tint, axes as pixels, all curves as
  * pixels, with color blending and y-curve priority.
@@ -5095,6 +13156,33 @@ function drawDiscreteScene() {
   const showYAxis = state.toggles.yaxis;
   const showIntermediates = state.toggles.intermediates;
   const eS = state.tauMode ? 2 * Math.PI : 1; // evaluation scale: tau mode scales x-values
+
+  // --- Expansion displacement: shift columns to make room for expanded intermediates ---
+  const _hasExp = state.expandedCols.size > 0 && state.steps.length > 1;
+  const _sortedExp = _hasExp ? [...state.expandedCols].sort((a, b) => a - b) : [];
+  const _insCountMap = new Map();
+  if (_hasExp) {
+    const nOps = state.steps.length - 1;
+    for (const src of _sortedExp) {
+      let cnt = nOps;
+      for (let opIdx = 0; opIdx < state.ops.length; opIdx++) {
+        if (state.expandedSubCols.has(src + ':' + opIdx)) {
+          cnt += getSubintermediateFns(state.steps[opIdx].fn, state.ops[opIdx]).length;
+        }
+      }
+      _insCountMap.set(src, cnt);
+    }
+  }
+  /** Return world-x display position for logical column ix, accounting for inserted columns */
+  function _dx(ix) {
+    if (!_hasExp) return ix * xStep;
+    let shift = 0;
+    for (const src of _sortedExp) {
+      if (src >= ix) break;
+      shift += _insCountMap.get(src);
+    }
+    return ix * xStep + shift * xStep;
+  }
 
   // --- Build pixel map: key → { r, g, b, count, hasY } ---
   const pixels = new Map();
@@ -5209,11 +13297,10 @@ function drawDiscreteScene() {
   if (state.lightMode) {
     const bg = state.bgColorRGB || [245, 246, 250];
     inR = bg[0]; inG = bg[1]; inB = bg[2];
-    const mutedHex = getComputedStyle(document.body).getPropertyValue('--muted').trim();
-    const m = mutedHex.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
-    gutR = m ? parseInt(m[1], 16) : 90;
-    gutG = m ? parseInt(m[2], 16) : 98;
-    gutB = m ? parseInt(m[3], 16) : 120;
+    // Gutter = slightly darker background (darken each channel by ~5%)
+    gutR = Math.round(bg[0] * 0.92);
+    gutG = Math.round(bg[1] * 0.92);
+    gutB = Math.round(bg[2] * 0.92);
   } else {
     inR = 18; inG = 20; inB = 28;
     gutR = 0; gutG = 0; gutB = 0;
@@ -5228,8 +13315,8 @@ function drawDiscreteScene() {
   // 4a. Gutter fill: cover entire visible grid area with gutter color (light mode)
   if (state.lightMode) {
     ctx.fillStyle = `rgb(${gutR},${gutG},${gutB})`;
-    const gutLeft = ix0 * xStep - xStep / 2;
-    const gutW = (ix1 - ix0 + 1) * xStep;
+    const gutLeft = _dx(ix0) - xStep / 2;
+    const gutW = _dx(ix1) - _dx(ix0) + xStep;
     const gutBot = iy0 * yStep - yStep / 2;
     const gutH = (iy1 - iy0 + 1) * yStep;
     ctx.fillRect(gutLeft, gutBot, gutW, gutH);
@@ -5241,14 +13328,14 @@ function drawDiscreteScene() {
   const stripTop = (iy1 + 1) * yStep - yStep / 2 - my;
   const stripH = stripTop - stripBot;
   for (let ix = ix0; ix <= ix1; ix++) {
-    ctx.fillRect(ix * xStep - xStep / 2 + mx, stripBot, cellW, stripH);
+    ctx.fillRect(_dx(ix) - xStep / 2 + mx, stripBot, cellW, stripH);
   }
 
   // 4a2. Carve horizontal gap bands between rows (O(rows)) for y-margin
   if (my > 0) {
     ctx.fillStyle = `rgb(${gutR},${gutG},${gutB})`;
-    const bandLeft = ix0 * xStep - xStep / 2;
-    const bandW = (ix1 - ix0 + 1) * xStep;
+    const bandLeft = _dx(ix0) - xStep / 2;
+    const bandW = _dx(ix1) - _dx(ix0) + xStep;
     const bandH = 2 * my;
     for (let iy = iy0; iy <= iy1 + 1; iy++) {
       const bandY = iy * yStep - yStep / 2 - my;
@@ -5342,7 +13429,7 @@ function drawDiscreteScene() {
             const ba = Math.min(1, baBase * (1 + gBoost * 0.75));
             ctx.fillStyle = `rgba(${cr},${cg},${cb},${ba.toFixed(4)})`;
             ctx.fillRect(
-              ix * xStep - xStep / 2 + mx,
+              _dx(ix) - xStep / 2 + mx,
               lo, cellW, hi - lo
             );
           }
@@ -5404,13 +13491,13 @@ function drawDiscreteScene() {
           // Extended + brighter glow at grid ticks
           const r = glowWR + (boostedGlowWR - glowWR) * gBoost;
           ctx.drawImage(gcBoosted, 0, 0, 1, glowCanvasH,
-            ix * xStep - xStep / 2 + mx,
+            _dx(ix) - xStep / 2 + mx,
             worldY - r,
             cellW, 2 * r
           );
         } else {
           ctx.drawImage(gc, 0, 0, 1, glowCanvasH,
-            ix * xStep - xStep / 2 + mx,
+            _dx(ix) - xStep / 2 + mx,
             worldY - glowWR,
             cellW, 2 * glowWR
           );
@@ -5431,13 +13518,13 @@ function drawDiscreteScene() {
         if (gBoost > 0.01) {
           const r = glowWR + (boostedGlowWRx - glowWR) * gBoost;
           ctx.drawImage(gcBoostedX, 0, 0, 1, glowCanvasH,
-            ix * xStep - xStep / 2 + mx,
+            _dx(ix) - xStep / 2 + mx,
             -r,
             cellW, 2 * r
           );
         } else {
           ctx.drawImage(gc, 0, 0, 1, glowCanvasH,
-            ix * xStep - xStep / 2 + mx,
+            _dx(ix) - xStep / 2 + mx,
             -glowWR,
             cellW, 2 * glowWR
           );
@@ -5495,7 +13582,7 @@ function drawDiscreteScene() {
       }
       ctx.fillStyle = `rgb(${Math.round(fr)},${Math.round(fg)},${Math.round(fb)})`;
       ctx.fillRect(
-        px.ix * xStep - xStep / 2 + mx,
+        _dx(px.ix) - xStep / 2 + mx,
         px.iy * yStep - yStep / 2 + my,
         cellW, cellH
       );
@@ -5747,8 +13834,8 @@ function drawDiscreteScene() {
         }
         const ck = (cr << 16) | (cg << 8) | cb;
         if (!inactiveBatches.has(ck)) inactiveBatches.set(ck, { r: cr, g: cg, b: cb, cells: [] });
-        const scr = worldToScreen(ix * xStep, iy * yStep * yRatio);
-        inactiveBatches.get(ck).cells.push({ iy, x: scr.x, y: scr.y });
+        const scr = worldToScreen(_dx(ix), iy * yStep * yRatio);
+        inactiveBatches.get(ck).cells.push({ ix, iy, x: scr.x, y: scr.y });
       }
     }
 
@@ -5760,24 +13847,204 @@ function drawDiscreteScene() {
           if (!ac) continue;
           const ck = (ac.r << 16) | (ac.g << 8) | ac.b;
           if (!activeBatches.has(ck)) activeBatches.set(ck, { r: ac.r, g: ac.g, b: ac.b, cells: [] });
-          const scr = worldToScreen(ix * xStep, iy * yStep * yRatio);
-          activeBatches.get(ck).cells.push({ iy, x: scr.x, y: scr.y });
+          const scr = worldToScreen(_dx(ix), iy * yStep * yRatio);
+          activeBatches.get(ck).cells.push({ ix, iy, x: scr.x, y: scr.y });
         }
       }
     }
 
+    // Helper: format a value for delta-mode Cartesian numeral display
+    function _fmtCartVal(ix, iy) {
+      const val = iy * yStep + ix * xStep * eS;
+      const av = Math.abs(val);
+      let t = av >= 100 ? Math.round(av).toString() : av >= 10 ? Math.round(av).toString() : av < 0.05 ? '0' : av.toFixed(1);
+      return val < -0.005 ? '\u2212' + t : t;
+    }
+
     // Draw inactive batches (tint atlas once per color, stamp all cells)
     for (const batch of inactiveBatches.values()) {
-      tintAtlas(batch.r, batch.g, batch.b);
-      for (const c of batch.cells) stampTinted(c.iy, c.x, c.y);
+      if (isDelta) {
+        ctx.fillStyle = `rgb(${batch.r},${batch.g},${batch.b})`;
+        for (const c of batch.cells) ctx.fillText(_fmtCartVal(c.ix, c.iy), c.x, c.y + yShift);
+      } else {
+        tintAtlas(batch.r, batch.g, batch.b);
+        for (const c of batch.cells) stampTinted(c.iy, c.x, c.y);
+      }
     }
     // Draw active batches on top
     for (const batch of activeBatches.values()) {
-      tintAtlas(batch.r, batch.g, batch.b);
-      for (const c of batch.cells) stampTinted(c.iy, c.x, c.y);
+      if (isDelta) {
+        ctx.fillStyle = `rgb(${batch.r},${batch.g},${batch.b})`;
+        for (const c of batch.cells) ctx.fillText(_fmtCartVal(c.ix, c.iy), c.x, c.y + yShift);
+      } else {
+        tintAtlas(batch.r, batch.g, batch.b);
+        for (const c of batch.cells) stampTinted(c.iy, c.x, c.y);
+      }
     }
 
     ctx.restore();
+  }
+
+  // --- 5. Expanded intermediate + subintermediate columns ---
+  if (_hasExp) {
+    const steps = state.steps;
+    const ops = state.ops;
+    const nOps = steps.length - 1;
+
+    for (const srcIx of _sortedExp) {
+      if (srcIx < ix0 - 1 || srcIx > ix1 + 1) continue;
+      const baseX = _dx(srcIx); // display X of the source data column
+      const evalX = srcIx * xStep * eS; // mathematical x at this column
+      let relSlot = 1;
+
+      for (let opIdx = 0; opIdx < nOps; opIdx++) {
+        const step = steps[opIdx + 1];
+        const col = getStepColor(step);
+        const cr = red(col), cg = green(col), cb = blue(col);
+        const intX = baseX + relSlot * xStep; // display world X
+        // Evaluate start (previous step) and end (this step)
+        let startFy, fy;
+        try { startFy = steps[opIdx].fn(evalX); } catch { startFy = NaN; }
+        try { fy = step.fn(evalX); } catch { fy = NaN; }
+        if (isDelta) {
+          if (Number.isFinite(startFy)) startFy = startFy - evalX;
+          if (Number.isFinite(fy)) fy = fy - evalX;
+        }
+
+        // Tinted band between start and end y-values
+        if (Number.isFinite(startFy) && Number.isFinite(fy)) {
+          const sIy = Math.round(startFy / yStep);
+          const eIy = Math.round(fy / yStep);
+          const loIy = Math.min(sIy, eIy);
+          const hiIy = Math.max(sIy, eIy);
+          const bandTop = loIy * yStep - yStep / 2 + my;
+          const bandBot = hiIy * yStep + yStep / 2 + my;
+          const stripAlpha = state.lightMode ? 0.12 : 0.18;
+          ctx.fillStyle = `rgba(${cr},${cg},${cb},${stripAlpha})`;
+          ctx.fillRect(intX - xStep / 2 + mx, bandTop, cellW, bandBot - bandTop);
+        }
+
+        // Solid pixels at start and end positions
+        if (!numerals) {
+          if (Number.isFinite(startFy)) {
+            const sIy = Math.round(startFy / yStep);
+            ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+            ctx.fillRect(intX - xStep / 2 + mx, sIy * yStep - yStep / 2 + my, cellW, cellH);
+          }
+          if (Number.isFinite(fy)) {
+            const eIy = Math.round(fy / yStep);
+            ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+            ctx.fillRect(intX - xStep / 2 + mx, eIy * yStep - yStep / 2 + my, cellW, cellH);
+          }
+        } else {
+          // Numeral mode: text at both start and end positions
+          ctx.save();
+          const pd2 = window.devicePixelRatio || 1;
+          ctx.setTransform(pd2, 0, 0, pd2, 0, 0);
+          ctx.font = `bold ${Math.max(4, cellW * view.scale * 0.9)}px 'JetBrains Mono', monospace`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+          if (Number.isFinite(startFy)) {
+            const sIy = Math.round(startFy / yStep);
+            const scr = worldToScreen(intX, sIy * yStep * yRatio);
+            const sv = sIy * yStep;
+            const sav = Math.abs(sv);
+            let stxt = sav >= 100 ? Math.round(sav).toString() : sav >= 10 ? Math.round(sav).toString() : sav < 0.05 ? '0' : sav.toFixed(1);
+            if (sv < -0.005) stxt = '\u2212' + stxt;
+            ctx.fillText(stxt, scr.x, scr.y);
+          }
+          if (Number.isFinite(fy)) {
+            const eIy = Math.round(fy / yStep);
+            const scr = worldToScreen(intX, eIy * yStep * yRatio);
+            const ev = eIy * yStep;
+            const eav = Math.abs(ev);
+            let etxt = eav >= 100 ? Math.round(eav).toString() : eav >= 10 ? Math.round(eav).toString() : eav < 0.05 ? '0' : eav.toFixed(1);
+            if (ev < -0.005) etxt = '\u2212' + etxt;
+            ctx.fillText(etxt, scr.x, scr.y);
+          }
+          ctx.restore();
+        }
+        relSlot++;
+
+        // Subintermediate columns for this operation
+        const subKey = srcIx + ':' + opIdx;
+        if (state.expandedSubCols.has(subKey) && opIdx < ops.length) {
+          const prevFn = steps[opIdx].fn;
+          const subItems = getSubintermediateFns(prevFn, ops[opIdx]);
+          for (let si = 0; si < subItems.length; si++) {
+            const subX = baseX + relSlot * xStep;
+            const subCol = getStepColor(subItems[si].category);
+            const sr = red(subCol), sg = green(subCol), sb = blue(subCol);
+
+            // Evaluate sub start (prev sub or prevStep) and end (this sub)
+            let subStartFy, sfy;
+            const subStartFn = si === 0 ? prevFn : subItems[si - 1].fn;
+            try { subStartFy = subStartFn(evalX); } catch { subStartFy = NaN; }
+            try { sfy = subItems[si].fn(evalX); } catch { sfy = NaN; }
+            if (isDelta) {
+              if (Number.isFinite(subStartFy)) subStartFy = subStartFy - evalX;
+              if (Number.isFinite(sfy)) sfy = sfy - evalX;
+            }
+
+            // Tinted band between sub start and end
+            if (Number.isFinite(subStartFy) && Number.isFinite(sfy)) {
+              const ssIy = Math.round(subStartFy / yStep);
+              const seIy = Math.round(sfy / yStep);
+              const loIy = Math.min(ssIy, seIy);
+              const hiIy = Math.max(ssIy, seIy);
+              const bandTop = loIy * yStep - yStep / 2 + my;
+              const bandBot = hiIy * yStep + yStep / 2 + my;
+              const subAlpha = state.lightMode ? 0.08 : 0.12;
+              ctx.fillStyle = `rgba(${sr},${sg},${sb},${subAlpha})`;
+              ctx.fillRect(subX - xStep / 2 + mx, bandTop, cellW, bandBot - bandTop);
+            }
+
+            // Solid pixels at sub start and end
+            if (!numerals) {
+              if (Number.isFinite(subStartFy)) {
+                const ssIy = Math.round(subStartFy / yStep);
+                ctx.fillStyle = `rgb(${sr},${sg},${sb})`;
+                ctx.fillRect(subX - xStep / 2 + mx, ssIy * yStep - yStep / 2 + my, cellW, cellH);
+              }
+              if (Number.isFinite(sfy)) {
+                const seIy = Math.round(sfy / yStep);
+                ctx.fillStyle = `rgb(${sr},${sg},${sb})`;
+                ctx.fillRect(subX - xStep / 2 + mx, seIy * yStep - yStep / 2 + my, cellW, cellH);
+              }
+            } else {
+              ctx.save();
+              const pd2 = window.devicePixelRatio || 1;
+              ctx.setTransform(pd2, 0, 0, pd2, 0, 0);
+              ctx.font = `bold ${Math.max(4, cellW * view.scale * 0.9)}px 'JetBrains Mono', monospace`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillStyle = `rgb(${sr},${sg},${sb})`;
+              if (Number.isFinite(subStartFy)) {
+                const ssIy = Math.round(subStartFy / yStep);
+                const scr = worldToScreen(subX, ssIy * yStep * yRatio);
+                const sv = ssIy * yStep;
+                const sav = Math.abs(sv);
+                let stxt = sav >= 100 ? Math.round(sav).toString() : sav >= 10 ? Math.round(sav).toString() : sav < 0.05 ? '0' : sav.toFixed(1);
+                if (sv < -0.005) stxt = '\u2212' + stxt;
+                ctx.fillText(stxt, scr.x, scr.y);
+              }
+              if (Number.isFinite(sfy)) {
+                const seIy = Math.round(sfy / yStep);
+                const scr = worldToScreen(subX, seIy * yStep * yRatio);
+                const sv = seIy * yStep;
+                const sav = Math.abs(sv);
+                let stxt = sav >= 100 ? Math.round(sav).toString() : sav >= 10 ? Math.round(sav).toString() : sav < 0.05 ? '0' : sav.toFixed(1);
+                if (sv < -0.005) stxt = '\u2212' + stxt;
+                ctx.fillText(stxt, scr.x, scr.y);
+              }
+              ctx.restore();
+            }
+            relSlot++;
+          }
+        }
+      }
+    }
   }
 
   ctx.restore();
@@ -5804,6 +14071,32 @@ function drawDiscreteXScene() {
   const showIntermediates = state.toggles.intermediates;
   const eS = state.tauMode ? 2 * Math.PI : 1; // evaluation scale
 
+  // --- Expansion displacement (same logic as drawDiscreteScene) ---
+  const _hasExpX = state.expandedCols.size > 0 && state.steps.length > 1;
+  const _sortedExpX = _hasExpX ? [...state.expandedCols].sort((a, b) => a - b) : [];
+  const _insCountMapX = new Map();
+  if (_hasExpX) {
+    const nOps = state.steps.length - 1;
+    for (const src of _sortedExpX) {
+      let cnt = nOps;
+      for (let opIdx = 0; opIdx < state.ops.length; opIdx++) {
+        if (state.expandedSubCols.has(src + ':' + opIdx)) {
+          cnt += getSubintermediateFns(state.steps[opIdx].fn, state.ops[opIdx]).length;
+        }
+      }
+      _insCountMapX.set(src, cnt);
+    }
+  }
+  function _dxX(ix) {
+    if (!_hasExpX) return ix * xStep;
+    let shift = 0;
+    for (const src of _sortedExpX) {
+      if (src >= ix) break;
+      shift += _insCountMapX.get(src);
+    }
+    return ix * xStep + shift * xStep;
+  }
+
   // --- Render using raw canvas for performance ---
   const ctx = drawingContext;
   const θ = view.rotation;
@@ -5826,15 +14119,13 @@ function drawDiscreteXScene() {
   if (state.lightMode) {
     const bg = state.bgColorRGB || [245, 246, 250];
     inR = bg[0]; inG = bg[1]; inB = bg[2];
-    // Fill gutter background (muted/text color)
-    const mutedHex = getComputedStyle(document.body).getPropertyValue('--muted').trim();
-    const m = mutedHex.match(/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
-    const gutR = m ? parseInt(m[1], 16) : 90;
-    const gutG = m ? parseInt(m[2], 16) : 98;
-    const gutB = m ? parseInt(m[3], 16) : 120;
+    // Fill gutter background (slightly darker version of background color)
+    const gutR = Math.round(inR * 0.92);
+    const gutG = Math.round(inG * 0.92);
+    const gutB = Math.round(inB * 0.92);
     ctx.fillStyle = `rgb(${gutR},${gutG},${gutB})`;
-    const gutLeft = ix0 * xStep - xStep / 2;
-    const gutW = (ix1 - ix0 + 1) * xStep;
+    const gutLeft = _dxX(ix0) - xStep / 2;
+    const gutW = _dxX(ix1) - _dxX(ix0) + xStep;
     ctx.fillRect(gutLeft, minY, gutW, maxY - minY);
   } else {
     inR = 18; inG = 20; inB = 28;
@@ -5843,7 +14134,7 @@ function drawDiscreteXScene() {
   // Draw column strips (inactive tint)
   ctx.fillStyle = `rgb(${inR},${inG},${inB})`;
   for (let ix = ix0; ix <= ix1; ix++) {
-    ctx.fillRect(ix * xStep - xStep / 2 + mx, minY, cellW, maxY - minY);
+    ctx.fillRect(_dxX(ix) - xStep / 2 + mx, minY, cellW, maxY - minY);
   }
 
   // Draw y-axis as a thin vertical line through x=0 cell if visible
@@ -5869,7 +14160,7 @@ function drawDiscreteXScene() {
       for (let iy = iy0g; iy <= iy1g; iy++) {
         const wy = iy * lv.step;
         for (let ix = ix0; ix <= ix1; ix++) {
-          const left = ix * xStep - xStep / 2 + mx;
+          const left = _dxX(ix) - xStep / 2 + mx;
           ctx.fillRect(left, wy - gridLineW / 2, cellW, gridLineW);
         }
       }
@@ -5883,7 +14174,7 @@ function drawDiscreteXScene() {
     ctx.lineWidth = 2 / view.scale;
     ctx.beginPath();
     for (let ix = ix0; ix <= ix1; ix++) {
-      const left = ix * xStep - xStep / 2 + mx;
+      const left = _dxX(ix) - xStep / 2 + mx;
       const right = left + cellW;
       ctx.moveTo(left, 0);
       ctx.lineTo(right, 0);
@@ -5919,7 +14210,7 @@ function drawDiscreteXScene() {
       if (!Number.isFinite(fy)) continue;
       if (isDelta) fy = fy - cx;
       if (!Number.isFinite(fy)) continue;
-      const left = ix * xStep - xStep / 2 + mx;
+      const left = _dxX(ix) - xStep / 2 + mx;
       const gBoost = gridBoostMap.get(ix) || 0;
       if (gBoost > 0) {
         const t = gBoost * 0.5;
@@ -5961,7 +14252,7 @@ function drawDiscreteXScene() {
 
         for (let ix = ix0; ix <= ix1; ix++) {
           const cx = ix * xStep * eS;
-          const left = ix * xStep - xStep / 2 + mx;
+          const left = _dxX(ix) - xStep / 2 + mx;
 
           // Evaluate band boundary values (skip NaN subs, but prev & target are required)
           const gBoost = gridBoostMap.get(ix) || 0;
@@ -6032,7 +14323,7 @@ function drawDiscreteXScene() {
                 if (!Number.isFinite(fy)) continue;
                 if (isDelta) fy = fy - cx;
                 if (!Number.isFinite(fy)) continue;
-                const left = ix * xStep - xStep / 2 + mx;
+                const left = _dxX(ix) - xStep / 2 + mx;
                 const gBoost = gridBoostMap.get(ix) || 0;
                 if (gBoost > 0) {
                   const t = gBoost * 0.5;
@@ -6098,7 +14389,7 @@ function drawDiscreteXScene() {
         if (!Number.isFinite(fy)) continue;
         if (isDelta) fy = fy - cx;
         if (!Number.isFinite(fy)) continue;
-        const left = ix * xStep - xStep / 2 + mx;
+        const left = _dxX(ix) - xStep / 2 + mx;
         const gBoost = gridBoostMap.get(ix) || 0;
         if (gBoost > 0.01) {
           const r = glowWR + (boostedGlowWR - glowWR) * gBoost;
@@ -6118,7 +14409,7 @@ function drawDiscreteXScene() {
           if (!Number.isFinite(fy)) continue;
           if (isDelta) fy = fy - cx;
           if (!Number.isFinite(fy)) continue;
-          const left = ix * xStep - xStep / 2 + mx;
+          const left = _dxX(ix) - xStep / 2 + mx;
           const gBoost = gridBoostMap.get(ix) || 0;
           const hlAlpha = Math.min(1, alphaS * (1 + gBoost * 0.5));
           ctx.fillStyle = `rgba(${hr | 0},${hg | 0},${hb | 0},${hlAlpha.toFixed(4)})`;
@@ -6242,6 +14533,7 @@ function drawDiscreteXScene() {
         let fy;
         try { fy = evalFn(cx); } catch { continue; }
         if (!Number.isFinite(fy)) continue;
+        const displayVal = fy; // Cartesian y-value for numeral display
         if (isDelta) fy = fy - cx;
         if (!Number.isFinite(fy)) continue;
 
@@ -6253,15 +14545,15 @@ function drawDiscreteXScene() {
           [fr, fg, fb] = oklabBrighten(fr, fg, fb, t);
         }
 
-        const absVal = Math.abs(fy);
+        const absVal = Math.abs(displayVal);
         let text;
         if (absVal >= 100) text = Math.round(absVal).toString();
         else if (absVal >= 10) text = Math.round(absVal).toString();
         else if (absVal < 0.05) text = '0';
         else text = absVal.toFixed(1);
-        const isNeg = fy < 0;
+        const isNeg = displayVal < 0;
         const layout = buildLayout(text, isNeg);
-        const scr = worldToScreen(ix * xStep, fy);
+        const scr = worldToScreen(_dxX(ix), fy);
         dxDraws.push({ layout, cx: scr.x, cy: scr.y, r: Math.round(fr), g: Math.round(fg), b: Math.round(fb) });
       }
     }
@@ -6383,6 +14675,97 @@ function drawDiscreteXScene() {
     }
 
     ctx.restore();
+  }
+
+  // --- Expanded intermediate + subintermediate columns (discreteX) ---
+  if (_hasExpX) {
+    const steps = state.steps;
+    const ops = state.ops;
+    const nOps = steps.length - 1;
+
+    for (const srcIx of _sortedExpX) {
+      if (srcIx < ix0 - 1 || srcIx > ix1 + 1) continue;
+      const baseX = _dxX(srcIx);
+      const evalX = srcIx * xStep * eS;
+      let relSlot = 1;
+
+      for (let opIdx = 0; opIdx < nOps; opIdx++) {
+        const step = steps[opIdx + 1];
+        const col = getStepColor(step);
+        const cr = red(col), cg = green(col), cb = blue(col);
+        const intX = baseX + relSlot * xStep;
+        // Evaluate start (previous step) and end (this step)
+        let startFy, fy;
+        try { startFy = steps[opIdx].fn(evalX); } catch { startFy = NaN; }
+        try { fy = step.fn(evalX); } catch { fy = NaN; }
+        if (isDelta) {
+          if (Number.isFinite(startFy)) startFy = startFy - evalX;
+          if (Number.isFinite(fy)) fy = fy - evalX;
+        }
+
+        // Tinted band between start and end y-values
+        if (Number.isFinite(startFy) && Number.isFinite(fy)) {
+          const lo = Math.min(startFy, fy);
+          const hi = Math.max(startFy, fy);
+          const stripAlpha = state.lightMode ? 0.12 : 0.18;
+          ctx.fillStyle = `rgba(${cr},${cg},${cb},${stripAlpha})`;
+          ctx.fillRect(intX - xStep / 2 + mx, lo - barThickness / 2, cellW, hi - lo + barThickness);
+        }
+
+        // Bars at start and end y
+        if (Number.isFinite(startFy)) {
+          ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+          ctx.fillRect(intX - xStep / 2 + mx, startFy - barThickness / 2, cellW, barThickness);
+        }
+        if (Number.isFinite(fy)) {
+          ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+          ctx.fillRect(intX - xStep / 2 + mx, fy - barThickness / 2, cellW, barThickness);
+        }
+        relSlot++;
+
+        // Subintermediate columns
+        const subKey = srcIx + ':' + opIdx;
+        if (state.expandedSubCols.has(subKey) && opIdx < ops.length) {
+          const prevFn = steps[opIdx].fn;
+          const subItems = getSubintermediateFns(prevFn, ops[opIdx]);
+          for (let si = 0; si < subItems.length; si++) {
+            const subX = baseX + relSlot * xStep;
+            const subCol = getStepColor(subItems[si].category);
+            const sr = red(subCol), sg = green(subCol), sb = blue(subCol);
+
+            // Evaluate sub start and end
+            let subStartFy, sfy;
+            const subStartFn = si === 0 ? prevFn : subItems[si - 1].fn;
+            try { subStartFy = subStartFn(evalX); } catch { subStartFy = NaN; }
+            try { sfy = subItems[si].fn(evalX); } catch { sfy = NaN; }
+            if (isDelta) {
+              if (Number.isFinite(subStartFy)) subStartFy = subStartFy - evalX;
+              if (Number.isFinite(sfy)) sfy = sfy - evalX;
+            }
+
+            // Tinted band between sub start and end
+            if (Number.isFinite(subStartFy) && Number.isFinite(sfy)) {
+              const lo = Math.min(subStartFy, sfy);
+              const hi = Math.max(subStartFy, sfy);
+              const subAlpha = state.lightMode ? 0.08 : 0.12;
+              ctx.fillStyle = `rgba(${sr},${sg},${sb},${subAlpha})`;
+              ctx.fillRect(subX - xStep / 2 + mx, lo - barThickness / 2, cellW, hi - lo + barThickness);
+            }
+
+            // Bars at sub start and end
+            if (Number.isFinite(subStartFy)) {
+              ctx.fillStyle = `rgb(${sr},${sg},${sb})`;
+              ctx.fillRect(subX - xStep / 2 + mx, subStartFy - barThickness * 0.5, cellW, barThickness * 0.7);
+            }
+            if (Number.isFinite(sfy)) {
+              ctx.fillStyle = `rgb(${sr},${sg},${sb})`;
+              ctx.fillRect(subX - xStep / 2 + mx, sfy - barThickness * 0.5, cellW, barThickness * 0.7);
+            }
+            relSlot++;
+          }
+        }
+      }
+    }
   }
 
   ctx.restore();
@@ -7062,15 +15445,19 @@ function draw() {
       if (state.tauMode) liveX = liveX * (2 * Math.PI);
     }
     updateLiveOpValues(liveX);
+    updateLiveDagValues(liveX);
+    updateLatexDisplayLive(liveX);
     mouseX = savedMX;
     mouseY = savedMY;
   } else {
     document.body.style.cursor = '';
     updateLiveOpValues(null);
+    updateLiveDagValues(null);
+    updateLatexDisplayLive(null);
   }
 
   // ---- HUD overlay (HTML element) ----
-  if (ui.hudEl) {
+  if (ui.hudEl && state.hudVisible) {
     const tl = screenToWorld(0, 0);
     const br = screenToWorld(width, height);
     const minX = formatNumber(Math.min(tl.x, br.x));

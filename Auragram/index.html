@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auragram</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div id="main-area">
+
+        <!-- ── Top toolbar ─────────────────────────────────────────── -->
+        <div id="toolbar">
+            <h1>Auragram <small>v48</small></h1>
+            <div id="transport">
+                <button id="btn-play" disabled>Play</button>
+                <span id="time-display">0:00 / 0:00</span>
+            </div>
+            <div id="file-area">
+                <label for="file-input">Choose file</label>
+                <input type="file" id="file-input" accept="audio/*">
+                <span id="file-name"></span>
+            </div>
+            <button id="btn-swap">Swap XY</button>
+            <button id="btn-eq-view">EQ View</button>
+            <button id="btn-a-weight" class="active">A-Weight</button>
+            <button id="btn-mic">🎙 Mic</button>
+            <span class="sep" style="display:inline-block;width:1px;height:14px;background:#333;margin:0 4px;"></span>
+            <label style="font-size:.68rem;color:#888;display:flex;align-items:center;gap:4px;">
+                Cutoff <input type="range" id="cutoff-slider" min="0" max="100" value="0"
+                    style="width:60px;accent-color:#558;">
+                <span id="cutoff-label" style="font-size:.65rem;color:#aaa;min-width:24px;">0%</span>
+            </label>
+        </div>
+
+        <!-- ── Auragram canvas (wide, upper portion) ───────────────── -->
+        <div id="canvas-wrap">
+            <div id="y-labels"></div>
+            <div id="canvas-inner">
+                <canvas id="visualiser"></canvas>
+                <div id="x-labels"></div>
+                <div id="drop-overlay">Drop audio file here</div>
+                <div id="idle-prompt">
+                    <span class="icon">🎵</span>
+                    <span>Drop an audio file or choose one below</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Resize handle ──────────────────────────────────────── -->
+        <div id="resize-handle"><span class="grip"></span></div>
+
+        <!-- ── Spectrograph timeline (fills remaining height) ────── -->
+        <div id="timeline-area">
+            <div id="source-sidebar"></div>
+            <div id="timeline-col">
+                <div id="tl-toolbar"
+                    style="display:flex;align-items:center;gap:6px;padding:2px 6px;background:#151515;border-bottom:1px solid #282828;flex-shrink:0;">
+                    <button id="btn-note-spec"
+                        style="background:#1a1a1a;color:#aaa;border:1px solid #333;border-radius:3px;padding:2px 7px;cursor:pointer;font-size:.68rem;">Note
+                        Colour</button>
+                    <button id="btn-tl-reset"
+                        style="background:#1a1a1a;color:#aaa;border:1px solid #333;border-radius:3px;padding:2px 7px;cursor:pointer;font-size:.68rem;">Reset
+                        Zoom</button>
+                </div>
+                <div id="timeline-row">
+                    <div id="tl-y-labels"></div>
+                    <div id="timeline-strip">
+                        <canvas id="timeline-canvas"></canvas>
+                        <div id="timeline-playhead"><div id="playhead-handle"></div></div>
+                    </div>
+                </div>
+                <div id="tl-x-row">
+                    <div id="tl-x-spacer"></div>
+                    <div id="tl-x-labels"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis progress bar (shown during pre-scan) -->
+        <div id="analysis-bar" class="hidden">
+            <div id="analysis-fill"></div>
+            <span id="analysis-label">Analysing...</span>
+        </div>
+
+    </div>
+
+    <script src="main.js"></script>
+</body>
+
+</html>

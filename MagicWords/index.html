@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MagicWords</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="app">
+        <!-- Spacer pushes content to ~1/3 from top -->
+        <div id="spacer"></div>
+
+        <!-- All text lives here -->
+        <div id="text-area">
+            <div id="completed-above"></div>
+            <div id="prior-clauses"></div>
+            <div id="current-line-wrap">
+                <span id="current-sentence-num"></span>
+                <div id="pos-row"></div>
+                <div id="current-line">
+                    <span id="committed"></span><span id="buffer-inline"></span><span id="caret"></span><span
+                        id="ghost-completion"></span><span id="committed-after"></span><span id="inline-info"></span>
+                </div>
+                <div id="syntax-tree"></div>
+                <div id="suggestions">
+                    <div id="prompt">Start typing</div>
+                </div>
+            </div>
+            <div id="completed-below"></div>
+        </div>
+
+        <div id="status"></div>
+        <div id="tense-popover"></div>
+        <div id="definition-panel"></div>
+        <div id="pos-toggle" title="Toggle POS coloring on text">POS</div>
+        <div id="theme-toggle" title="Toggle light/dark mode">☀</div>
+        <div id="align-toggle" title="Toggle left / centre alignment">¶</div>
+
+        <footer>
+            <span class="keys-help">
+                <kbd>Space</kbd> commit &nbsp;
+                <kbd>,</kbd> comma &nbsp;
+                <kbd>.</kbd> <kbd>?</kbd> <kbd>!</kbd> end sentence &nbsp;
+                <kbd>Tab</kbd> next match &nbsp;
+                <kbd>Shift+Tab</kbd> raw mode &nbsp;
+                <kbd>Esc</kbd> clear
+            </span>
+        </footer>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+
+</html>

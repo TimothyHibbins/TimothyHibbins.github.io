@@ -1,0 +1,298 @@
+/* ── ChordType styles ──────────────────────────────────────────────────── */
+
+:root {
+    /* Palette — dark mode */
+    --bg: #0f1117;
+    --bg-surface: #181a24;
+    --bg-raised: #21232f;
+    --text: #e4e6ef;
+    --text-dim: #8b8fa3;
+    --accent: #6c8cff;
+    --accent-glow: rgba(108, 140, 255, 0.15);
+    --green: #4cde80;
+    --orange: #ffa54c;
+    --red: #ff5c5c;
+
+    /* Cluster colours for timing visualisation */
+    --cluster-1: #6c8cff;
+    --cluster-2: #a56cff;
+    --cluster-3: #ffb86c;
+    --cluster-4: #4cde80;
+    --cluster-5: #ff6cb5;
+
+    --radius: 10px;
+    --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    font-size: 16px;
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 2rem 1rem;
+    overscroll-behavior: none;
+}
+
+/* ── Layout ────────────────────────────────────────────────────────────── */
+
+#app {
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+header {
+    text-align: center;
+    padding-bottom: 0.5rem;
+}
+
+header h1 {
+    font-family: var(--mono);
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, var(--accent), #a56cff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+header .subtitle {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+    margin-top: 0.25rem;
+}
+
+/* ── Section labels ────────────────────────────────────────────────────── */
+
+section>label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 0.4rem;
+}
+
+/* ── Output area ───────────────────────────────────────────────────────── */
+
+#output-section {
+    background: var(--bg-surface);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    min-height: 5rem;
+}
+
+#output {
+    font-size: 1.15rem;
+    line-height: 1.7;
+    min-height: 2.5rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+#output .placeholder {
+    color: var(--text-dim);
+    font-style: italic;
+}
+
+/* ── Keystroke buffer ──────────────────────────────────────────────────── */
+
+#buffer-section {
+    background: var(--bg-surface);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    position: relative;
+}
+
+#buffer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    min-height: 2.2rem;
+    align-items: center;
+    font-family: var(--mono);
+}
+
+#buffer .key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    background: var(--cluster-color, var(--bg-raised));
+    color: #fff;
+    opacity: 0.9;
+    animation: keyPop 0.15s ease-out;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+@keyframes keyPop {
+    0% {
+        transform: scale(0.6);
+        opacity: 0;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 0.9;
+    }
+}
+
+#buffer-hint {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    padding-top: 0.5rem;
+}
+
+#buffer-hint kbd {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.1em 0.45em;
+    border-radius: 4px;
+    background: var(--bg-raised);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text);
+}
+
+/* ── Candidates list ───────────────────────────────────────────────────── */
+
+#candidates-section {
+    background: var(--bg-surface);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+}
+
+#candidates {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.candidate {
+    display: grid;
+    grid-template-columns: 1fr 100px 46px;
+    grid-template-rows: auto auto;
+    gap: 0 0.75rem;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+
+.candidate:hover {
+    background: var(--bg-raised);
+}
+
+.candidate.selected {
+    background: var(--accent-glow);
+    border-left: 3px solid var(--accent);
+    padding-left: calc(0.75rem - 3px);
+}
+
+.candidate-word {
+    font-family: var(--mono);
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.score-bar-outer {
+    height: 6px;
+    background: var(--bg-raised);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.score-bar-inner {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent);
+    transition: width 0.2s ease;
+}
+
+.candidate-score {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-align: right;
+}
+
+.candidate-detail {
+    grid-column: 1 / -1;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    padding-top: 0.15rem;
+}
+
+.no-match {
+    color: var(--text-dim);
+    font-style: italic;
+    padding: 0.5rem 0;
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+
+footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.25rem 0.25rem 0;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+}
+
+footer kbd {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+    background: var(--bg-raised);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text);
+}
+
+.keys-help {
+    opacity: 0.7;
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+
+@media (max-width: 520px) {
+    header h1 {
+        font-size: 1.5rem;
+    }
+
+    .candidate {
+        grid-template-columns: 1fr 60px 40px;
+    }
+}

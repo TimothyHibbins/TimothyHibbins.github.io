@@ -1,0 +1,1037 @@
+/* ── MagicWords styles ──────────────────────────────────────────────────── */
+
+:root {
+    --bg: #0b0d14;
+    --bg-surface: #13151f;
+    --bg-raised: #1c1f2e;
+    --text: #e4e6ef;
+    --text-dim: #6b6f85;
+    --text-ghost: #3a3d50;
+    --accent: #7c9cff;
+    --accent-glow: rgba(124, 156, 255, 0.12);
+    --pink: #e8a0bf;
+    --pink-dim: #9a6b82;
+    --alt-text: #636890;
+    --green: #4cde80;
+    --orange: #ffa54c;
+
+    /* ── POS colours ─────────────────────────────────────────── */
+    --pos-noun: #5b9bf5;
+    /* blue */
+    --pos-pron: #3a6fd8;
+    /* deeper blue */
+    --pos-adj: #56d4c8;
+    /* cyan */
+    --pos-det: #357a73;
+    /* darker cyan */
+    --pos-num: #5b9bf5;
+    /* blue (nominal family) */
+    --pos-adv: #b8e04c;
+    /* chartreuse */
+    --pos-verb: #f06060;
+    /* red */
+    --pos-aux: #e8834a;
+    /* orange-red (warm verb family) */
+    --pos-prep: #4cde80;
+    /* green */
+    --pos-conj: #7a7e93;
+    /* grey */
+    --pos-intj: #ff5dae;
+    /* bright pink */
+    --pos-part: #b8e04c;
+    /* chartreuse (adverb family) */
+    --pos-sbar: #7a7e93;
+    /* grey (clause) */
+    --pos-default: #6b6f85;
+    /* fallback */
+
+    --radius: 10px;
+    --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --serif: 'EB Garamond', 'Georgia', 'Garamond', 'Times New Roman', serif;
+}
+
+/* ── Light mode ────────────────────────────────────────────────────────── */
+
+:root.light {
+    --bg: #f5f5f0;
+    --bg-surface: #eaeae5;
+    --bg-raised: #ddddd7;
+    --text: #1a1a2e;
+    --text-dim: #5a5a6e;
+    --text-ghost: #9a9ab0;
+    --accent: #4466cc;
+    --accent-glow: rgba(68, 102, 204, 0.1);
+    --pink: #c04080;
+    --pink-dim: #8a3060;
+    --alt-text: #666688;
+    --green: #2a9050;
+    --orange: #cc7020;
+
+    --pos-noun: #2060c0;
+    --pos-pron: #1848a0;
+    --pos-adj: #1a8a80;
+    --pos-det: #226660;
+    --pos-num: #2060c0;
+    --pos-adv: #688a10;
+    --pos-verb: #c03030;
+    --pos-aux: #b06020;
+    --pos-prep: #1a8040;
+    --pos-conj: #606070;
+    --pos-intj: #c03080;
+    --pos-part: #688a10;
+    --pos-sbar: #606070;
+    --pos-default: #5a5a6e;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    font-size: 17px;
+    scroll-behavior: smooth;
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--serif);
+    min-height: 100vh;
+    overflow-x: hidden;
+    overscroll-behavior: none;
+}
+
+/* ── App & centering ───────────────────────────────────────────────────── */
+
+#app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 2rem;
+}
+
+/* Spacer: height set dynamically by JS to keep current line at 1/3 from top */
+#spacer {
+    flex: 0 0 auto;
+    height: 0;
+}
+
+/* ── Text area (all sentences + current line) ──────────────────────────── */
+
+#text-area {
+    width: 100%;
+    max-width: 680px;
+    text-align: center;
+    position: relative;
+}
+
+/* Completed sentences — above and below the current line */
+#completed-above,
+#completed-below {
+    opacity: 0.45;
+}
+
+#completed-above {
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--text-ghost);
+}
+
+#completed-below {
+    margin-top: 1rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--text-ghost);
+}
+
+.completed-sentence {
+    margin-bottom: 0.8rem;
+}
+
+#completed-above:empty,
+#completed-below:empty {
+    display: none;
+}
+
+#completed-above .sentence-row,
+#completed-below .sentence-row {
+    display: flex;
+    align-items: baseline;
+    margin-bottom: 0.15rem;
+}
+
+#completed-above .sentence-num,
+#completed-below .sentence-num {
+    flex: 0 0 auto;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--text-ghost);
+    min-width: 1.6em;
+    text-align: right;
+    padding-right: 0.8em;
+    user-select: none;
+    cursor: pointer;
+    transition: color 0.15s;
+}
+
+#completed-above .sentence-num:hover,
+#completed-below .sentence-num:hover {
+    color: var(--accent);
+}
+
+#completed-above .sentence,
+#completed-below .sentence {
+    font-size: 1.35rem;
+    line-height: 1.8;
+    color: var(--text-dim);
+    text-align: center;
+    white-space: nowrap;
+    flex: 1;
+}
+
+#completed-above .sentence .word,
+#completed-below .sentence .word {
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 0 1px;
+    transition: background 0.1s;
+}
+
+#completed-above .sentence .word:hover,
+#completed-above .sentence .word.hovered,
+#completed-below .sentence .word:hover,
+#completed-below .sentence .word.hovered {
+    background: var(--bg-raised);
+    text-decoration: underline;
+    text-decoration-color: var(--text-ghost);
+    text-underline-offset: 2px;
+}
+
+#completed-above .sentence-row-active,
+#completed-below .sentence-row-active {
+    background: var(--accent-glow);
+    border-radius: 4px;
+    padding: 0 4px;
+    margin: 0 -4px;
+}
+
+/* ── Current line: committed text + typed chars (pink) + caret + ghost ── */
+
+#current-line-wrap {
+    position: relative;
+}
+
+#current-sentence-num {
+    position: absolute;
+    right: calc(100% + 0.5em);
+    top: 0;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    line-height: 1.8em;
+    color: var(--text-ghost);
+    user-select: none;
+}
+
+#current-sentence-num:empty {
+    display: none;
+}
+
+#pos-row {
+    position: relative;
+    height: 0;
+    width: 100%;
+}
+
+#pos-row:empty {
+    display: none;
+}
+
+.pos-tag {
+    position: absolute;
+    bottom: 1px;
+    font-size: 0.42rem;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    opacity: 1;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    pointer-events: none;
+    line-height: 1;
+}
+
+.pos-tag.predicted {
+    opacity: 1;
+}
+
+#committed-after {
+    color: var(--text);
+}
+
+#current-line {
+    font-size: 1.4rem;
+    line-height: 1.15;
+    min-height: 1.4em;
+    text-align: center;
+    white-space: nowrap;
+    position: relative;
+    padding: 0.15em 0 0.25em;
+}
+
+#committed {
+    color: var(--text);
+}
+
+.committed-word {
+    border-radius: 3px;
+    padding: 0 1px;
+    cursor: default;
+    transition: background 0.1s;
+}
+
+.committed-word:hover,
+.committed-word.hovered {
+    background: var(--bg-raised);
+}
+
+.committed-word.active-word {
+    background: var(--accent-glow);
+    outline: 1.5px solid var(--accent);
+    outline-offset: 1px;
+    border-radius: 3px;
+}
+
+.committed-word.tree-hl {
+    background: rgba(124, 156, 255, 0.15);
+}
+
+#completed-above .word.tree-hl,
+#completed-below .word.tree-hl {
+    background: rgba(124, 156, 255, 0.15);
+}
+
+#buffer-inline {
+    color: var(--pink);
+}
+
+#caret {
+    display: inline-block;
+    width: 1.5px;
+    height: 1.1em;
+    vertical-align: text-bottom;
+    background: var(--accent);
+    animation: caret-pulse 1.2s ease-in-out infinite;
+}
+
+#ghost-completion {
+    display: inline-block;
+    width: 0;
+    overflow: visible;
+    white-space: nowrap;
+    text-align: left;
+    color: var(--pink-dim);
+}
+
+#inline-info {
+    display: inline-block;
+    width: 0;
+    overflow: visible;
+    white-space: nowrap;
+    text-align: left;
+    font-size: 0.6rem;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-ghost);
+    margin-left: 0.5em;
+    vertical-align: baseline;
+}
+
+@keyframes caret-pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.2;
+    }
+}
+
+/* ── Suggestions (inline below current word) ──────────────────────────── */
+
+#suggestions {
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+    min-height: 0;
+    width: max-content;
+    background: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    z-index: 20;
+}
+
+.suggestion {
+    padding: 0.05rem 0;
+    cursor: pointer;
+    font-family: var(--serif);
+    font-size: 1.4rem;
+    line-height: 1.5;
+    opacity: 0.35;
+    transition: opacity 0.12s;
+}
+
+.suggestion:hover {
+    opacity: 0.8;
+}
+
+.suggestion.selected {
+    opacity: 0.65;
+}
+
+/* ── Syntax tree (below the current sentence) ─────────────────────────── */
+
+#syntax-tree {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 0;
+    overflow: visible;
+    padding-top: 0;
+    pointer-events: none;
+}
+
+#syntax-tree:empty {
+    display: none;
+}
+
+/* ── Prior clauses (completed clauses of current sentence, above active clause) */
+
+#prior-clauses:empty {
+    display: none;
+}
+
+.prior-clause {
+    margin-bottom: 0.15rem;
+}
+
+.prior-clause-text {
+    font-size: 1.4rem;
+    line-height: 1.8;
+    text-align: center;
+    white-space: nowrap;
+    color: var(--text);
+}
+
+.prior-clause-text .committed-word {
+    border-radius: 3px;
+    padding: 0 1px;
+    cursor: default;
+    transition: background 0.1s;
+}
+
+.prior-clause-text .committed-word:hover,
+.prior-clause-text .committed-word.hovered {
+    background: var(--bg-raised);
+}
+
+.prior-clause-text .committed-word.tree-hl {
+    background: rgba(124, 156, 255, 0.15);
+}
+
+/* ── Brace tree (below current line) ───────────────────────────────────── */
+
+.brace-tree {
+    position: relative;
+    width: 100%;
+    min-height: 0;
+}
+
+.brace-svg {
+    position: absolute;
+    overflow: visible;
+    pointer-events: auto;
+    cursor: default;
+}
+
+.brace-svg path {
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    transition: filter 0.12s;
+}
+
+.brace-svg:hover path {
+    filter: brightness(1.3);
+}
+
+.brace-svg.bracket-active path {
+    filter: brightness(1.3);
+}
+
+.brace-label {
+    position: absolute;
+    font-size: 0.42rem;
+    font-family: var(--mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    opacity: 0.55;
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+
+/* ── Tense popover ────────────────────────────────────────────────────── */
+
+#tense-popover {
+    position: fixed;
+    z-index: 100;
+    background: var(--bg-surface);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 0.3rem 0.1rem;
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    display: none;
+    pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+#tense-popover.visible {
+    display: block;
+}
+
+.tense-item {
+    padding: 0.12rem 0.4rem;
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    color: var(--text-dim);
+    white-space: nowrap;
+    border-radius: 3px;
+}
+
+.tense-item.active {
+    color: var(--pos-verb);
+    background: var(--accent-glow);
+}
+
+.tense-label {
+    min-width: 5.5em;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    opacity: 0.7;
+    font-size: 0.55rem;
+}
+
+.tense-word {
+    font-family: var(--serif);
+    font-size: 0.8rem;
+    color: var(--text);
+}
+
+.tense-item.active .tense-word {
+    color: var(--pos-verb);
+    font-weight: 600;
+}
+
+.tense-hint {
+    display: block;
+    text-align: center;
+    font-size: 0.5rem;
+    color: var(--text-ghost);
+    padding: 0.2rem 0.4rem 0;
+    letter-spacing: 0.02em;
+}
+
+.light #tense-popover {
+    border-color: rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Definition panel ─────────────────────────────────────────────────── */
+
+#definition-panel {
+    position: fixed;
+    bottom: 3rem;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 32rem;
+    width: 90vw;
+    background: var(--bg-surface);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 0.5rem 0.8rem;
+    font-family: var(--serif);
+    font-size: 0.85rem;
+    color: var(--text);
+    display: none;
+    z-index: 50;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    line-height: 1.45;
+    max-height: 8rem;
+    overflow-y: auto;
+}
+
+#definition-panel.visible {
+    display: block;
+}
+
+.def-word {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-right: 0.4em;
+}
+
+.def-pos {
+    font-family: var(--mono);
+    font-size: 0.55rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    margin-right: 0.5em;
+    vertical-align: middle;
+}
+
+.def-phonetic {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    font-style: italic;
+    margin-right: 0.5em;
+}
+
+.def-meaning {
+    margin: 0.15rem 0;
+    padding-left: 0.8rem;
+    color: var(--text);
+    font-size: 0.8rem;
+}
+
+.def-meaning-num {
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    margin-right: 0.3em;
+}
+
+.def-loading {
+    color: var(--text-ghost);
+    font-style: italic;
+    font-size: 0.75rem;
+}
+
+.light #definition-panel {
+    border-color: rgba(0, 0, 0, 0.12);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Edit-mode word style ─────────────────────────────────────────────── */
+
+.committed-word.editing {
+    background: var(--accent-glow);
+    outline: 1.5px dashed var(--accent);
+    outline-offset: 1px;
+    border-radius: 3px;
+}
+
+/* ── Multi-clause layout ──────────────────────────────────────────────── */
+
+.clause-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    width: 100%;
+}
+
+.clause-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.clause-gutter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 2.2rem;
+    position: relative;
+    padding-top: 0.15rem;
+    flex-shrink: 0;
+}
+
+/* Vertical connector between clause rows */
+.clause-gutter-cont::after {
+    content: '';
+    position: absolute;
+    top: 1.1rem;
+    left: 50%;
+    width: 1px;
+    bottom: -0.6rem;
+    background: var(--text-ghost);
+    opacity: 0.35;
+}
+
+.clause-badge {
+    font-size: 0.5rem;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--bg-raised);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    white-space: nowrap;
+    z-index: 1;
+}
+
+.clause-tree {
+    flex: 1;
+    min-width: 0;
+    overflow: visible;
+}
+
+/* ── Welcome prompt (shown inside suggestions area) ────────────────────── */
+
+#prompt {
+    font-size: 0.95rem;
+    color: var(--text-ghost);
+    padding: 0.2rem 0.5rem;
+    transition: opacity 0.4s;
+}
+
+#prompt.hidden {
+    opacity: 0;
+    height: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+/* ── Status bar ────────────────────────────────────────────────────────── */
+
+#status {
+    position: fixed;
+    top: 1rem;
+    right: 1.5rem;
+    font-size: 0.72rem;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    background: var(--bg-surface);
+    padding: 0.3rem 0.7rem;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    transition: opacity 0.6s;
+    z-index: 10;
+}
+
+#status.fade {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────── */
+
+footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    padding: 0.6rem 1rem;
+    font-size: 0.72rem;
+    color: var(--text-ghost);
+    background: linear-gradient(transparent, var(--bg) 40%);
+    pointer-events: none;
+}
+
+footer kbd {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    padding: 0.1em 0.4em;
+    border-radius: 3px;
+    background: var(--bg-raised);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-dim);
+}
+
+.keys-help {
+    opacity: 0.7;
+}
+
+/* ── POS colour utility classes (used when colorText mode is on) ──────── */
+
+.pos-NOUN {
+    color: var(--pos-noun) !important;
+}
+
+.pos-PRON {
+    color: var(--pos-pron) !important;
+}
+
+.pos-ADJ {
+    color: var(--pos-adj) !important;
+}
+
+.pos-DET {
+    color: var(--pos-det) !important;
+}
+
+.pos-NUM {
+    color: var(--pos-num) !important;
+}
+
+.pos-ADV {
+    color: var(--pos-adv) !important;
+}
+
+.pos-VERB {
+    color: var(--pos-verb) !important;
+}
+
+.pos-AUX {
+    color: var(--pos-aux) !important;
+}
+
+.pos-PREP {
+    color: var(--pos-prep) !important;
+}
+
+.pos-CONJ {
+    color: var(--pos-conj) !important;
+}
+
+.pos-INTJ {
+    color: var(--pos-intj) !important;
+}
+
+.pos-PART {
+    color: var(--pos-part) !important;
+}
+
+.pos-SBAR {
+    color: var(--pos-sbar) !important;
+}
+
+.pos-PUNCT {
+    color: var(--pos-default) !important;
+}
+
+.pos-NP {
+    color: var(--pos-noun) !important;
+}
+
+.pos-VP {
+    color: var(--pos-verb) !important;
+}
+
+.pos-PP {
+    color: var(--pos-prep) !important;
+}
+
+.pos-S {
+    color: var(--pos-default) !important;
+}
+
+/* ── POS toggle button ─────────────────────────────────────────────────── */
+
+#pos-toggle {
+    position: fixed;
+    top: 1rem;
+    left: 1.5rem;
+    font-size: 0.65rem;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    background: var(--bg-surface);
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    cursor: pointer;
+    user-select: none;
+    z-index: 10;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+#pos-toggle:hover {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.light #pos-toggle:hover,
+.light #theme-toggle:hover,
+.light #align-toggle:hover {
+    border-color: rgba(0, 0, 0, 0.2);
+}
+
+#pos-toggle.active {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* ── Theme toggle button ───────────────────────────────────────────── */
+
+#theme-toggle {
+    position: fixed;
+    top: 1rem;
+    left: 5rem;
+    font-size: 0.75rem;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    background: var(--bg-surface);
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    cursor: pointer;
+    user-select: none;
+    z-index: 10;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+#theme-toggle:hover {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+#theme-toggle.active {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* ── Align toggle button ───────────────────────────────────────────── */
+
+#align-toggle {
+    position: fixed;
+    top: 1rem;
+    left: 8.2rem;
+    font-size: 0.75rem;
+    font-family: var(--mono);
+    color: var(--text-dim);
+    background: var(--bg-surface);
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    cursor: pointer;
+    user-select: none;
+    z-index: 10;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+#align-toggle:hover {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.light #align-toggle:hover {
+    border-color: rgba(0, 0, 0, 0.2);
+}
+
+#align-toggle.active {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* ── Left-align mode overrides ─────────────────────────────────────── */
+
+.left-align #text-area {
+    text-align: left;
+}
+
+.left-align #current-line {
+    text-align: left;
+}
+
+.left-align #completed-above .sentence,
+.left-align #completed-below .sentence {
+    text-align: left;
+}
+
+.left-align .prior-clause-text {
+    text-align: left;
+}
+
+.left-align .clause-tree-label {
+    text-align: left;
+}
+
+/* ── Word editing overlay ──────────────────────────────────────────────── */
+
+.word-editing {
+    outline: 1.5px solid var(--accent) !important;
+    background: var(--bg-raised) !important;
+}
+
+/* ── Light mode overrides for hardcoded borders / shadows ──────────────── */
+
+.light #suggestions {
+    /* no overrides needed — no chrome */
+}
+
+.light .clause-badge {
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.light #status {
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+.light footer kbd {
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.light #pos-toggle,
+.light #theme-toggle {
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.light #completed-above,
+.light #completed-below {
+    border-color: var(--text-ghost);
+}
+
+.light .committed-word.tree-hl,
+.light .prior-clause-text .committed-word.tree-hl,
+.light #completed-above .sentence .word.tree-hl,
+.light #completed-below .sentence .word.tree-hl {
+    background: rgba(68, 102, 204, 0.12);
+}
+
+.light #completed-above .sentence-row-active,
+.light #completed-below .sentence-row-active {
+    background: rgba(68, 102, 204, 0.08);
+}
+
+.light .clause-gutter-cont::after {
+    background: var(--text-dim);
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+
+@media (max-width: 520px) {
+    html {
+        font-size: 15px;
+    }
+
+    #spacer {
+        height: 22vh;
+    }
+
+    #current-line {
+        font-size: 1.15rem;
+    }
+
+    #completed-above .sentence,
+    #completed-below .sentence {
+        font-size: 1.15rem;
+    }
+
+    #prompt {
+        font-size: 1.3rem;
+    }
+}

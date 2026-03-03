@@ -1,0 +1,556 @@
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+.hidden {
+  display: none !important;
+}
+
+body {
+  background: #111;
+  color: #eee;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  user-select: none;
+}
+
+/* ── Main layout: full-height column ──────────────────────────────── */
+#main-area {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── Toolbar (top bar) ────────────────────────────────────────────── */
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  flex-shrink: 0;
+  background: #181818;
+  border-bottom: 1px solid #222;
+}
+
+#toolbar h1 {
+  font-size: .8rem;
+  font-weight: 600;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: #bbb;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+#toolbar h1 small {
+  font-size: .6em;
+  color: #555;
+  font-weight: 400;
+}
+
+#transport {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#transport button {
+  background: #222;
+  color: #eee;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 3px 14px;
+  cursor: pointer;
+  font-size: .75rem;
+}
+
+#transport button:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+#time-display {
+  font-size: .72rem;
+  color: #999;
+  font-variant-numeric: tabular-nums;
+  min-width: 76px;
+  text-align: center;
+}
+
+#file-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: .72rem;
+  margin-left: auto;
+}
+
+#file-area label {
+  background: #222;
+  color: #ccc;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+#file-area input[type="file"] {
+  display: none;
+}
+
+#file-name {
+  color: #777;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#btn-advanced {
+  background: transparent;
+  color: #888;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 2px 10px;
+  cursor: pointer;
+  font-size: .7rem;
+  transition: color .15s;
+  white-space: nowrap;
+}
+
+#btn-advanced:hover {
+  color: #ccc;
+}
+
+/* ── Advanced panel ───────────────────────────────────────────────── */
+#advanced-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px;
+  max-height: 120px;
+  overflow: hidden;
+  transition: max-height .25s ease, opacity .25s ease, padding .25s ease;
+  opacity: 1;
+  flex-shrink: 0;
+  background: #151515;
+  border-bottom: 1px solid #222;
+  align-items: center;
+}
+
+#advanced-panel.collapsed {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+#advanced-panel:not(.collapsed) {
+  padding: 5px 12px;
+}
+
+#mode-controls,
+#colour-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+#mode-controls button,
+#colour-controls button {
+  background: #1a1a1a;
+  color: #aaa;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 2px 7px;
+  cursor: pointer;
+  font-size: .68rem;
+  transition: background .15s, color .15s;
+}
+
+#mode-controls button.active,
+#colour-controls button.active {
+  background: #335;
+  color: #fff;
+  border-color: #558;
+}
+
+#btn-eq-view,
+#btn-swap,
+#btn-a-weight,
+#btn-mic {
+  background: #1a1a1a;
+  color: #aaa;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 2px 7px;
+  cursor: pointer;
+  font-size: .68rem;
+}
+
+#btn-eq-view.active,
+#btn-swap.active,
+#btn-a-weight.active,
+#btn-mic.active {
+  background: #335;
+  color: #fff;
+  border-color: #558;
+}
+
+#colour-controls .label {
+  font-size: .68rem;
+  color: #666;
+  margin-right: 2px;
+}
+
+.sep {
+  width: 1px;
+  height: 14px;
+  background: #333;
+  margin: 0 2px;
+}
+
+/* Legend inside advanced panel */
+#legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: .68rem;
+  color: #bbb;
+  min-height: 0;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+#legend .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+#legend .swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, .12);
+}
+
+#legend .gradient-bar {
+  display: inline-block;
+  width: 70px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, .1);
+}
+
+/* ── Auragram canvas area ─────────────────────────────────────────── */
+#canvas-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  width: 100%;
+  overflow: visible;
+  padding: 6px 12px 20px 38px;
+}
+
+#y-labels {
+  position: absolute;
+  left: 4px;
+  top: 6px;
+  bottom: 20px;
+  width: 30px;
+  font-size: 8px;
+  color: #777;
+  pointer-events: none;
+}
+
+#canvas-inner {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+canvas#visualiser {
+  display: block;
+  width: 100%;
+  background: #000;
+  image-rendering: pixelated;
+}
+
+#x-labels {
+  display: flex;
+  justify-content: space-around;
+  font-size: 8px;
+  color: #777;
+  pointer-events: none;
+  padding-top: 2px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+#drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 120, 255, .25);
+  border: 2px dashed #4af;
+  border-radius: 4px;
+  font-size: 1rem;
+  color: #fff;
+  pointer-events: none;
+}
+
+#drop-overlay.active {
+  display: flex;
+}
+
+#idle-prompt {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #555;
+  font-size: .82rem;
+  pointer-events: none;
+}
+
+#idle-prompt .icon {
+  font-size: 1.8rem;
+}
+
+/* ── Resize handle between auragram and timeline ──────────────────── */
+#resize-handle {
+  flex: 0 0 6px;
+  height: 6px;
+  background: #1a1a1a;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid #282828;
+  border-bottom: 1px solid #282828;
+  z-index: 5;
+  position: relative;
+}
+
+#resize-handle .grip {
+  width: 32px;
+  height: 2px;
+  border-radius: 1px;
+  background: #444;
+  pointer-events: none;
+}
+
+#resize-handle:hover {
+  background: #222;
+}
+
+#resize-handle:hover .grip {
+  background: #666;
+}
+
+/* ── Source-coloured spectrograph timeline area ─────────────────────── */
+#timeline-area {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 80px;
+  border-top: 1px solid #333;
+}
+
+/* Column wrapper for spectrograph + X axis labels */
+#timeline-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+#timeline-row {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* Y-axis time labels (left of spectrograph — rotated layout) */
+#tl-y-labels {
+  flex: 0 0 40px;
+  position: relative;
+  overflow: hidden;
+}
+
+.tl-y-tick {
+  position: absolute;
+  right: 4px;
+  font-size: 9px;
+  color: #777;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* X-axis time labels (below spectrograph) */
+#tl-x-row {
+  flex: 0 0 18px;
+  display: flex;
+}
+
+#tl-x-spacer {
+  flex: 0 0 40px;
+}
+
+#tl-x-labels {
+  flex: 1 1 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.tl-x-tick {
+  position: absolute;
+  top: 2px;
+  font-size: 9px;
+  color: #777;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Source isolation sidebar */
+#source-sidebar {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 32px;
+  background: #111;
+  border-right: 1px solid #282828;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 3px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.src-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+  white-space: nowrap;
+}
+
+.src-btn:hover {
+  background: #1c1c28;
+}
+
+.src-btn.active {
+  background: #1e1e35;
+  border-color: #448;
+}
+
+.src-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.src-label {
+  font-size: .65rem;
+  color: #aaa;
+  font-weight: 600;
+}
+
+/* Timeline strip – right portion */
+#timeline-strip {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  background: #0a0a0a;
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+#timeline-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#tl-toolbar button.active {
+  background: #335;
+  color: #fff;
+  border-color: #558;
+}
+
+/* Playhead is now drawn on the canvas as an elongated spectral band */
+#timeline-playhead {
+  display: none !important;
+}
+
+#playhead-handle {
+  display: none !important;
+}
+
+/* ── Analysis progress bar ────────────────────────────────────────── */
+#analysis-bar {
+  position: relative;
+  height: 20px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+  margin: 0 12px;
+  width: calc(100% - 24px);
+}
+
+#analysis-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #236, #358);
+  transition: width .15s;
+}
+
+#analysis-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .7rem;
+  color: #ccc;
+  pointer-events: none;
+}
