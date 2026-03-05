@@ -1032,6 +1032,7 @@ body.light .timeline-slider {
   text-align: right;
   color: var(--muted);
   font-weight: 500;
+  flex-shrink: 0;
 }
 
 /* ---- Graph toggle bar (bottom of canvas) ---- */

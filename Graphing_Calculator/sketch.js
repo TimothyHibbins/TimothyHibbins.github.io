@@ -3442,10 +3442,16 @@ function deleteOperatorNode(opId, layout) {
 
   // For single-arg call ops (trig etc.) — just one child
   if (!rightChild) {
-    if (isIntermediate(leftChild) || isVariable(leftChild)) {
-      replaceOpInParent(opId, opNode.leftId, nodes, layout);
+    let replId = opNode.leftId;
+    if (!(isIntermediate(leftChild) || isVariable(leftChild))) {
+      replId = null; // will use replaceOpWithConstant
+    }
+    if (replId != null) {
+      const ok = replaceOpInParent(opId, replId, nodes, layout);
+      if (!ok) { handleRootDeletion(replId); return; }
     } else {
-      replaceOpWithConstant(opId, fallbackVal(), nodes, layout);
+      handleRootConstant(fallbackVal());
+      return;
     }
     rebuildAfterDelete(layout);
     return;
@@ -3459,31 +3465,99 @@ function deleteOperatorNode(opId, layout) {
   const leftIsConstant = isConstant(leftChild);
   const rightIsConstant = isConstant(rightChild);
 
+  let replacementId = null;
+  let useFallback = false;
+
   if (leftIsIntermediate && rightIsIntermediate) {
-    // Both intermediate — replace with fallback (x if x would be lost, else 1)
-    replaceOpWithConstant(opId, fallbackVal(), nodes, layout);
+    useFallback = true;
   } else if (leftIsConstant && rightIsIntermediate) {
-    replaceOpInParent(opId, opNode.rightId, nodes, layout);
+    replacementId = opNode.rightId;
   } else if (rightIsConstant && leftIsIntermediate) {
-    replaceOpInParent(opId, opNode.leftId, nodes, layout);
+    replacementId = opNode.leftId;
   } else if (leftIsConstant && rightIsVariable) {
-    replaceOpInParent(opId, opNode.rightId, nodes, layout);
+    replacementId = opNode.rightId;
   } else if (rightIsConstant && leftIsVariable) {
-    replaceOpInParent(opId, opNode.leftId, nodes, layout);
+    replacementId = opNode.leftId;
   } else if (leftIsVariable && rightIsIntermediate) {
-    replaceOpInParent(opId, opNode.leftId, nodes, layout);
+    replacementId = opNode.leftId;
   } else if (rightIsVariable && leftIsIntermediate) {
-    replaceOpInParent(opId, opNode.rightId, nodes, layout);
+    replacementId = opNode.rightId;
   } else if (leftIsVariable && rightIsVariable) {
-    replaceOpInParent(opId, opNode.leftId, nodes, layout);
+    replacementId = opNode.leftId;
   } else {
-    replaceOpWithConstant(opId, fallbackVal(), nodes, layout);
+    useFallback = true;
+  }
+
+  if (useFallback) {
+    // For root op with fallback, just set expression to the fallback value
+    const ok = replaceOpWithConstant(opId, fallbackVal(), nodes, layout);
+    if (ok === false) { handleRootConstant(fallbackVal()); return; }
+  } else {
+    const ok = replaceOpInParent(opId, replacementId, nodes, layout);
+    if (!ok) { handleRootDeletion(replacementId); return; }
   }
 
   rebuildAfterDelete(layout);
+
+  // ---- Root deletion helpers ----
+  // When the root op is deleted, we can't just rewire parents (there are none).
+  // Instead, build the expression from the surviving node and re-parse from scratch.
+  function handleRootDeletion(survivorId) {
+    try {
+      const nd = nodes[survivorId];
+      let newExpr;
+      if (!nd) {
+        newExpr = "x";
+      } else if (nd.type === "value") {
+        newExpr = nd.value === "pi" ? "π" : String(nd.value);
+      } else if (nd.type === "intermediate" && nd.connectsToOpId != null) {
+        // The intermediate connects to a sub-op: walk that subtree to get the expression
+        const subLayout = { nodes, mainPath: { opIds: [nd.connectsToOpId] } };
+        const sub = _walkPipeTree(subLayout);
+        newExpr = sub ? sub.text : "x";
+      } else {
+        newExpr = "x";
+      }
+      applyNewExprFromDelete(newExpr);
+    } catch (err) {
+      console.error("[deleteOperatorNode root]", err);
+    }
+  }
+
+  function handleRootConstant(val) {
+    try {
+      applyNewExprFromDelete(val);
+    } catch (err) {
+      console.error("[deleteOperatorNode root constant]", err);
+    }
+  }
+
+  function applyNewExprFromDelete(newExpr) {
+    if (ui.exprEl) { ui.exprEl.value = newExpr; autoSizeInput(); }
+    state.lastExpr = newExpr;
+    state.fn = compileExpression(newExpr);
+    const { steps, ops, pipeLayout } = parseAndLinearize(newExpr);
+    state.steps = steps;
+    state.ops = ops;
+    if (pipeLayout) state.pipeLayout = pipeLayout;
+    state.equalsEdge = null;
+    state.equalsLhsSpans = null;
+    state.equalsFullSpans = null;
+    state.equalsRhsExpr = null;
+    if (ops.length > 0) {
+      const { text, spans } = buildDisplayExpr(ops);
+      state.displaySpans = spans;
+    } else {
+      state.displaySpans = null;
+    }
+    renderStepRepresentation();
+    updateInputOverlay();
+    updateLatexDisplay(newExpr);
+  }
 }
 
-/** Replace operator opId in its parent by pointing the parent to replacementId instead. */
+/** Replace operator opId in its parent by pointing the parent to replacementId instead.
+ *  Returns true if a parent was found and updated, false if this was the root. */
 function replaceOpInParent(opId, replacementId, nodes, layout) {
   // Find the parent that references this operator (or its intermediate)
   for (const n of nodes) {
@@ -3491,31 +3565,33 @@ function replaceOpInParent(opId, replacementId, nodes, layout) {
     if (n.leftId != null) {
       const leftChild = nodes[n.leftId];
       // Direct reference to the op
-      if (n.leftId === opId) { n.leftId = replacementId; return; }
+      if (n.leftId === opId) { n.leftId = replacementId; return true; }
       // Through an intermediate that connects to this op
       if (leftChild && leftChild.type === "intermediate" && leftChild.connectsToOpId === opId) {
         n.leftId = replacementId;
-        return;
+        return true;
       }
     }
     if (n.rightId != null && n.rightId !== n.leftId) {
       const rightChild = nodes[n.rightId];
-      if (n.rightId === opId) { n.rightId = replacementId; return; }
+      if (n.rightId === opId) { n.rightId = replacementId; return true; }
       if (rightChild && rightChild.type === "intermediate" && rightChild.connectsToOpId === opId) {
         n.rightId = replacementId;
-        return;
+        return true;
       }
     }
   }
-  // If no parent found, this was the root — replace root with the replacement node
-  // We'll handle this in rebuildAfterDelete by detecting the new root.
+  // No parent found — this was the root op.
+  // Build the replacement expression directly from the surviving node.
+  return false;
 }
 
-/** Replace operator opId with a new constant value node. */
+/** Replace operator opId with a new constant value node.
+ *  Returns true if parent was found, false if root. */
 function replaceOpWithConstant(opId, val, nodes, layout) {
   const newId = nodes.length;
   nodes.push({ id: newId, type: "value", value: val });
-  replaceOpInParent(opId, newId, nodes, layout);
+  return replaceOpInParent(opId, newId, nodes, layout);
 }
 
 /** After deleting an operator, rebuild the expression + layout + re-render. */
@@ -5010,6 +5086,23 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       hideNodeTooltip();
       showRadialMenu(nodeId, cx, cy, "value");
     });
+    // Mobile tap support — touchend fires reliably where click may not on SVG in scrollable containers
+    {
+      let _tapStartX, _tapStartY;
+      hit.addEventListener("touchstart", (e) => {
+        const t = e.touches[0];
+        _tapStartX = t.clientX; _tapStartY = t.clientY;
+      }, { passive: true });
+      hit.addEventListener("touchend", (e) => {
+        if (!e.changedTouches.length) return;
+        const t = e.changedTouches[0];
+        if (Math.abs(t.clientX - _tapStartX) < 15 && Math.abs(t.clientY - _tapStartY) < 15) {
+          e.preventDefault();
+          hideNodeTooltip();
+          showRadialMenu(nodeId, cx, cy, "value");
+        }
+      });
+    }
 
     hit.addEventListener("mouseenter", () => {
       // Scale up the original circle + text (preserving counter-rotation on text)
@@ -5202,6 +5295,23 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       hideNodeTooltip();
       showRadialMenu(nodeId, cx, cy, "value");
     });
+    // Mobile tap support — touchend fires reliably where click may not on SVG in scrollable containers
+    {
+      let _tapStartX, _tapStartY;
+      hit.addEventListener("touchstart", (e) => {
+        const t = e.touches[0];
+        _tapStartX = t.clientX; _tapStartY = t.clientY;
+      }, { passive: true });
+      hit.addEventListener("touchend", (e) => {
+        if (!e.changedTouches.length) return;
+        const t = e.changedTouches[0];
+        if (Math.abs(t.clientX - _tapStartX) < 15 && Math.abs(t.clientY - _tapStartY) < 15) {
+          e.preventDefault();
+          hideNodeTooltip();
+          showRadialMenu(nodeId, cx, cy, "value");
+        }
+      });
+    }
     gInteract.appendChild(hit);
 
     // ---- State ----
@@ -5889,6 +5999,23 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         hideNodeTooltip();
         showRadialMenu(nodeId, px, py, "op");
       });
+      // Mobile tap support — touchend fires reliably where click may not on SVG in scrollable containers
+      {
+        let _tapStartX, _tapStartY;
+        hoverZone.addEventListener("touchstart", (e) => {
+          const t = e.touches[0];
+          _tapStartX = t.clientX; _tapStartY = t.clientY;
+        }, { passive: true });
+        hoverZone.addEventListener("touchend", (e) => {
+          if (!e.changedTouches.length) return;
+          const t = e.changedTouches[0];
+          if (Math.abs(t.clientX - _tapStartX) < 15 && Math.abs(t.clientY - _tapStartY) < 15) {
+            e.preventDefault();
+            hideNodeTooltip();
+            showRadialMenu(nodeId, px, py, "op");
+          }
+        });
+      }
       hoverZone.style.cursor = "pointer";
       swapGroup.appendChild(hoverZone);
 
@@ -10349,6 +10476,11 @@ function setup() {
     ui.exprEl.addEventListener("input", () => {
       liveParse();
       autoSizeInput();
+      // Re-align overlay on next frame to account for DOM reflow
+      requestAnimationFrame(() => {
+        if (ui._positionOverlay) ui._positionOverlay();
+        autoSizeInput();
+      });
     });
     // Auto-size on load
     autoSizeInput();
@@ -10600,10 +10732,34 @@ function setup() {
       bodyText.style.display = '';
       merged.classList.add('tap-edit--editing');
       if (exprInput) {
+        // If equalsEdge is active, revert to the base expression before editing
+        // (the input might contain a rearranged equation like "y - 3 = x^2"
+        // which isn't a valid expression for liveParse)
+        if (state.equalsEdge && state.pipeLayout) {
+          const treeResult = _walkPipeTree(state.pipeLayout);
+          if (treeResult) {
+            exprInput.value = treeResult.text;
+            state.lastExpr = treeResult.text;
+            state.fn = compileExpression(treeResult.text);
+            state.displaySpans = treeResult.spans;
+          }
+          state.equalsEdge = null;
+          state.equalsLhsSpans = null;
+          state.equalsFullSpans = null;
+          state.equalsRhsExpr = null;
+          renderStepRepresentation();
+        }
+        // Ensure overlay is fresh before focusing (recalculates colors + size)
+        updateInputOverlay();
         exprInput.focus();
         // Place cursor at end of text
         const len = exprInput.value.length;
         exprInput.setSelectionRange(len, len);
+        // Re-align overlay + caret after layout settles
+        requestAnimationFrame(() => {
+          if (ui._positionOverlay) ui._positionOverlay();
+          autoSizeInput();
+        });
       }
     }
 
@@ -12866,8 +13022,8 @@ function setupMobileBarControls() {
     observer.observe(modeToggle, { attributes: true, attributeFilter: ['style', 'class'] });
   }
 
-  // ---- 3. Pseudo-fullscreen ----
-  // Use Fullscreen API where supported; on iOS suggest PWA.
+  // ---- 3. Add-to-Home-Screen prompt ----
+  // Skip fullscreen API — go straight to PWA add-to-home-screen hint.
   if (pseudoFsBtn) {
     const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
     const isIOS = document.body.classList.contains('ios');
@@ -12875,40 +13031,21 @@ function setupMobileBarControls() {
     if (isStandalone) {
       pseudoFsBtn.style.display = 'none';
     } else {
-      let fsActive = false;
-
-      pseudoFsBtn.addEventListener('click', () => {
-        if (fsActive) return;
-        // Try standard Fullscreen API first (works on Firefox Android, Chrome Android)
-        const docEl = document.documentElement;
-        const tryFullscreen = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
-        if (tryFullscreen) {
-          const promise = tryFullscreen.call(docEl);
-          if (promise && promise.then) {
-            promise.then(() => {
-              fsActive = true;
-              pseudoFsBtn.style.display = 'none';
-            }).catch(() => {
-              showPWAHint();
-            });
-          } else {
-            fsActive = true;
-            pseudoFsBtn.style.display = 'none';
-          }
-        } else {
-          showPWAHint();
-        }
-      });
-
-      function showPWAHint() {
-        // iOS doesn't support fullscreen API in browser — suggest Add to Home Screen
-        if (isIOS) {
-          pseudoFsBtn.innerHTML = '<span style="font-size:0.7rem">Add to Home Screen (Share → Add) for fullscreen</span>';
-        } else {
-          pseudoFsBtn.innerHTML = '<span style="font-size:0.7rem">Install as app for fullscreen</span>';
-        }
-        setTimeout(() => { pseudoFsBtn.style.display = 'none'; }, 6000);
+      // Show add-to-home-screen message immediately
+      if (isIOS) {
+        pseudoFsBtn.innerHTML = '<span style="font-size:0.7rem">Add to Home Screen (Share ↗ → Add) for fullscreen</span>';
+      } else {
+        pseudoFsBtn.innerHTML = '<span style="font-size:0.7rem">Install as app (⋮ → Add to Home Screen) for fullscreen</span>';
       }
+      // Auto-dismiss after 6 seconds
+      setTimeout(() => {
+        pseudoFsBtn.classList.add('hidden');
+      }, 6000);
+
+      // Tap to dismiss early
+      pseudoFsBtn.addEventListener('click', () => {
+        pseudoFsBtn.classList.add('hidden');
+      });
 
       // Monitor visual viewport for chrome show/hide — resize canvas accordingly
       if (window.visualViewport) {
@@ -12924,24 +13061,7 @@ function setupMobileBarControls() {
           }
         });
       }
-
-      // Fullscreen change listener
-      const onFsChange = () => {
-        const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
-        if (!isFs && fsActive) {
-          fsActive = false;
-          pseudoFsBtn.style.display = '';
-        }
-      };
-      document.addEventListener('fullscreenchange', onFsChange);
-      document.addEventListener('webkitfullscreenchange', onFsChange);
     }
-
-    // Show button again on orientation change
-    window.addEventListener('orientationchange', () => {
-      pseudoFsBtn.style.display = '';
-      setTimeout(() => updateMobileBarPositions(), 500);
-    });
   }
 
   // ---- 4. Mobile op-block gestures are handled in renderStepRepresentation ----
@@ -13096,7 +13216,7 @@ function setupMobileSwipePages() {
       panelExpr.style.display = panelHidden ? 'none' : '';
       panelCtrl.style.display = 'none';
       if (pill) pill.style.display = panelHidden ? 'none' : '';
-      if (timeline) timeline.style.display = (panelHidden || !state.usesT) ? 'none' : '';
+      // Timeline always stays visible (don't hide with panel)
       if (!panelHidden) {
         tabExpr.classList.add('ew-panel-tab--active');
       }
@@ -13227,6 +13347,17 @@ function setupTimeline() {
     window._gcT = state.t;
     valEl.textContent = 't = ' + state.t.toFixed(2);
   });
+
+  // Sync icon to initial state (tPlaying may start true)
+  {
+    const playIcon = playBtn.querySelector('.play-icon');
+    const pauseIcon = playBtn.querySelector('.pause-icon');
+    if (playIcon && pauseIcon) {
+      playIcon.style.display = state.tPlaying ? 'none' : '';
+      pauseIcon.style.display = state.tPlaying ? '' : 'none';
+    }
+    playBtn.classList.toggle('timeline-play-btn--active', state.tPlaying);
+  }
 
   playBtn.addEventListener('click', () => {
     state.tPlaying = !state.tPlaying;
@@ -16212,9 +16343,10 @@ function draw() {
 
   // Cursor starburst (replaces system cursor on active graph area)
   // On mobile, use touch cursor position (offset above finger) instead of mouseX/mouseY
+  // Only show on mobile when in valueSelect mode (not panZoom or columnExpand)
   const tc = window._mobileTouchCursor;
   const inputFocused = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
-  const isMobileCursor = tc && tc.active && document.body.classList.contains('mobile') && !inputFocused;
+  const isMobileCursor = tc && tc.active && document.body.classList.contains('mobile') && !inputFocused && state.touchMode === "valueSelect";
   const effectiveCursorX = isMobileCursor ? tc.x : mouseX;
   const effectiveCursorY = isMobileCursor ? tc.y : mouseY;
   const cursorOnCanvas = isMobileCursor
