@@ -3347,7 +3347,7 @@ body.light .ew-panel-bar {
   transition: color 0.15s, background 0.15s;
 }
 
-.ew-panel-tab + .ew-panel-tab {
+.ew-panel-tab+.ew-panel-tab {
   border-left: 1px solid var(--border);
 }
 
@@ -3365,16 +3365,16 @@ body.light .ew-panel-bar {
   max-height: 65dvh;
 }
 
-.ew-panel > .ew-section {
+.ew-panel>.ew-section {
   order: unset !important;
   flex-shrink: 0;
 }
 
-.ew-panel > #ew-section-visibility {
+.ew-panel>#ew-section-visibility {
   border-top: 1px solid var(--border);
 }
 
-.ew-panel > .ew-section > .ew-section__header {
+.ew-panel>.ew-section>.ew-section__header {
   display: none !important;
 }
 
