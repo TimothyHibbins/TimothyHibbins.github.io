@@ -10601,7 +10601,9 @@ function setup() {
       merged.classList.add('tap-edit--editing');
       if (exprInput) {
         exprInput.focus();
-        exprInput.setSelectionRange(0, exprInput.value.length);
+        // Place cursor at end of text
+        const len = exprInput.value.length;
+        exprInput.setSelectionRange(len, len);
       }
     }
 
@@ -13042,43 +13044,83 @@ function setupMobileSwipePages() {
     pill.classList.add('touch-mode-pill--bar');
   }
 
-  // Create horizontal scroll-snap container
-  const scroller = document.createElement('div');
-  scroller.className = 'ew-pages-scroller';
+  // ---- Bottom panel tab bar ----
+  const panelBar = document.createElement('div');
+  panelBar.className = 'ew-panel-bar';
+  const tabExpr = document.createElement('button');
+  tabExpr.className = 'ew-panel-tab ew-panel-tab--active';
+  tabExpr.textContent = 'expression';
+  tabExpr.dataset.panel = 'expr';
+  const tabCtrl = document.createElement('button');
+  tabCtrl.className = 'ew-panel-tab';
+  tabCtrl.textContent = 'controls';
+  tabCtrl.dataset.panel = 'ctrl';
+  const tabHide = document.createElement('button');
+  tabHide.className = 'ew-panel-tab';
+  tabHide.textContent = 'hide';
+  tabHide.dataset.panel = 'hide';
+  panelBar.appendChild(tabExpr);
+  panelBar.appendChild(tabCtrl);
+  panelBar.appendChild(tabHide);
 
-  // Page 1: Expression + Tree
-  const page1 = document.createElement('div');
-  page1.className = 'ew-page';
-  if (textLatex) { textLatex.classList.remove('collapsed'); page1.appendChild(textLatex); }
-  if (tree) { tree.classList.remove('collapsed'); page1.appendChild(tree); }
+  // Panel containers (no scroll-snap, just show/hide)
+  const panelExpr = document.createElement('div');
+  panelExpr.className = 'ew-panel ew-panel--expr';
+  if (textLatex) { textLatex.classList.remove('collapsed'); panelExpr.appendChild(textLatex); }
+  if (tree) { tree.classList.remove('collapsed'); panelExpr.appendChild(tree); }
 
-  // Page 2: Controls + Visibility
-  const page2 = document.createElement('div');
-  page2.className = 'ew-page';
-  if (controls) { controls.classList.remove('collapsed'); page2.appendChild(controls); }
-  if (visibility) { visibility.classList.remove('collapsed'); page2.appendChild(visibility); }
+  const panelCtrl = document.createElement('div');
+  panelCtrl.className = 'ew-panel ew-panel--ctrl';
+  panelCtrl.style.display = 'none';
+  if (controls) { controls.classList.remove('collapsed'); panelCtrl.appendChild(controls); }
+  if (visibility) { visibility.classList.remove('collapsed'); panelCtrl.appendChild(visibility); }
 
-  scroller.appendChild(page1);
-  scroller.appendChild(page2);
+  // ---- Move timeline into expr-window (above touch-mode pill) ----
+  const timeline = document.getElementById('timeline-control');
+  if (timeline) {
+    timeline.classList.add('timeline--inpanel');
+    exprWin.insertBefore(timeline, pill || exprWin.firstChild);
+  }
 
-  // Enable swipe layout on the expr-window
   exprWin.classList.add('has-swipe-pages');
-  exprWin.appendChild(scroller);
+  exprWin.appendChild(panelExpr);
+  exprWin.appendChild(panelCtrl);
+  exprWin.appendChild(panelBar);
 
-  // ---- Dynamic scroller height: match active page ----
-  function syncScrollerHeight() {
-    const idx = Math.round(scroller.scrollLeft / scroller.clientWidth);
-    const pages = scroller.querySelectorAll('.ew-page');
-    const active = pages[idx];
-    if (active) {
-      scroller.style.height = active.scrollHeight + 'px';
+  let panelHidden = false;
+
+  function switchPanel(which) {
+    panelBar.querySelectorAll('.ew-panel-tab').forEach(t => t.classList.remove('ew-panel-tab--active'));
+    if (which === 'hide') {
+      panelHidden = !panelHidden;
+      panelExpr.style.display = panelHidden ? 'none' : '';
+      panelCtrl.style.display = 'none';
+      if (pill) pill.style.display = panelHidden ? 'none' : '';
+      if (timeline) timeline.style.display = (panelHidden || !state.usesT) ? 'none' : '';
+      if (!panelHidden) {
+        tabExpr.classList.add('ew-panel-tab--active');
+      }
+      return;
+    }
+    panelHidden = false;
+    if (pill) pill.style.display = '';
+    if (timeline && state.usesT) timeline.style.display = '';
+    if (which === 'expr') {
+      panelExpr.style.display = '';
+      panelCtrl.style.display = 'none';
+      tabExpr.classList.add('ew-panel-tab--active');
+    } else {
+      panelExpr.style.display = 'none';
+      panelCtrl.style.display = '';
+      tabCtrl.classList.add('ew-panel-tab--active');
     }
   }
-  scroller.addEventListener('scroll', syncScrollerHeight);
-  const _heightRO = new ResizeObserver(syncScrollerHeight);
-  _heightRO.observe(page1);
-  _heightRO.observe(page2);
-  requestAnimationFrame(syncScrollerHeight);
+
+  panelBar.addEventListener('click', (e) => {
+    const tab = e.target.closest('.ew-panel-tab');
+    if (!tab) return;
+    switchPanel(tab.dataset.panel);
+  });
 
   // ---- Restructure visibility into 2 columns ----
   const visWrap = visibility ? visibility.querySelector('.ew-visibility-wrap') : null;
@@ -13104,6 +13146,24 @@ function setupMobileSwipePages() {
     while (visWrap.firstChild) visWrap.removeChild(visWrap.firstChild);
     visWrap.appendChild(leftCol);
     visWrap.appendChild(rightCol);
+  }
+
+  // ---- Keyboard viewport handling: resize panel when keyboard appears ----
+  if (window.visualViewport) {
+    const vv = window.visualViewport;
+    const onResize = () => {
+      const kbHeight = window.innerHeight - vv.height;
+      if (kbHeight > 100) {
+        // Keyboard is up — shrink expr-window so it sits above keyboard
+        exprWin.style.bottom = kbHeight + 'px';
+        exprWin.style.maxHeight = (vv.height * 0.35) + 'px';
+      } else {
+        exprWin.style.bottom = '';
+        exprWin.style.maxHeight = '';
+      }
+    };
+    vv.addEventListener('resize', onResize);
+    vv.addEventListener('scroll', onResize);
   }
 
 }
@@ -13133,6 +13193,11 @@ function isMouseOverCanvas() {
 function updateTimelineVisibility() {
   const el = document.getElementById('timeline-control');
   if (!el) return;
+  // If timeline has been moved into the panel, just show/hide
+  if (el.classList.contains('timeline--inpanel')) {
+    el.style.display = state.usesT ? '' : 'none';
+    return;
+  }
   el.style.display = state.usesT ? '' : 'none';
   // Reposition mobile bars since timeline affects stacking
   if (document.body.classList.contains('mobile')) {
