@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Graphing Calculator</title>
 
-  <link rel="stylesheet" type="text/css" href="style.css?v=20260302n" />
+  <link rel="stylesheet" type="text/css" href="style.css?v=20260303i" />
 
   <!-- KaTeX for LaTeX equation rendering -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
@@ -291,6 +291,14 @@
       </div>
       <div class="ew-section__body ew-body--visibility" id="ew-body-visibility"></div>
     </div>
+
+    <!-- Mobile: section visibility toggle bar (replaces individual section headers) -->
+    <div class="ew-section-tabbar" id="ew-section-tabbar">
+      <button type="button" class="ew-tab-btn ew-tab-btn--on" data-target="textlatex" title="Expression">f(x)</button>
+      <button type="button" class="ew-tab-btn ew-tab-btn--on" data-target="tree" title="Expression Tree">Tree</button>
+      <button type="button" class="ew-tab-btn" data-target="controls" title="Graph Controls">Ctrl</button>
+      <button type="button" class="ew-tab-btn" data-target="visibility" title="Visibility">Vis</button>
+    </div>
   </div><!-- end .expr-window -->
 
   <!-- Radial menu backdrop + portal (rendered outside window for z-priority) -->
@@ -315,6 +323,13 @@
     </div>
     <!-- Pseudo-fullscreen prompt (mobile only) -->
     <button class="pseudofs-btn" id="pseudofs-btn">↑ Tap for fullscreen</button>
+    <!-- Floating touch-mode pill (mobile only) -->
+    <div class="touch-mode-pill" id="touch-mode-pill">
+      <button type="button" class="touch-mode-btn touch-mode-btn--active" data-tmode="panZoom"
+        title="Pan &amp; Zoom">⇄</button>
+      <button type="button" class="touch-mode-btn" data-tmode="valueSelect" title="Select Values">✦</button>
+      <button type="button" class="touch-mode-btn" data-tmode="columnExpand" title="Expand Columns">⊞</button>
+    </div>
     <!-- Mode toggle sits inside the graph, centred at top (hidden — now in expr-window) -->
     <div class="mode-toggle-overlay" id="mode-toggle-overlay" style="display:none">
       <!-- Mode selector: inline on landscape, dropdown on portrait -->
@@ -326,32 +341,56 @@
           <button type="button" class="mode-btn" data-mode="numberLines">Parallel</button>
         </div>
       </div>
-      <div class="mode-toggle__buttons rot-toggle" id="rot-toggle" role="group" aria-label="Axis rotation">
-        <button type="button" class="mode-btn" data-rot="0" title="Horizontal x-axis (0°)">—</button>
-        <button type="button" class="mode-btn mode-btn--active" data-rot="-1.5707963267948966"
-          title="Vertical x-axis (90°)">|</button>
-        <button type="button" class="mode-btn" data-rot="0.7853981633974483" title="Diagonal x-axis (45°)">⟋</button>
+      <!-- Axis rotation: drag-to-rotate widget -->
+      <div class="axis-dial" id="axis-dial" role="slider" aria-label="Axis rotation" aria-valuemin="0"
+        aria-valuemax="90" aria-valuenow="0" title="Drag to rotate axes">
+        <svg class="axis-dial__icon" id="axis-dial-icon" width="28" height="28" viewBox="0 0 28 28">
+          <!-- x-axis line (color set by JS) -->
+          <line class="axis-dial__x" x1="2" y1="14" x2="26" y2="14" stroke-width="2" stroke-linecap="round" />
+          <!-- y-axis line (color set by JS) -->
+          <line class="axis-dial__y" x1="14" y1="26" x2="14" y2="2" stroke-width="2" stroke-linecap="round" />
+        </svg>
       </div>
       <div class="mode-toggle__buttons" role="group" aria-label="Tau mode">
         <button type="button" class="mode-btn tau-toggle" id="tau-toggle" title="Toggle τ (tau) x-axis mode">τ</button>
       </div>
       <div class="mode-toggle__buttons" role="group" aria-label="Discrete mode">
         <button type="button" class="mode-btn discrete-btn" data-discrete="continuous"
-          title="Continuous (smooth curves)">∿</button>
+          title="Continuous (smooth curves)"><svg height="16" viewBox="0 0 22 16" preserveAspectRatio="xMidYMid meet">
+            <path d="M0,8 L1.1,6.15 L2.2,4.47 L3.3,3.15 L4.4,2.29 L5.5,2 L6.6,2.29 L7.7,3.15 L8.8,4.47 L9.9,6.15 L11,8 L12.1,9.85 L13.2,11.53 L14.3,12.85 L15.4,13.71 L16.5,14 L17.6,13.71 L18.7,12.85 L19.8,11.53 L20.9,9.85 L22,8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          </svg></button>
         <button type="button" class="mode-btn discrete-btn mode-btn--active" data-discrete="discreteX"
-          title="Discrete X (horizontal bars at continuous Y)">⫞</button>
+          title="Discrete X (bars at sampled positions)"><svg height="16" viewBox="22 0 22 16" preserveAspectRatio="xMidYMid meet">
+            <line x1="23.38" y1="8" x2="23.38" y2="5.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="26.12" y1="8" x2="26.12" y2="2.46" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="28.88" y1="8" x2="28.88" y2="2.46" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="31.62" y1="8" x2="31.62" y2="5.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="34.38" y1="8" x2="34.38" y2="10.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="37.12" y1="8" x2="37.12" y2="13.54" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="39.88" y1="8" x2="39.88" y2="13.54" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="42.62" y1="8" x2="42.62" y2="10.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg></button>
         <button type="button" class="mode-btn discrete-btn" data-discrete="discrete"
-          title="Fully discrete (pixelated)">▦</button>
+          title="Fully discrete (pixelated)"><svg height="16" viewBox="44 0 22 16" preserveAspectRatio="xMidYMid meet">
+            <rect x="44.27" y="4.6" width="2.2" height="2.2" rx="0.5" fill="currentColor"/>
+            <rect x="47.02" y="1.36" width="2.2" height="2.2" rx="0.5" fill="currentColor"/>
+            <rect x="49.77" y="1.36" width="2.2" height="2.2" rx="0.5" fill="currentColor"/>
+            <rect x="52.52" y="4.6" width="2.2" height="2.2" rx="0.5" fill="currentColor"/>
+            <rect x="55.27" y="9.2" width="2.2" height="2.2" rx="0.5" fill="currentColor"/>
+            <rect x="58.02" y="12.44" width="2.2" height="2.2" rx="0.5" fill="currentColor"/>
+            <rect x="60.77" y="12.44" width="2.2" height="2.2" rx="0.5" fill="currentColor"/>
+            <rect x="63.52" y="9.2" width="2.2" height="2.2" rx="0.5" fill="currentColor"/>
+          </svg></button>
       </div>
       <div class="mode-toggle__buttons" role="group" aria-label="Glow curves">
-        <button type="button" class="mode-btn" id="glow-toggle" title="Toggle glowing thin curves">glow</button>
+        <button type="button" class="mode-btn glow-toggle" id="glow-toggle" title="Toggle glowing thin curves">glow</button>
       </div>
       <div class="mode-toggle__buttons" role="group" aria-label="Numeral mode">
-        <button type="button" class="mode-btn" id="numeral-toggle"
+        <button type="button" class="mode-btn numeral-toggle" id="numeral-toggle"
           title="Show y-values as numerals in discrete modes">123</button>
       </div>
       <div class="mode-toggle__buttons" role="group" aria-label="Equalize colors">
-        <button type="button" class="mode-btn" id="eq-toggle"
+        <button type="button" class="mode-btn eq-toggle" id="eq-toggle"
           title="Equalize all operation colors to uniform perceptual lightness (experimental)">EQ</button>
       </div>
     </div>
@@ -392,7 +431,7 @@
     <div class="mobile-toggle-panel" id="mobile-toggle-panel"></div>
   </div>
 
-  <script src="sketch.js?v=20260302n"></script>
+  <script src="sketch.js?v=20260303i"></script>
 </body>
 
 </html>

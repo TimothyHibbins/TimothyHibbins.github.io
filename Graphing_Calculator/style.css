@@ -877,6 +877,59 @@ body.light .mode-toggle__buttons {
   color: var(--toggle-active-color);
 }
 
+/* Discrete-mode SVG icon buttons */
+.discrete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.discrete-btn + .discrete-btn {
+  border-left: none;
+}
+
+.discrete-btn svg {
+  display: block;
+}
+
+/* In the overlay, stretch SVGs to fill button width */
+.mode-toggle-overlay .discrete-btn svg {
+  width: 100%;
+  height: 16px;
+}
+
+/* ---- Axis rotation dial ---- */
+.axis-dial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--glass-bg, oklch(0% 0 0 / 0.06));
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  flex-shrink: 0;
+  touch-action: none;
+}
+
+.axis-dial:active {
+  cursor: grabbing;
+}
+
+.axis-dial__icon {
+  display: block;
+  transition: transform 0.18s ease;
+  pointer-events: none;
+}
+
+.axis-dial.dragging .axis-dial__icon {
+  transition: none;
+}
+
 /* ---- Timeline control (above graph-toggles, shown when expression contains t) ---- */
 .timeline-control {
   position: absolute;
@@ -1143,13 +1196,19 @@ body.light .graph-toggle-btn--on {
 }
 
 body.mobile .canvas-wrap {
-  touch-action: none;
+  /* touch-action: none moved to canvas element only (see below)
+     so overlay buttons get normal tap handling */
   -webkit-overflow-scrolling: touch;
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
   /* Use dynamic viewport height where supported (avoids address bar overlap) */
   height: 100dvh;
+}
+
+/* Disable native touch gestures only on the actual canvas, not on overlay UI */
+body.mobile .canvas-wrap > canvas {
+  touch-action: none;
 }
 
 body.mobile {
@@ -1328,17 +1387,6 @@ body.light .canvas-wrap canvas {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.rot-toggle .mode-btn {
-  padding: 5px 8px;
-  font-size: 0.9rem;
-  line-height: 1;
-  color: oklch(61.0% 0.151 258);
-}
-
-.rot-toggle .mode-btn--active {
-  color: oklch(61.0% 0.151 258);
 }
 
 /* Tau toggle — styled like sibling mode-btn buttons */
@@ -1549,6 +1597,11 @@ body.light .toolbox__item:hover {
 
 /* ---- Pseudo-fullscreen prompt — mobile only, hidden by default ---- */
 .pseudofs-btn {
+  display: none;
+}
+
+/* ---- Touch-mode pill — mobile only, hidden on desktop ---- */
+.touch-mode-pill {
   display: none;
 }
 
@@ -1839,98 +1892,110 @@ body.light .toolbox__item:hover {
     /* hide section labels on mobile to save space */
   }
 
-  /* Mode toggles: full-width glass bar just above bottom bar */
+  /* ═══ Full-bleed segmented control bar ═══ */
   .mode-toggle-overlay {
+    display: flex !important;
     position: fixed;
     top: auto;
     bottom: 0;
-    /* will be pushed up by JS when topbar height is known */
+    touch-action: auto;
     left: 0;
     right: 0;
     transform: none;
     flex-wrap: wrap;
-    gap: 4px;
-    justify-content: center;
-    align-items: center;
-    padding: 6px 10px;
+    gap: 0;
+    justify-content: stretch;
+    align-items: stretch;
+    padding: 0;
     background: oklch(0% 0 0 / 0.35);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-top: 1px solid var(--border);
-    z-index: 9;
+    z-index: 25;
+  }
+
+  .mode-toggle-overlay button {
+    touch-action: manipulation;
   }
 
   body.light .mode-toggle-overlay {
     background: oklch(100% 0 0 / 0.55);
   }
 
-  .mode-toggle__buttons {
-    border-radius: 8px;
+  /* Unwrap groups so buttons become direct flex children */
+  .mode-toggle-overlay > .mode-toggle__buttons,
+  .mode-toggle-overlay > .mode-dropdown-wrap {
+    display: contents !important;
+  }
+  .mode-toggle-overlay .mode-dropdown-trigger {
+    display: none !important;
+  }
+  .mode-toggle-overlay .mode-dropdown-list,
+  .mode-toggle-overlay .mode-dropdown-list.open {
+    display: contents !important;
   }
 
-  .mode-btn {
-    padding: 6px 10px;
-    font-size: 0.78rem;
-    min-height: 32px;
+  /* Hide EQ toggle and axis dial on mobile portrait */
+  [aria-label="Equalize colors"] {
+    display: none !important;
+  }
+  .mode-toggle-overlay .axis-dial {
+    display: none !important;
   }
 
-  /* Mode dropdown: portrait mode shows dropdown trigger, hides inline buttons */
-  .mode-dropdown-trigger {
-    display: none;
-    /* shown via portrait media query */
-    padding: 6px 10px;
+  /* Base segment style: flat, flush, full height */
+  .mode-toggle-overlay .mode-btn {
+    border-radius: 0 !important;
+    border: none !important;
+    border-right: 1px solid var(--border) !important;
+    min-height: 36px;
+    padding: 6px 4px;
     font-size: 0.78rem;
-    min-height: 32px;
-    background: var(--glass-bg, oklch(100% 0 0 / 0.06));
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    cursor: pointer;
+    background: transparent;
+    color: var(--muted);
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+  }
+  /* Override legacy adjacent border rule */
+  .mode-toggle-overlay .mode-btn + .mode-btn {
+    border-left: none !important;
   }
 
-  .mode-dropdown-list {
-    display: contents;
-    /* inline by default = buttons visible */
+  /* Row 1: Mode selector fills full width */
+  .mode-toggle-overlay .mode-btn[data-mode] {
+    flex: 1 1 33.33%;
+    order: 0;
+    border-bottom: 1px solid var(--border) !important;
+  }
+  .mode-toggle-overlay .mode-btn[data-mode="numberLines"] {
+    border-right: none !important;
   }
 
-  /* Portrait-specific: convert mode buttons to dropdown */
-  @media (orientation: portrait) {
-    .mode-dropdown-trigger {
-      display: inline-flex;
-    }
+  /* Row 2: Discrete icons (wider) + toggles */
+  .mode-toggle-overlay .discrete-btn {
+    order: 1;
+    flex: 2 1 0;
+    padding: 4px 0 !important;
+  }
+  .mode-toggle-overlay .tau-toggle {
+    order: 2;
+    flex: 1 1 0;
+  }
+  .mode-toggle-overlay .glow-toggle {
+    order: 3;
+    flex: 1 1 0;
+  }
+  .mode-toggle-overlay .numeral-toggle {
+    order: 4;
+    flex: 1 1 0;
+    border-right: none !important;
+  }
 
-    .mode-dropdown-list {
-      display: none;
-      /* hidden until opened */
-      position: absolute;
-      bottom: 100%;
-      left: 0;
-      background: var(--glass-bg, oklch(0% 0 0 / 0.7));
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 4px;
-      flex-direction: column;
-      gap: 2px;
-      min-width: 130px;
-      z-index: 20;
-    }
-
-    body.light .mode-dropdown-list {
-      background: oklch(100% 0 0 / 0.85);
-    }
-
-    .mode-dropdown-list.open {
-      display: flex;
-    }
-
-    .mode-dropdown-wrap {
-      position: relative;
-    }
+  /* Active state */
+  .mode-toggle-overlay .mode-btn--active {
+    background: var(--toggle-active-bg) !important;
+    color: var(--toggle-active-color) !important;
   }
 
   /* Landscape: show 2-row toolbox, hide 3-row */
@@ -2105,6 +2170,46 @@ body.light .toolbox__item:hover {
     display: none !important;
   }
 
+  /* Floating touch-mode pill */
+  .touch-mode-pill {
+    display: inline-flex;
+    position: fixed;
+    top: 48px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 11;
+    border-radius: 999px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: oklch(0% 0 0 / 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  body.light .touch-mode-pill {
+    background: oklch(100% 0 0 / 0.55);
+  }
+
+  .touch-mode-btn {
+    border: 0;
+    padding: 6px 14px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-weight: 500;
+    min-height: 32px;
+  }
+
+  .touch-mode-btn + .touch-mode-btn {
+    border-left: 1px solid var(--border);
+  }
+
+  .touch-mode-btn--active {
+    background: var(--toggle-active-bg);
+    color: var(--toggle-active-color);
+  }
+
   /* Eye-toggle mode: boxes show centered eye icon */
   .op-block--eye-mode,
   .step-endpoint--eye-mode {
@@ -2143,6 +2248,12 @@ body.light .toolbox__item:hover {
 /* ---- Mobile portrait: expr-window as full-width bottom pane ---- */
 @media (max-width: 600px) and (orientation: portrait),
 (hover: none) and (pointer: coarse) and (orientation: portrait) {
+
+  /* Hide overlay on portrait — controls live in expr-window Ctrl section */
+  .mode-toggle-overlay {
+    display: none !important;
+  }
+
   .expr-window {
     position: fixed !important;
     bottom: 0 !important;
@@ -2156,9 +2267,7 @@ body.light .toolbox__item:hover {
     max-height: 80vh;
     max-height: 80dvh;
     overflow: hidden !important;
-    border-bottom: none !important;
-    border-left: none !important;
-    border-right: none !important;
+    border: none !important;
     box-shadow: 0 -4px 20px var(--shadow) !important;
     /* Build from bottom up: tree at bottom, sections stack above */
     flex-direction: column-reverse !important;
@@ -2217,15 +2326,17 @@ body.light .toolbox__item:hover {
     order: 5;
   }
 
-  /* Separators: in column-reverse, each section's "top" is its visual bottom.
-     Use border-top so the line appears between sections visually. */
+  /* Separators between sections. border-top: none avoids a line at the glass
+     edge. border-bottom provides lines between stacked sections. */
   .ew-section {
-    border-bottom: none !important;
-    border-top: 1px solid var(--border) !important;
+    border-top: none !important;
+    border-bottom: 1px solid var(--border) !important;
   }
 
-  #ew-section-tree {
-    border-top: none !important;
+  /* Collapsed sections have hidden headers on mobile, so they'd render as
+     just a bare border line at the glass edge. Remove borders entirely. */
+  .ew-section.collapsed {
+    border: none !important;
   }
 
   /* ---- Swipeable text+latex merged section ---- */
@@ -2293,6 +2404,72 @@ body.light .toolbox__item:hover {
   /* Section resize handles not needed */
   .ew-resize-handle {
     display: none;
+  }
+
+  /* Text input: scaled via font-size to fill section width */
+  #ew-body-text .controls {
+    padding: 0 !important;
+    margin: 0 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #ew-body-text .control--expr {
+    border: none !important;
+    border-top: 1px solid var(--border) !important;
+    border-bottom: 1px solid var(--border) !important;
+    border-radius: 0 !important;
+    padding: 4px 12px !important;
+    background: transparent !important;
+  }
+
+  #ew-body-text .control__input {
+    text-align: center;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  #ew-body-text .expr-color-overlay {
+    justify-content: center;
+    text-align: center;
+    padding-left: 0;
+    padding-right: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    overflow: visible;
+  }
+
+  /* Section toggle tabbar: hidden when swipe pages are active */
+  .ew-section-tabbar {
+    display: none !important;
+  }
+
+  .ew-tab-btn {
+    display: none !important;
+  }
+
+  /* Hide individual section headers (tabbar replaces them) */
+  .ew-section > .ew-section__header {
+    display: none !important;
+  }
+
+  /* Keep swipe tabs in merged text+latex section, just hide collapse chevron */
+  .ew-section--swipe > .ew-section__header {
+    display: flex !important;
+    padding: 2px 10px;
+    height: auto;
+    min-height: 0;
+  }
+
+  /* But hide swipe header when section is collapsed (toggled off via tabbar) */
+  .ew-section--swipe.collapsed > .ew-section__header {
+    display: none !important;
+  }
+
+  .ew-section--swipe > .ew-section__header > .ew-section__collapse {
+    display: none !important;
   }
 
   /* Tree body */
@@ -2766,56 +2943,153 @@ body.light .expr-window {
 
 /* ---- Graph Controls section in expr-window ---- */
 .ew-body--controls {
-  padding: 4px 6px 6px;
+  padding: 0;
 }
 
 .ew-controls-wrap {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 6px;
-  align-items: center;
-  justify-content: center;
+  gap: 0;
+  align-items: stretch;
+  justify-content: stretch;
 }
 
-/* Segmented groups keep their shape; just scale down inside the window */
-.ew-controls-wrap .mode-toggle__buttons {
-  position: static;
-  display: inline-flex;
-  font-size: 0.72rem;
+/* Desktop: keep pill-group styling */
+@media (min-width: 601px) {
+  .ew-body--controls {
+    padding: 4px 6px 6px;
+  }
+  .ew-controls-wrap {
+    gap: 4px 6px;
+    align-items: center;
+    justify-content: center;
+  }
+  .ew-controls-wrap .mode-toggle__buttons {
+    position: static;
+    display: inline-flex;
+    font-size: 0.72rem;
+  }
+  .ew-controls-wrap .mode-btn {
+    font-size: 0.72rem;
+    padding: 3px 8px;
+  }
 }
 
-.ew-controls-wrap .mode-btn {
-  font-size: 0.72rem;
-  padding: 3px 8px;
+/* Mobile: full-bleed segmented bar inside expr-window */
+@media (max-width: 600px), (hover: none) and (pointer: coarse) {
+  /* Unwrap groups so buttons flow flat */
+  .ew-controls-wrap .mode-toggle__buttons,
+  .ew-controls-wrap .mode-dropdown-wrap {
+    display: contents !important;
+  }
+
+  /* Flat segment buttons */
+  .ew-controls-wrap .mode-btn {
+    border-radius: 0 !important;
+    border: none !important;
+    border-right: 1px solid var(--border) !important;
+    min-height: 36px;
+    padding: 6px 4px;
+    font-size: 0.78rem;
+    background: transparent;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ew-controls-wrap .mode-btn + .mode-btn {
+    border-left: none !important;
+  }
+  .ew-controls-wrap .mode-btn--active {
+    background: var(--toggle-active-bg) !important;
+    color: var(--toggle-active-color) !important;
+  }
+
+  /* Row 1: Mode selector (Cartesian / Δ / Parallel) */
+  .ew-controls-wrap .mode-btn[data-mode] {
+    flex: 1 1 33.33%;
+    order: 0;
+    border-bottom: 1px solid var(--border) !important;
+  }
+  .ew-controls-wrap .mode-btn[data-mode="numberLines"] {
+    border-right: none !important;
+  }
+
+  /* Row 2: Discrete icons (wider) + toggle buttons */
+  .ew-controls-wrap .discrete-btn {
+    order: 1;
+    flex: 2 1 0;
+    padding: 4px 0 !important;
+  }
+  .ew-controls-wrap .discrete-btn svg {
+    width: 100%;
+    height: 16px;
+  }
+  .ew-controls-wrap .tau-toggle {
+    order: 2;
+    flex: 1 1 0;
+  }
+  .ew-controls-wrap .glow-toggle {
+    order: 3;
+    flex: 1 1 0;
+  }
+  .ew-controls-wrap .numeral-toggle {
+    order: 4;
+    flex: 1 1 0;
+    border-right: none !important;
+  }
+
+  /* Hide EQ and axis dial on mobile */
+  .ew-controls-wrap [aria-label="Equalize colors"] {
+    display: none !important;
+  }
+  .ew-controls-wrap .axis-dial {
+    display: none !important;
+  }
 }
 
-/* Hide the dropdown trigger (mobile-only) inside the window */
+/* Hide the dropdown trigger inside the window */
 .ew-controls-wrap .mode-dropdown-trigger {
-  display: none;
+  display: none !important;
 }
 
 .ew-controls-wrap .mode-dropdown-list {
-  display: contents;
+  display: contents !important;
 }
 
 /* ---- Visibility section in expr-window ---- */
 .ew-body--visibility {
-  padding: 4px 6px 6px;
+  padding: 0;
 }
 
 .ew-visibility-wrap {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 6px;
-  align-items: center;
-  justify-content: center;
+  gap: 0;
+  align-items: stretch;
+  justify-content: stretch;
 }
 
-/* Re-use existing toggle-group / graph-toggle-btn styles inside the section */
+/* Full-bleed segmented visibility toggles — 2 rows of 3 */
 .ew-visibility-wrap .graph-toggle-btn {
+  flex: 1 1 33.33%;
   font-size: 0.68rem;
-  padding: 2px 7px;
-  min-height: 22px;
+  padding: 4px 6px;
+  min-height: 28px;
+  border-radius: 0 !important;
+  border: none !important;
+  border-right: 1px solid var(--border) !important;
+  border-bottom: 1px solid var(--border) !important;
+  box-sizing: border-box;
+}
+
+/* Remove right border on every 3rd item (end of row) */
+.ew-visibility-wrap .graph-toggle-btn:nth-child(3n) {
+  border-right: none !important;
+}
+/* Remove bottom border on last row */
+.ew-visibility-wrap .graph-toggle-btn:nth-child(n+4) {
+  border-bottom: none !important;
 }
 
 .ew-visibility-wrap .toggle-group__label {
@@ -2911,4 +3185,220 @@ body.light .node-tooltip {
   opacity: 0.25;
   pointer-events: none;
   transition: opacity 0.15s;
+}
+
+/* ---- Mobile section toggle tabbar ---- */
+.ew-section-tabbar {
+  display: none;
+}
+
+.ew-tab-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 5px 2px;
+  cursor: pointer;
+  flex: 1;
+  text-align: center;
+  opacity: 0.4;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.ew-tab-btn--on {
+  opacity: 1;
+  background: oklch(0.55 0 0 / 0.15);
+  color: var(--text);
+  border-color: oklch(0.55 0 0 / 0.4);
+}
+
+body.light .ew-tab-btn--on {
+  background: oklch(0.45 0 0 / 0.1);
+  border-color: oklch(0.45 0 0 / 0.3);
+}
+
+/* =============================================
+   Swipe pages layout (mobile portrait)
+   ============================================= */
+
+.expr-window.has-swipe-pages {
+  flex-direction: column !important;
+}
+
+.ew-page-labels {
+  display: none;
+}
+
+.ew-page-label {
+  flex: 1;
+  padding: 8px 0;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.ew-page-label + .ew-page-label {
+  border-left: 1px solid var(--border);
+}
+
+.ew-page-label--active {
+  color: var(--toggle-active-color, var(--text));
+  border-bottom-color: var(--accent, var(--text));
+}
+
+.ew-pages-scroller {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  min-height: 0;
+  scrollbar-width: none;
+}
+
+.ew-pages-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.ew-page {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.ew-page > .ew-section {
+  order: unset !important;
+  flex-shrink: 0;
+}
+
+.ew-page > #ew-section-visibility {
+  border-top: 1px solid var(--border);
+}
+
+/* ---- Controls CSS grid layout ---- */
+.ew-controls-grid {
+  display: grid;
+  grid-template-areas:
+    "discrete axis mode"
+    "discrete axis toggles";
+  grid-template-columns: 2fr 1fr 3fr;
+  grid-template-rows: 1fr 1fr;
+  width: 100%;
+}
+
+.ctrl-discrete {
+  grid-area: discrete;
+  display: flex;
+  flex-direction: row;
+  border-right: 1px solid var(--border);
+}
+
+.ctrl-discrete .discrete-btn {
+  flex: 1 !important;
+  order: unset !important;
+  border-radius: 0 !important;
+  border: none !important;
+  border-right: 1px solid var(--border) !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+
+.ctrl-discrete .discrete-btn:last-child {
+  border-right: none !important;
+}
+
+.ctrl-discrete .discrete-btn svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.ctrl-axis {
+  grid-area: axis;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--border);
+}
+
+.ctrl-axis .axis-dial {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.ctrl-axis .axis-dial__icon {
+  width: 36px;
+  height: 36px;
+}
+
+.ctrl-mode {
+  grid-area: mode;
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.ctrl-mode .mode-btn,
+.ctrl-mode .mode-btn[data-mode] {
+  flex: 1 !important;
+  order: unset !important;
+  border-bottom: none !important;
+}
+
+.ctrl-toggles {
+  grid-area: toggles;
+  display: flex;
+}
+
+.ctrl-toggles .mode-btn {
+  flex: 1 !important;
+  order: unset !important;
+}
+
+.ctrl-toggles .mode-btn:last-child {
+  border-right: none !important;
+}
+
+/* ---- Visibility 2-column layout ---- */
+.has-swipe-pages .ew-visibility-wrap {
+  flex-wrap: nowrap !important;
+}
+
+.vis-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.vis-column--left {
+  border-right: 1px solid var(--border);
+}
+
+.vis-column .graph-toggle-btn {
+  flex: 1 1 auto !important;
+  border-right: none !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.vis-column .graph-toggle-btn:last-child {
+  border-bottom: none !important;
+}
+
+.ew-page .ew-section > .ew-section__header {
+  display: none !important;
 }

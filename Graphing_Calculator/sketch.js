@@ -118,7 +118,7 @@ const state = {
   lightMode: false,
   theme: "auto", // "light", "dark", "auto"
   toggles: { xgrid: true, ygrid: true, xaxis: false, yaxis: false, arrows: true, intermediates: true, subintermediates: false, starbursts: false, xlabels: false, ylabels: false },
-  glowCurves: false, // when true, curves are 1px bright with coloured glow (continuous/discreteX only)
+  glowCurves: true, // when true, curves are 1px bright with coloured glow (continuous/discreteX only)
   equalizeColors: false, // when true, normalize OP_COLORS to uniform perceptual lightness
   latexOpsOrder: false, // when true, LaTeX matches ops sequence order rather than conventional math
   latexMulSymbol: "dot", // "dot" = \cdot, "times" = \times
@@ -150,6 +150,7 @@ const state = {
   // expandedSubCols: Map of "ix:opIdx" → true for subintermediate expansions
   expandedCols: new Set(),
   expandedSubCols: new Map(),
+  touchMode: "panZoom", // "panZoom" | "valueSelect" | "columnExpand"
 };
 
 /** Returns true when in any discrete mode ("discrete" or "discreteX"). */
@@ -175,11 +176,28 @@ function setStatusForCurrentMode() {
 }
 
 function resetView() {
-  // Centre on the visible region between topbar and bottom bar
-  const topbar = document.querySelector('.topbar');
-  const toggleBar = document.querySelector('.graph-toggles');
-  const topH = topbar ? topbar.getBoundingClientRect().height : 0;
-  const bottomH = (toggleBar && toggleBar.style.display !== 'none') ? toggleBar.getBoundingClientRect().height : 0;
+  // Centre on the visible region (the area not covered by UI elements)
+  const isMobilePortrait = window.matchMedia(
+    '(max-width: 600px) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: portrait)'
+  ).matches;
+
+  let topH = 0;
+  let bottomH = 0;
+
+  if (isMobilePortrait) {
+    // Mobile portrait: topbar is hidden behind expr-window at bottom.
+    // Visible region is from top of screen to top of the glass pane.
+    const exprWin = document.getElementById('expr-window');
+    if (exprWin) {
+      bottomH = window.innerHeight - exprWin.getBoundingClientRect().top;
+    }
+  } else {
+    const topbar = document.querySelector('.topbar');
+    const toggleBar = document.querySelector('.graph-toggles');
+    topH = topbar ? topbar.getBoundingClientRect().height : 0;
+    bottomH = (toggleBar && toggleBar.style.display !== 'none') ? toggleBar.getBoundingClientRect().height : 0;
+  }
+
   view.originX = width * 0.5;
   view.originY = topH + (height - topH - bottomH) * 0.5;
   view.scale = 80;
@@ -921,6 +939,13 @@ function getOpArmColors(op) {
     // add/sub, mul/div: state 1 (sub, div) = one CW rotation
     const info = getRotationInfo(op);
     if (info && info.curState === 1) { brOpacity = OP; tOpacity = IN; }
+  }
+  // Trig: normal trig output = deep (OP), inverse trig output = lighter (OUT default)
+  const _fn = getFunctionName(op);
+  if (_fn && TRIG_FNS.has(_fn)) {
+    const _isInv = _fn === 'asin' || _fn === 'acos' || _fn === 'atan';
+    if (!_isInv) { brOpacity = OP; tOpacity = OUT; } // normal trig: deep output
+    // inverse trig keeps default (brOpacity=OUT, tOpacity=OP) → lighter output
   }
   return {
     fnColor: dimHexColor(colorHex, brOpacity),
@@ -1724,6 +1749,9 @@ function updateLatexDisplay(raw, xVal) {
     });
     el.style.opacity = "1";
     scaleLatexToFit(el);
+    // After LaTeX renders, #ew-body-latex has proper dimensions;
+    // re-run autoSizeInput so the text input scales to match.
+    if (typeof autoSizeInput === 'function') autoSizeInput();
   } catch {
     el.style.opacity = "0";
   }
@@ -2754,8 +2782,11 @@ function _walkPipeTree(layout) {
     if (nd.opType === "call" && !cat) {
       const fn = nd.fn || (nd.ast && nd.ast.fn) || "f";
       let fnC = OP_COLORS.misc;
-      if (TRIG_FNS.has(fn)) fnC = OP_COLORS.trig;
-      else if (EXP_FNS.has(fn) || fn === "sqrt") fnC = OP_COLORS.exp;
+      if (TRIG_FNS.has(fn)) {
+        // Normal trig (sin) = deep output colour; inverse trig (asin) = lighter
+        const _isInv = fn === 'asin' || fn === 'acos' || fn === 'atan';
+        fnC = _isInv ? dimHexColor(OP_COLORS.trig, ARM_OP.OUT) : OP_COLORS.trig;
+      } else if (EXP_FNS.has(fn) || fn === "sqrt") fnC = OP_COLORS.exp;
       const inner = Lo || atom("?", "var(--muted)");
       return {
         text: `${fn}(${inner.text})`,
@@ -3170,8 +3201,11 @@ function pipeLayoutToColoredLatex(layout, xVal) {
     if (nd.opType === "call" && !cat) {
       const fn = nd.fn || (nd.ast && nd.ast.fn) || "f";
       let fnColor = OP_COLORS.misc;
-      if (TRIG_FNS.has(fn)) fnColor = OP_COLORS.trig;
-      else if (EXP_FNS.has(fn) || fn === "sqrt") fnColor = OP_COLORS.exp;
+      if (TRIG_FNS.has(fn)) {
+        // Normal trig = deep, inverse trig = lighter
+        const _isInv = fn === 'asin' || fn === 'acos' || fn === 'atan';
+        fnColor = _isInv ? dimHexColor(OP_COLORS.trig, ARM_OP.OUT) : OP_COLORS.trig;
+      } else if (EXP_FNS.has(fn) || fn === "sqrt") fnColor = OP_COLORS.exp;
       const inner = L || "?";
       const latexFnMap = {
         sin: "\\sin", cos: "\\cos", tan: "\\tan",
@@ -3731,6 +3765,20 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     return null;
   }
 
+  /** Lighten a hex color by blending toward white.
+   *  amount=0 → unchanged, amount=1 → pure white. */
+  function lightenColor(hex, amount) {
+    let h = hex.replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    const cr = Math.round(r + (255 - r) * amount);
+    const cg = Math.round(g + (255 - g) * amount);
+    const cb = Math.round(b + (255 - b) * amount);
+    return `#${cr.toString(16).padStart(2, '0')}${cg.toString(16).padStart(2, '0')}${cb.toString(16).padStart(2, '0')}`;
+  }
+
   /** Darken a hex color by mixing toward black */
   function darkenColor(hex, amount) {
     let h = hex.replace('#', '');
@@ -3931,6 +3979,11 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       if (item && cat === "exp" && item.fn) {
         if (item.fn === "log") return ARM_COLORS.exp?.exponent || OP_COLORS.exp;
         if (item.fn === "nthrt") return ARM_COLORS.exp?.base || OP_COLORS.exp;
+      }
+      // Trig: normal = deep (output colour of sin), inverse = light (θ output)
+      if (item && cat === "trig" && item.fn) {
+        const isInv = item.fn === "asin" || item.fn === "acos" || item.fn === "atan";
+        return isInv ? lightenColor(OP_COLORS.trig, 0.45) : OP_COLORS.trig;
       }
       return OP_COLORS[cat] || OP_COLORS.misc;
     }
@@ -4221,7 +4274,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
   function applyRadialMenuChoice(targetNodeId, nodeType, item, layout) {
     const nodes = layout.nodes;
     const nd = nodes[targetNodeId];
-    if (!nd) return;
+    if (!nd && nodeType !== 'y') return;
 
     // Helper: badge symbol for a call-type fn (matches symbolFromOp output)
     function callSymbolForFn(fn) {
@@ -4367,6 +4420,57 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         if (!n || n.type !== "op" || n.id === newOpId) continue;
         if (n.leftId === targetNodeId) { n.leftId = newIntId; break; }
         if (n.rightId === targetNodeId) { n.rightId = newIntId; break; }
+      }
+    } else if (nodeType === "y") {
+      // Insert a new operator between the current root and y.
+      const oldRootId = layout.mainPath.opIds[0];
+      if (oldRootId == null) return;
+
+      // Create intermediate from old root's output
+      const newIntId = nodes.length;
+      nodes.push({
+        id: newIntId, type: "intermediate",
+        sourceOpId: oldRootId, connectsToOpId: oldRootId, value: null,
+      });
+
+      const newValId = nodes.length;
+      nodes.push({ id: newValId, type: "value", value: isExpFamily ? (item.fn === "nthrt" ? "2" : "e") : "1" });
+
+      const newOpId = nodes.length;
+      if (isExpFamily) {
+        nodes.push({
+          id: newOpId, type: "op", opType: "power",
+          leftId: newIntId, rightId: newValId,
+          symbol: item.symbol, ast: null,
+          armCategory: "exp",
+          armAssignment: item.fn === "nthrt"
+            ? { left: "power", right: "exponent", output: "base" }
+            : { left: "power", right: "base", output: "exponent" },
+        });
+      } else if (isSingleArg) {
+        nodes.push({
+          id: newOpId, type: "op", opType: "call",
+          leftId: newIntId, rightId: null,
+          symbol: callSymbolForFn(item.fn), fn: item.fn, ast: null,
+        });
+      } else {
+        nodes.push({
+          id: newOpId, type: "op", opType: item.op,
+          leftId: newIntId, rightId: newValId,
+          symbol: item.symbol, ast: null,
+        });
+      }
+
+      if (!isExpFamily) {
+        const defRoles = getArmRoles(nodes[newOpId].opType);
+        if (defRoles) {
+          nodes[newOpId].armAssignment = { ...defRoles };
+          nodes[newOpId].armCategory = _categoryForOpType(nodes[newOpId].opType);
+        }
+      }
+
+      if (layout.opToIntermediateId) {
+        layout.opToIntermediateId.set(oldRootId, newIntId);
       }
     }
 
@@ -4652,23 +4756,26 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
   function setStyledLabel(textEl, label, fontSize, fillCol) {
     textEl.textContent = "";
     if (label === "^") {
-      // m^n — base (m) with superscript exponent (n) using dy offsets
+      // m^n — base (m) with superscript exponent (n) using dy offsets.
+      // Shift first tspan down slightly to compensate for the superscript
+      // pulling the visual center of "mⁿ" above the badge midpoint.
       const base = svgEl("tspan");
       base.textContent = "m";
       base.setAttribute("font-style", "italic");
+      base.setAttribute("dy", `${fontSize * 0.08}px`);
       if (fillCol) base.setAttribute("fill", fillCol);
       textEl.appendChild(base);
       const exp = svgEl("tspan");
       exp.textContent = "n";
       exp.setAttribute("font-style", "italic");
-      exp.setAttribute("dy", `-${fontSize * 0.35}px`);
+      exp.setAttribute("dy", `-${fontSize * 0.22}px`);
       exp.setAttribute("font-size", `${fontSize * 0.6}px`);
       if (fillCol) exp.setAttribute("fill", fillCol);
       textEl.appendChild(exp);
       // Invisible reset tspan to restore baseline for subsequent content
       const reset = svgEl("tspan");
       reset.textContent = "\u200B";
-      reset.setAttribute("dy", `${fontSize * 0.35}px`);
+      reset.setAttribute("dy", `${fontSize * 0.14}px`);
       reset.setAttribute("font-size", "0");
       textEl.appendChild(reset);
       textEl.setAttribute("font-size", fontSize);
@@ -4685,7 +4792,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       sub.textContent = "m";
       sub.setAttribute("font-style", "italic");
       sub.setAttribute("dy", `${fontSize * 0.25}px`);
-      sub.setAttribute("font-size", `${fontSize * 0.55 * 0.6}px`);
+      sub.setAttribute("font-size", `${fontSize * 0.65}px`);
       if (fillCol) sub.setAttribute("fill", fillCol);
       textEl.appendChild(sub);
       // Invisible reset tspan to restore baseline
@@ -4694,7 +4801,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       reset.setAttribute("dy", `-${fontSize * 0.25}px`);
       reset.setAttribute("font-size", "0");
       textEl.appendChild(reset);
-      textEl.setAttribute("font-size", fontSize * 0.55);
+      textEl.setAttribute("font-size", fontSize * 0.75);
       return;
     }
     // Default plain label
@@ -4769,10 +4876,21 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
           childGradInt = childOutCol;
           childGradJunc = darkenColor(childOutCol, 0.3);
         } else {
-          const childOutCol = outputArmColor(nextCol);
+          // Trig: use same lightenColor logic as drawNode
+          const _fn = nextOp.fn || (nextOp.ast && nextOp.ast.fn) || null;
+          const _isTrig = _fn && TRIG_FNS.has(_fn);
+          const _isInvTrig = _fn && (_fn === 'asin' || _fn === 'acos' || _fn === 'atan');
+          let childOutCol;
+          if (_isTrig && !_isInvTrig) {
+            childOutCol = nextCol;  // sin output = deep (base) color
+          } else if (_isTrig) {
+            childOutCol = lightenColor(nextCol, 0.45);  // asin output = light
+          } else {
+            childOutCol = outputArmColor(nextCol);
+          }
           intStrokeCol = childOutCol;
           childGradInt = childOutCol;
-          childGradJunc = darkenColor(childOutCol, 0.3);
+          childGradJunc = _isTrig ? childOutCol : darkenColor(childOutCol, 0.3);
         }
 
         drawIntBadge(intStrokeCol);
@@ -4907,7 +5025,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       }
       // Tooltip above expanded badge
       const tipOffset = R * HOVER_SCALE + 8;
-      showNodeTooltip(cx, cy - tipOffset + 28, "Click to wrap in operator");
+      showNodeTooltip(cx, cy - tipOffset, "Click to wrap in operator");
       _typedBuf = "";
 
       // Keyboard handler: type digits to convert to numeric constant,
@@ -5308,7 +5426,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       document.addEventListener("keydown", onKeyDown);
       // Show tooltip above expanded dial
       const tipOffset = (R + RING_THICK) * HOVER_SCALE + 8;
-      showNodeTooltip(cx, cy - tipOffset + 28, "Click to wrap in operator");
+      showNodeTooltip(cx, cy - tipOffset, "Click to wrap in operator");
     });
 
     hit.addEventListener("mousemove", (e) => {
@@ -5433,7 +5551,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         setActiveCol(getColumnFromTouch(touch));
         // Tooltip above lifted dial
         const tipOffset = (R + RING_THICK) * TOUCH_SCALE + TOUCH_LIFT + 8;
-        showNodeTooltip(cx, cy - tipOffset + 28, "Slide \u2195 to scroll, \u2194 to change place");
+        showNodeTooltip(cx, cy - tipOffset, "Slide \u2195 to scroll, \u2194 to change place");
       }
 
       function deactivateTouchDial() {
@@ -5596,6 +5714,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
 
     // Per-arm colors — all categories use per-role keys so colours follow swaps
     let outArmCol, leftArmCol, rightArmCol, badgeCol;
+    let _nodeIsTrig = false;
     const armCC = effectiveCat && ARM_COLORS[effectiveCat];
     if (armCC && roles) {
       leftArmCol = armCC[roles.left] || col;
@@ -5603,9 +5722,28 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       outArmCol = armCC[roles.output] || col;
       badgeCol = outArmCol;  // badge color follows output pipe
     } else {
-      leftArmCol = col;
-      rightArmCol = col;
-      outArmCol = outputArmColor(col);
+      // Trig arm colours: output of sin = deep purple, input θ = lighter purple.
+      // Inverse trig (asin etc.) is the reverse: input = deep, output = lighter.
+      const _fnN = node.fn || (node.ast && node.ast.fn) || null;
+      const _isTrig = _fnN && TRIG_FNS.has(_fnN);
+      const _isInvTrig = _fnN && (_fnN === 'asin' || _fnN === 'acos' || _fnN === 'atan');
+      _nodeIsTrig = !!_isTrig;
+      if (_isTrig && !_isInvTrig) {
+        // Normal trig (sin, cos, tan): θ input = light purple, result output = deep
+        leftArmCol = lightenColor(col, 0.45);
+        rightArmCol = lightenColor(col, 0.45);
+        outArmCol = col;
+      } else if (_isTrig) {
+        // Inverse trig (asin, acos, atan): value input = deep, θ output = light
+        leftArmCol = col;
+        rightArmCol = col;
+        outArmCol = lightenColor(col, 0.45);
+      } else {
+        // Other call ops: base input, lighter output
+        leftArmCol = col;
+        rightArmCol = col;
+        outArmCol = outputArmColor(col);
+      }
       badgeCol = outArmCol;  // badge color follows output pipe
     }
     const outLabel = roles ? roles.output : null;
@@ -5630,9 +5768,12 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       // exp family inversion (^↔√↔log) is complex; skip for now
     }
 
-    // Output arm pipe toward parent: darken→bright gradient for all categories
+    // Output arm pipe toward parent
+    // Trig: flat colour so it matches the badge exactly (no darken gradient).
+    // Other categories: darken→bright gradient adds depth.
     if (drawOutputArm && parentX != null && parentY != null) {
-      pipeToChild(px, py, parentX, parentY, darkenColor(outArmCol, 0.3), outArmCol, R, JR, 'child', outLabel);
+      const outStart = _nodeIsTrig ? outArmCol : darkenColor(outArmCol, 0.3);
+      pipeToChild(px, py, parentX, parentY, outStart, outArmCol, R, JR, 'child', outLabel);
     }
 
     // Ring circle + operator junction circle
@@ -5991,12 +6132,13 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     for (const { id: childId, armCol, label } of childEntries) {
       const child = nodes[childId];
       if (!child || child.x == null) continue;
+      const armStart = _nodeIsTrig ? armCol : darkenColor(armCol, 0.3);
 
       if (child.type === "intermediate") {
-        drawIntermediateNode(childId, px, py, darkenColor(armCol, 0.3), armCol, label);
+        drawIntermediateNode(childId, px, py, armStart, armCol, label);
       } else {
         const childRad = child.type === "value" ? R : JR;
-        pipeToChild(px, py, child.x, child.y, darkenColor(armCol, 0.3), armCol, childRad, JR, undefined, label);
+        pipeToChild(px, py, child.x, child.y, armStart, armCol, childRad, JR, undefined, label);
         drawNode(childId, px, py, false, armCol);
       }
     }
@@ -6007,6 +6149,8 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
   const yTextEl = drawText(yX, yY, "y", 32, OP_COLORS.y, true);
   layout._yTextEl = yTextEl;  // ref for live value updates
   drawDebugLabel(yX, yY + R + 12, "y");
+  // Allow wrapping y in an operator (inserts between current root and y)
+  attachRadialClick('y', yX, yY, "y", R);
 
   // ---- Draw tree from root ----
   drawNode(rootOpId, yX, yY, true);
@@ -6343,21 +6487,13 @@ function getSubintermediateFns(prevStepFn, op) {
         const isInt = n === Math.round(n);
 
         if (n < 3) {
-          // x^2, x^2.1, etc: "adding prev to itself" — show prev*k
-          // Only visible at values of x where k is strictly between 1 and |prev|
-          for (let k = 2; k <= MAX_SUBS + 1; k++) {
-            const mult = k;
-            subs.push({
-              fn: (x) => {
-                const p = prevStepFn(x);
-                const result = p * mult;
-                const target = Math.pow(p, n);
-                // Only show when result is strictly between p and target
-                const lo = Math.min(p, target), hi = Math.max(p, target);
-                if (result > lo + 1e-9 && result < hi - 1e-9) return result;
-                return NaN;
-              }, category: "mulDiv"
-            });
+          // x^2, x^2.5 etc: show fractional-power interpolation steps
+          // e.g. for x^2: prev^1.5 (one mid-step); for x^2.5: prev^1.5, prev^2
+          const count = Math.max(1, Math.round(n) - 1);
+          for (let k = 1; k <= Math.min(count, MAX_SUBS); k++) {
+            const frac = 1 + k * (n - 1) / (count + 1);
+            const pw = frac;
+            subs.push({ fn: (x) => Math.pow(prevStepFn(x), pw), category: "exp" });
           }
         } else {
           // x^3, x^3.5, x^4, etc: successive prior powers
@@ -6776,15 +6912,23 @@ function updateInputOverlay() {
   if (controlEl) controlEl.classList.toggle('eq-active', isEqActive);
   const text = ui.exprEl.value;
 
+  const _isMobilePortrait = window.matchMedia(
+    '(max-width: 600px) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: portrait)'
+  ).matches;
+
   // "y = " prefix HTML — rendered inside the overlay so it's part of the expression display
   const _eqCol = document.body.classList.contains('light') ? 'black' : 'white';
   const yEqHtml = '<span style="color:' + OP_COLORS.y + '">y</span>'
     + '<span style="color:' + _eqCol + '"> = </span>';
+  const showPrefix = !isEqActive;
+
+  // On mobile portrait, force eq-active so no 4ch padding-left for y=
+  if (_isMobilePortrait && controlEl) controlEl.classList.add('eq-active');
 
   if (!text) {
-    // Even when empty, show "y = " in the overlay (unless eq-active)
-    ui.exprOverlay.innerHTML = isEqActive ? '' : yEqHtml;
-    if (controlEl) controlEl.classList.toggle('has-overlay', !isEqActive && !!ui.exprOverlay.innerHTML);
+    // Even when empty, show "y = " in the overlay (unless eq-active or mobile)
+    ui.exprOverlay.innerHTML = showPrefix ? yEqHtml : '';
+    if (controlEl) controlEl.classList.toggle('has-overlay', showPrefix && !!yEqHtml);
     return;
   }
 
@@ -6853,7 +6997,11 @@ function colorizeRawExpr(text) {
         const isTrig = TRIG_FNS.has(word);
         const isExp = EXP_FNS.has(word) || word === "sqrt";
         const isMod = word === "mod";
-        const col = isMod ? OP_COLORS.mulDiv : isTrig ? OP_COLORS.trig : isExp ? OP_COLORS.exp : OP_COLORS.misc;
+        const isInvTrig = (word === 'asin' || word === 'acos' || word === 'atan');
+        const col = isMod ? OP_COLORS.mulDiv
+          : (isTrig && isInvTrig) ? dimHexColor(OP_COLORS.trig, ARM_OP.OUT)
+          : isTrig ? OP_COLORS.trig
+          : isExp ? OP_COLORS.exp : OP_COLORS.misc;
         spans.push({ text: word, color: col });
       } else if (word.startsWith("log_") && word.length > 4) {
         // log_base notation → split into "log_" (exp color) and base part
@@ -8043,6 +8191,7 @@ function renderPipeDiagram(ops, layout, showIntermediates) {
     txt.setAttribute("y", cy);
     txt.setAttribute("text-anchor", "middle");
     txt.setAttribute("dominant-baseline", "central");
+    txt.setAttribute("dy", "0.05em"); // nudge for visual centering in KaTeX_Main
     txt.setAttribute("fill", color);
     txt.setAttribute("font-size", fontSize);
     txt.setAttribute("font-family", "KaTeX_Main, 'Times New Roman', serif");
@@ -8839,11 +8988,17 @@ function attachEqualsDrag(svg, layout) {
     lastClientY = e.clientY;
     slideToPosition(svgPoint(e));
     // Dim the accordion if the cursor is behind/over it
-    const ew = document.getElementById('expr-window');
-    if (ew) {
-      const r = ew.getBoundingClientRect();
-      const over = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-      ew.classList.toggle('dragging-dimmed', over);
+    // On mobile portrait the diagram is inside the pane, so skip dimming
+    const _isMPDrag = window.matchMedia(
+      '(max-width: 600px) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: portrait)'
+    ).matches;
+    if (!_isMPDrag) {
+      const ew = document.getElementById('expr-window');
+      if (ew) {
+        const r = ew.getBoundingClientRect();
+        const over = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+        ew.classList.toggle('dragging-dimmed', over);
+      }
     }
   }
 
@@ -9800,6 +9955,8 @@ function updateLiveInputOverlay(xVal, values) {
     ui.exprOverlay.innerHTML = yValHtml + html;
   }
   if (controlEl) controlEl.classList.add('has-overlay');
+  // Mark that the overlay is showing live values (so we can restore on cursor-off)
+  updateLiveInputOverlay._active = true;
   // Auto-size input to fit live-value overlay
   autoSizeExprInput();
 }
@@ -9901,9 +10058,111 @@ function compileExpression(exprRaw) {
 }
 
 /** Auto-size the expression input to fit its content. */
+/** Auto-size the expression input to fit its content.
+ *  Mobile portrait: sets font-size so text fills the same bounding box
+ *  that scaleLatexToFit uses (reads #ew-body-latex dimensions directly
+ *  to avoid feedback loops from the text section growing with font-size).
+ *  Desktop: adjusts input width to fit typed text.
+ */
 function autoSizeInput() {
   const el = ui.exprEl;
   if (!el) return;
+
+  const isMobilePortrait = window.matchMedia(
+    '(max-width: 600px) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: portrait)'
+  ).matches;
+
+  if (isMobilePortrait) {
+    // Use the LaTeX section body as the reference box — it's the same
+    // swipe-container sibling so it has the identical available space,
+    // and its dimensions aren't affected by the text input's font-size.
+    const latexBody = document.getElementById('ew-body-latex');
+    if (!latexBody) return;
+    const containerW = latexBody.clientWidth;
+    const containerH = latexBody.clientHeight;
+    if (containerW <= 0 || containerH <= 0) return;
+
+    const padW = 28;
+    const padH = 12;
+
+    // Measure at a fixed reference font size.
+    // Use the overlay's textContent (what the user actually sees) when available,
+    // otherwise fall back to the input value.
+    const REF = 16;
+    if (!autoSizeInput._measurer) {
+      const m = document.createElement('span');
+      m.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;pointer-events:none;';
+      document.body.appendChild(m);
+      autoSizeInput._measurer = m;
+    }
+    const m = autoSizeInput._measurer;
+    const cs = getComputedStyle(el);
+    m.style.fontFamily = cs.fontFamily;
+    m.style.fontWeight = cs.fontWeight;
+    m.style.letterSpacing = cs.letterSpacing;
+    m.style.fontSize = REF + 'px';
+
+    // Detect "y = " prefix in overlay
+    const overlayText = ui.exprOverlay ? ui.exprOverlay.textContent : '';
+    const eqIdx = overlayText.indexOf('=');
+    const hasYPfx = !!(overlayText && overlayText.length > 2
+                       && overlayText[0] === 'y' && eqIdx > 0);
+
+    // Measure the full overlay text ("y = expr" or just "expr") at REF.
+    m.textContent = overlayText || el.value || 'x';
+    const textW = m.offsetWidth;
+    const textH = m.offsetHeight;
+    if (textW <= 0 || textH <= 0) return;
+
+    // Scale font to fit both width and height
+    const scaleW = (containerW - padW) / textW;
+    const scaleH = (containerH - padH) / textH;
+    const scale = Math.min(scaleW, scaleH, 5);
+    const clamped = Math.max(REF * scale, 12);
+
+    el.style.fontSize = clamped + 'px';
+    if (ui.exprOverlay) ui.exprOverlay.style.fontSize = clamped + 'px';
+
+    // Caret alignment:
+    // Position the input text at the exact pixel where the overlay's
+    // "expr" portion starts.  Use text-align:left + padding-left for
+    // pixel-perfect control (no browser centering quirks).
+    if (hasYPfx) {
+      const prefixStr = overlayText.slice(0, eqIdx + 2); // "y = "
+      m.style.fontSize = clamped + 'px';
+      m.textContent = overlayText;
+      const fullW = m.offsetWidth;
+      m.textContent = prefixStr;
+      const prefW = m.offsetWidth;
+      // Overlay centres "y = expr" so expr starts at: (containerW - fullW)/2 + prefW
+      const exprStart = (containerW - fullW) / 2 + prefW;
+      el.style.textAlign = 'left';
+      el.style.boxSizing = 'border-box';
+      el.style.setProperty('padding-left', Math.max(0, exprStart) + 'px', 'important');
+      el.style.setProperty('padding-right', '0', 'important');
+    } else {
+      el.style.textAlign = '';
+      el.style.boxSizing = '';
+      el.style.setProperty('padding-left', '0', 'important');
+    }
+
+    el.style.width = '';
+    return;
+  }
+
+  // Desktop: clear any portrait overrides
+  el.style.fontSize = '';
+  el.style.boxSizing = '';
+  el.style.textAlign = '';
+  el.style.textIndent = '';
+  el.style.removeProperty('padding-left');
+  if (ui.exprOverlay) {
+    ui.exprOverlay.style.fontSize = '';
+  }
+  // Clear any leftover transform from earlier approach
+  const controlLabel = el.closest('.control--expr');
+  if (controlLabel) controlLabel.style.transform = '';
+
   // Temporarily shrink to measure scrollWidth (the content width)
   const saved = el.style.width;
   el.style.width = '0';
@@ -10170,7 +10429,9 @@ function setup() {
   const _resetShowObserver = new MutationObserver(() => positionResetButton());
   _resetShowObserver.observe(resetOverlay, { attributes: true, attributeFilter: ['style'] });
 
-  resetView();
+  // Defer initial resetView so the browser has laid out the expr-window
+  // (needed for mobile portrait where we read its bounding rect).
+  requestAnimationFrame(() => { requestAnimationFrame(() => { resetView(); }); });
 
   // ---- UI wiring ----
   if (ui.modeButtons.length) {
@@ -10182,6 +10443,7 @@ function setup() {
         if (!mode) return; // skip non-mode buttons
         state.mode = mode;
         ui.modeButtons.forEach((b) => b.classList.toggle("mode-btn--active", b === btn));
+        syncModeDropdownTrigger(mode);
         setStatusForCurrentMode();
       });
     });
@@ -10818,6 +11080,12 @@ function setup() {
   // ---- Mobile: topbar collapse, pseudo-fullscreen, tap-to-show, bar positioning ----
   setupMobileBarControls();
 
+  // ---- Mobile: section toggle tabbar ----
+  setupSectionTabbar();
+
+  // ---- Mobile: swipe pages (replace tabbar with horizontal swipe) ----
+  setupMobileSwipePages();
+
   // ---- HUD overlay (top-left of canvas area) ----
   const hudEl = document.createElement("div");
   hudEl.className = "graph-hud";
@@ -10830,19 +11098,131 @@ function setup() {
   // ---- LaTeX display element ----
   ui.latexEl = document.getElementById("latex-display");
 
-  // ---- Rotation segmented button ----
-  const rotToggle = document.getElementById('rot-toggle');
-  const rotBtns = rotToggle ? Array.from(rotToggle.querySelectorAll('.mode-btn')) : [];
-  ui.rotBtns = rotBtns;
-  rotBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const angle = parseFloat(btn.dataset.rot);
-      view.rotation = angle;
-      rotBtns.forEach(b => b.classList.toggle('mode-btn--active', b === btn));
+  // ---- Axis rotation dial (drag-to-rotate) ----
+  const axisDial = document.getElementById('axis-dial');
+  const axisDialIcon = document.getElementById('axis-dial-icon');
+  ui.axisDial = axisDial;
+  // Snap angles in view.rotation convention (θ where x-axis = cos θ direction)
+  const SNAP_ANGLES = [0, -Math.PI / 2, Math.PI / 4]; // 0°, 90° (vertical), 45°
+  // Visual rotation: view.rotation is the angle of the x-axis from horizontal.
+  // The SVG icon default has x horizontal, y vertical. Rotating the SVG by -view.rotation
+  // makes the lines match the actual axes on screen.
+  function updateAxisDialVisual(angleDeg) {
+    if (!axisDialIcon) return;
+    axisDialIcon.style.transform = `rotate(${angleDeg}deg)`;
+  }
+  function updateAxisDialColors() {
+    if (!axisDial) return;
+    const xLine = axisDial.querySelector('.axis-dial__x');
+    const yLine = axisDial.querySelector('.axis-dial__y');
+    if (xLine) xLine.setAttribute('stroke', OP_COLORS.x);
+    if (yLine) yLine.setAttribute('stroke', OP_COLORS.y);
+  }
+  function angleToVisualDeg(rad) {
+    // view.rotation: θ = 0 means horizontal x.  
+    // θ = -π/2 means x points down (90° clockwise). θ = π/4 means x is 45° CCW.
+    // SVG rotation is CW positive, but view.rotation uses math convention.
+    // Convert: visual degrees = -θ * 180/π
+    return -rad * (180 / Math.PI);
+  }
+  function nearestSnapAngle(rad) {
+    let best = SNAP_ANGLES[0], bestDist = Infinity;
+    for (const snap of SNAP_ANGLES) {
+      // Normalize difference to [-π, π]
+      let diff = rad - snap;
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      while (diff < -Math.PI) diff += 2 * Math.PI;
+      if (Math.abs(diff) < bestDist) { bestDist = Math.abs(diff); best = snap; }
+    }
+    return best;
+  }
+  if (axisDial) {
+    updateAxisDialColors();
+    updateAxisDialVisual(angleToVisualDeg(view.rotation));
+    let dialDragging = false;
+    let dialDidMove = false; // true if pointer moved significantly during drag
+    let dialStartAngle = 0; // angle of pointer relative to dial centre at drag start
+    let dialStartRot = 0;   // view.rotation at drag start
+
+    function getDialAngle(clientX, clientY) {
+      const rect = axisDial.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      return Math.atan2(-(clientY - cy), clientX - cx); // math convention (CCW positive)
+    }
+
+    function dialPointerDown(clientX, clientY) {
+      dialDragging = true;
+      dialDidMove = false;
+      axisDial.classList.add('dragging');
+      dialStartAngle = getDialAngle(clientX, clientY);
+      dialStartRot = view.rotation;
+    }
+    function dialPointerMove(clientX, clientY) {
+      if (!dialDragging) return;
+      const currentAngle = getDialAngle(clientX, clientY);
+      let delta = currentAngle - dialStartAngle;
+      // Normalize to [-π, π]
+      while (delta > Math.PI) delta -= 2 * Math.PI;
+      while (delta < -Math.PI) delta += 2 * Math.PI;
+      if (Math.abs(delta) > 0.05) dialDidMove = true; // ~3° threshold
+      const newRot = dialStartRot + delta;
+      view.rotation = newRot;
       state.viewDirty = true;
-      if (ui.resetOverlay && angle !== 0) ui.resetOverlay.style.display = "";
+      updateAxisDialVisual(angleToVisualDeg(newRot));
+    }
+    function dialPointerUp() {
+      if (!dialDragging) return;
+      dialDragging = false;
+      axisDial.classList.remove('dragging');
+      // Snap to nearest angle
+      const snapped = nearestSnapAngle(view.rotation);
+      view.rotation = snapped;
+      state.viewDirty = true;
+      updateAxisDialVisual(angleToVisualDeg(snapped));
+      if (ui.resetOverlay && snapped !== 0) ui.resetOverlay.style.display = "";
+    }
+
+    // Mouse events
+    axisDial.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      dialPointerDown(e.clientX, e.clientY);
     });
-  });
+    window.addEventListener('mousemove', (e) => {
+      dialPointerMove(e.clientX, e.clientY);
+    });
+    window.addEventListener('mouseup', () => {
+      dialPointerUp();
+    });
+
+    // Touch events
+    axisDial.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        e.preventDefault();
+        e.stopPropagation();
+        dialPointerDown(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: false });
+    window.addEventListener('touchmove', (e) => {
+      if (dialDragging && e.touches.length >= 1) {
+        dialPointerMove(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: true });
+    window.addEventListener('touchend', () => {
+      dialPointerUp();
+    });
+
+    // Click (no drag) cycles to next snap angle
+    axisDial.addEventListener('click', (e) => {
+      if (dialDidMove) return; // was a real drag, already handled by mouseup snap
+      const currentIdx = SNAP_ANGLES.findIndex(a => Math.abs(a - view.rotation) < 0.01);
+      const nextIdx = (currentIdx + 1) % SNAP_ANGLES.length;
+      view.rotation = SNAP_ANGLES[nextIdx];
+      state.viewDirty = true;
+      updateAxisDialVisual(angleToVisualDeg(SNAP_ANGLES[nextIdx]));
+      if (ui.resetOverlay && SNAP_ANGLES[nextIdx] !== 0) ui.resetOverlay.style.display = "";
+    });
+  }
 
   // ---- Tau mode toggle ----
   const tauBtn = document.getElementById('tau-toggle');
@@ -11044,11 +11424,9 @@ function setup() {
     });
   }
 
-  // Set initial rotation to vertical (90°)
-  view.rotation = -Math.PI / 2;
-  if (ui.rotBtns) ui.rotBtns.forEach(b => {
-    b.classList.toggle("mode-btn--active", Math.abs(parseFloat(b.dataset.rot) - (-Math.PI / 2)) < 0.01);
-  });
+  // Set initial rotation to horizontal (0°)
+  view.rotation = 0;
+  if (typeof updateAxisDialVisual === 'function') updateAxisDialVisual(0);
 
   // Auto-start t playback
   if (state.usesT) {
@@ -11750,19 +12128,31 @@ function buildToggleBar() {
 
 /* ========== Graph Controls section in expr-window ========== */
 
+/** Sync the mobile mode-dropdown trigger button text with the current mode. */
+const _modeLabels = { cartesian: 'Cartesian', delta: 'Δ from x', numberLines: 'Parallel' };
+function syncModeDropdownTrigger(mode) {
+  // Update all dropdown triggers (original + expr-window clone)
+  document.querySelectorAll('.mode-dropdown-trigger').forEach(trig => {
+    if (_modeLabels[mode]) trig.textContent = _modeLabels[mode] + ' ▾';
+  });
+}
+
 function populateGraphControlsSection() {
   const body = document.getElementById('ew-body-controls');
   if (!body) return;
   body.innerHTML = '';
 
-  // Move all button groups from mode-toggle-overlay into the section
+  // Move all button groups AND the axis dial from mode-toggle-overlay into the section
   const overlay = document.getElementById('mode-toggle-overlay');
   if (overlay) {
-    const groups = Array.from(overlay.querySelectorAll('.mode-toggle__buttons'));
+    const groups = Array.from(overlay.querySelectorAll('.mode-toggle__buttons, .axis-dial'));
     const wrap = document.createElement('div');
     wrap.className = 'ew-controls-wrap';
     groups.forEach(g => {
       const clone = g.cloneNode(true);
+      // Remove duplicate IDs from clones to avoid conflicts
+      clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+      if (clone.id) clone.removeAttribute('id');
       wrap.appendChild(clone);
     });
     body.appendChild(wrap);
@@ -11777,22 +12167,60 @@ function populateGraphControlsSection() {
         body.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('mode-btn--active', b.dataset.mode === btn.dataset.mode));
         overlay.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('mode-btn--active', b.dataset.mode === btn.dataset.mode));
         if (ui.modeButtons) ui.modeButtons.forEach(b => b.classList.toggle('mode-btn--active', b.dataset.mode === btn.dataset.mode));
+        syncModeDropdownTrigger(btn.dataset.mode);
         setStatusForCurrentMode();
       });
     });
 
-    // Wire up cloned rotation buttons
-    const rotBtns = body.querySelectorAll('[data-rot]');
-    rotBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const angle = parseFloat(btn.dataset.rot);
-        view.rotation = angle;
-        body.querySelectorAll('[data-rot]').forEach(b => b.classList.toggle('mode-btn--active', b === btn));
-        if (ui.rotBtns) ui.rotBtns.forEach(b => b.classList.toggle('mode-btn--active', parseFloat(b.dataset.rot) === angle));
-        state.viewDirty = true;
-        if (ui.resetOverlay && angle !== 0) ui.resetOverlay.style.display = "";
+    // Wire up cloned dropdown trigger (expr-window copy)
+    const clonedTrigger = body.querySelector('.mode-dropdown-trigger');
+    const clonedList = body.querySelector('.mode-dropdown-list');
+    if (clonedTrigger && clonedList) {
+      clonedTrigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        clonedList.classList.toggle('open');
       });
-    });
+      // Close on outside click
+      document.addEventListener('click', (e) => {
+        if (!clonedTrigger.contains(e.target) && !clonedList.contains(e.target)) {
+          clonedList.classList.remove('open');
+        }
+      });
+      // Update trigger text when a mode is selected
+      const modeLabels = { cartesian: 'Cartesian', delta: 'Δ from x', numberLines: 'Parallel' };
+      clonedList.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const mode = btn.dataset.mode;
+          if (mode && modeLabels[mode]) {
+            clonedTrigger.textContent = modeLabels[mode] + ' ▾';
+          }
+          clonedList.classList.remove('open');
+        });
+      });
+    }
+
+    // Wire up cloned axis dial (in expr-window controls section)
+    const clonedDial = body.querySelector('.axis-dial');
+    if (clonedDial) {
+      // Color the cloned dial lines
+      const xLine = clonedDial.querySelector('.axis-dial__x');
+      const yLine = clonedDial.querySelector('.axis-dial__y');
+      if (xLine) xLine.setAttribute('stroke', OP_COLORS.x);
+      if (yLine) yLine.setAttribute('stroke', OP_COLORS.y);
+      const clonedIcon = clonedDial.querySelector('.axis-dial__icon');
+      // Click cycles through snap angles
+      clonedDial.addEventListener('click', () => {
+        const SNAP = [0, -Math.PI / 2, Math.PI / 4];
+        const curIdx = SNAP.findIndex(a => Math.abs(a - view.rotation) < 0.01);
+        const next = SNAP[(curIdx + 1) % SNAP.length];
+        view.rotation = next;
+        state.viewDirty = true;
+        const deg = -next * (180 / Math.PI);
+        if (clonedIcon) clonedIcon.style.transform = `rotate(${deg}deg)`;
+        if (typeof updateAxisDialVisual === 'function') updateAxisDialVisual(deg);
+        if (ui.resetOverlay && next !== 0) ui.resetOverlay.style.display = "";
+      });
+    }
 
     // Wire up cloned discrete buttons
     const discBtns = body.querySelectorAll('[data-discrete]');
@@ -11816,9 +12244,10 @@ function populateGraphControlsSection() {
         if (orig) orig.classList.toggle('mode-btn--active', state.tauMode);
       });
     }
-    const glowBtn = body.querySelector('#glow-toggle');
+    const glowBtn = body.querySelector('#glow-toggle') || body.querySelector('.glow-toggle');
     if (glowBtn) {
       glowBtn.removeAttribute('id');
+      glowBtn.classList.toggle('mode-btn--active', state.glowCurves);
       glowBtn.addEventListener('click', () => {
         state.glowCurves = !state.glowCurves;
         glowBtn.classList.toggle('mode-btn--active', state.glowCurves);
@@ -11826,9 +12255,10 @@ function populateGraphControlsSection() {
         if (orig) orig.classList.toggle('mode-btn--active', state.glowCurves);
       });
     }
-    const numBtn = body.querySelector('#numeral-toggle');
+    const numBtn = body.querySelector('#numeral-toggle') || body.querySelector('.numeral-toggle');
     if (numBtn) {
       numBtn.removeAttribute('id');
+      numBtn.classList.toggle('mode-btn--active', state.numeralMode);
       numBtn.addEventListener('click', () => {
         state.numeralMode = !state.numeralMode;
         numBtn.classList.toggle('mode-btn--active', state.numeralMode);
@@ -11836,7 +12266,7 @@ function populateGraphControlsSection() {
         if (orig) orig.classList.toggle('mode-btn--active', state.numeralMode);
       });
     }
-    const eqBtn = body.querySelector('#eq-toggle');
+    const eqBtn = body.querySelector('#eq-toggle') || body.querySelector('.eq-toggle');
     if (eqBtn) {
       eqBtn.removeAttribute('id');
       eqBtn.addEventListener('click', () => {
@@ -11845,6 +12275,56 @@ function populateGraphControlsSection() {
         const orig = document.getElementById('eq-toggle');
         if (orig) orig.classList.toggle('mode-btn--active', state.equalizeColors);
       });
+    }
+  }
+
+  // ---- Mobile portrait: restructure into CSS Grid layout ----
+  const _portraitMQ = window.matchMedia(
+    '(max-width: 600px) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: portrait)'
+  );
+  if (_portraitMQ.matches) {
+    const wrap = body.querySelector('.ew-controls-wrap');
+    if (wrap) {
+      const grid = document.createElement('div');
+      grid.className = 'ew-controls-grid';
+
+      // Discrete column: stack 3 buttons vertically (1/3 width, 2 rows tall)
+      const discreteCol = document.createElement('div');
+      discreteCol.className = 'ctrl-discrete';
+      wrap.querySelectorAll('.discrete-btn').forEach(btn => discreteCol.appendChild(btn));
+
+      // Axis dial: centred in middle column (2 rows tall)
+      const axisCol = document.createElement('div');
+      axisCol.className = 'ctrl-axis';
+      const dial = wrap.querySelector('.axis-dial');
+      if (dial) {
+        dial.style.setProperty('display', 'flex', 'important');
+        axisCol.appendChild(dial);
+      }
+
+      // Mode selector: Cartesian / Δ / Parallel (top-right)
+      const modeRow = document.createElement('div');
+      modeRow.className = 'ctrl-mode';
+      wrap.querySelectorAll('[data-mode]').forEach(btn => modeRow.appendChild(btn));
+
+      // Toggle row: τ, glow, 123 (bottom-right)
+      const togglesRow = document.createElement('div');
+      togglesRow.className = 'ctrl-toggles';
+      const tau = wrap.querySelector('.tau-toggle');
+      const glow = wrap.querySelector('.glow-toggle');
+      const num = wrap.querySelector('.numeral-toggle');
+      if (tau) togglesRow.appendChild(tau);
+      if (glow) togglesRow.appendChild(glow);
+      if (num) togglesRow.appendChild(num);
+
+      grid.appendChild(discreteCol);
+      grid.appendChild(axisCol);
+      grid.appendChild(modeRow);
+      grid.appendChild(togglesRow);
+
+      // Clear remaining empty wrappers and insert grid
+      while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+      wrap.appendChild(grid);
     }
   }
 }
@@ -12123,6 +12603,18 @@ function setupTouchHandlers() {
   const canvasWrap = document.getElementById('canvas-wrap');
   if (!canvasWrap) return;
 
+  // ---- Touch-mode pill ----
+  const pillBtns = document.querySelectorAll('.touch-mode-btn');
+  pillBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.tmode;
+      if (mode) {
+        state.touchMode = mode;
+        pillBtns.forEach(b => b.classList.toggle('touch-mode-btn--active', b.dataset.tmode === mode));
+      }
+    });
+  });
+
   let activeTouches = [];
   let isPinching = false;
   let initialPinchDist = 0;
@@ -12136,6 +12628,8 @@ function setupTouchHandlers() {
   let touchCursorX = -1;
   let touchCursorY = -1;
   let touchActive = false;
+  let _colExpandStartX = 0;
+  let _colExpandStartY = 0;
 
   window._mobileTouchCursor = { x: -1, y: -1, active: false };
 
@@ -12175,16 +12669,30 @@ function setupTouchHandlers() {
       e.preventDefault();
     } else if (activeTouches.length === 1) {
       if (!isOverUI(activeTouches[0].clientX, activeTouches[0].clientY)) {
-        state.isPanning = true;
-        state.panStartMouseX = activeTouches[0].clientX;
-        state.panStartMouseY = activeTouches[0].clientY;
-        state.panStartOriginX = view.originX;
-        state.panStartOriginY = view.originY;
+        const tm = state.touchMode;
 
-        touchCursorX = activeTouches[0].clientX;
-        touchCursorY = activeTouches[0].clientY + CURSOR_OFFSET_Y;
-        touchActive = true;
-        window._mobileTouchCursor = { x: touchCursorX, y: touchCursorY, active: true };
+        if (tm === "panZoom") {
+          // Pan + move cursor
+          state.isPanning = true;
+          state.panStartMouseX = activeTouches[0].clientX;
+          state.panStartMouseY = activeTouches[0].clientY;
+          state.panStartOriginX = view.originX;
+          state.panStartOriginY = view.originY;
+        }
+
+        // Value-select & panZoom both get a visible cursor
+        if (tm === "panZoom" || tm === "valueSelect") {
+          touchCursorX = activeTouches[0].clientX;
+          touchCursorY = activeTouches[0].clientY + CURSOR_OFFSET_Y;
+          touchActive = true;
+          window._mobileTouchCursor = { x: touchCursorX, y: touchCursorY, active: true };
+        }
+
+        // Column-expand mode: handle on touchend (tap) so we don't trigger on drag
+        if (tm === "columnExpand") {
+          _colExpandStartX = activeTouches[0].clientX;
+          _colExpandStartY = activeTouches[0].clientY;
+        }
       }
     }
   }, { passive: false });
@@ -12225,6 +12733,12 @@ function setupTouchHandlers() {
       touchCursorY = activeTouches[0].clientY + CURSOR_OFFSET_Y;
       window._mobileTouchCursor = { x: touchCursorX, y: touchCursorY, active: true };
       e.preventDefault();
+    } else if (state.touchMode === "valueSelect" && activeTouches.length === 1) {
+      // Value-select mode: move cursor only, no panning
+      touchCursorX = activeTouches[0].clientX;
+      touchCursorY = activeTouches[0].clientY + CURSOR_OFFSET_Y;
+      window._mobileTouchCursor = { x: touchCursorX, y: touchCursorY, active: true };
+      e.preventDefault();
     }
   }, { passive: false });
 
@@ -12236,18 +12750,21 @@ function setupTouchHandlers() {
     if (activeTouches.length < 2) {
       if (isPinching && activeTouches.length === 1) {
         // Transition from pinch back to single-finger: restart pan from current position
-        state.isPanning = true;
-        state.panStartMouseX = activeTouches[0].clientX;
-        state.panStartMouseY = activeTouches[0].clientY;
-        state.panStartOriginX = view.originX;
-        state.panStartOriginY = view.originY;
+        if (state.touchMode === "panZoom") {
+          state.isPanning = true;
+          state.panStartMouseX = activeTouches[0].clientX;
+          state.panStartMouseY = activeTouches[0].clientY;
+          state.panStartOriginX = view.originX;
+          state.panStartOriginY = view.originY;
+        }
       }
       isPinching = false;
     }
     if (activeTouches.length === 0) {
       state.isPanning = false;
-      // Check for tap (small drag) in discrete mode
-      if (prevPanning && e.changedTouches && e.changedTouches.length > 0) {
+
+      // In panZoom mode, small-drag taps still expand columns (original behaviour)
+      if (state.touchMode === "panZoom" && prevPanning && e.changedTouches && e.changedTouches.length > 0) {
         const ct = e.changedTouches[0];
         const tdx = ct.clientX - panSX;
         const tdy = ct.clientY - panSY;
@@ -12255,6 +12772,17 @@ function setupTouchHandlers() {
           handleDiscreteColumnClick(ct.clientX, ct.clientY);
         }
       }
+
+      // In columnExpand mode, any tap expands/collapses a column
+      if (state.touchMode === "columnExpand" && e.changedTouches && e.changedTouches.length > 0) {
+        const ct = e.changedTouches[0];
+        const tdx = ct.clientX - _colExpandStartX;
+        const tdy = ct.clientY - _colExpandStartY;
+        if (Math.sqrt(tdx * tdx + tdy * tdy) < 15) {
+          handleDiscreteColumnClick(ct.clientX, ct.clientY);
+        }
+      }
+
       setTimeout(() => {
         touchActive = false;
         window._mobileTouchCursor = { x: -1, y: -1, active: false };
@@ -12279,6 +12807,21 @@ function setupMobileBarControls() {
   const timeline = document.getElementById('timeline-control');
   const pseudoFsBtn = document.getElementById('pseudofs-btn');
 
+  // ---- 0. Prevent canvasWrap touch handlers from intercepting overlay touches ----
+  // canvasWrap has { passive: false } touchstart which can suppress click synthesis
+  // on iOS/Safari. stopPropagation prevents canvasWrap from ever seeing these touches.
+  if (modeToggle) {
+    modeToggle.addEventListener('touchstart', (e) => {
+      e.stopPropagation();
+    }, { passive: true });
+    modeToggle.addEventListener('touchmove', (e) => {
+      e.stopPropagation();
+    }, { passive: true });
+    modeToggle.addEventListener('touchend', (e) => {
+      e.stopPropagation();
+    }, { passive: true });
+  }
+
   // ---- 1. Topbar collapse toggle ----
   if (collapseBtn && topbar) {
     collapseBtn.addEventListener('click', () => {
@@ -12291,14 +12834,26 @@ function setupMobileBarControls() {
   const modeDropdownTrigger = document.getElementById('mode-dropdown-trigger');
   const modeDropdownList = document.getElementById('mode-dropdown-list');
   if (modeDropdownTrigger && modeDropdownList) {
-    // Toggle dropdown on trigger click
-    modeDropdownTrigger.addEventListener('click', (e) => {
+    let _ddToggled = false; // debounce touch→click double-fire
+    function toggleDropdown(e) {
       e.stopPropagation();
+      if (e.cancelable) e.preventDefault();
+      if (_ddToggled) return;
+      _ddToggled = true;
+      setTimeout(() => { _ddToggled = false; }, 300);
       modeDropdownList.classList.toggle('open');
-    });
+    }
+    // Both click and touchend for maximum iOS compatibility
+    modeDropdownTrigger.addEventListener('click', toggleDropdown);
+    modeDropdownTrigger.addEventListener('touchend', toggleDropdown);
 
-    // Close dropdown on outside click
+    // Close dropdown on outside tap
     document.addEventListener('click', (e) => {
+      if (!modeDropdownTrigger.contains(e.target) && !modeDropdownList.contains(e.target)) {
+        modeDropdownList.classList.remove('open');
+      }
+    });
+    document.addEventListener('touchend', (e) => {
       if (!modeDropdownTrigger.contains(e.target) && !modeDropdownList.contains(e.target)) {
         modeDropdownList.classList.remove('open');
       }
@@ -12307,20 +12862,25 @@ function setupMobileBarControls() {
     // Update trigger text when a mode button inside the list is clicked
     const modeLabels = { cartesian: 'Cartesian', delta: 'Δ from x', numberLines: 'Parallel' };
     modeDropdownList.querySelectorAll('.mode-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
+      function selectMode(e) {
+        e.stopPropagation();
+        if (e.cancelable) e.preventDefault();
         const mode = btn.dataset.mode;
         if (mode && modeLabels[mode]) {
           modeDropdownTrigger.textContent = modeLabels[mode] + ' ▾';
-          // Actually switch the mode
           state.mode = mode;
-          // Update active styling on all mode buttons
           if (ui.modeButtons) {
             ui.modeButtons.forEach(b => b.classList.toggle('mode-btn--active', b.dataset.mode === mode));
           }
+          // Sync all dropdown triggers + list active states
+          document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('mode-btn--active', b.dataset.mode === mode));
+          syncModeDropdownTrigger(mode);
           setStatusForCurrentMode();
         }
         modeDropdownList.classList.remove('open');
-      });
+      }
+      btn.addEventListener('click', selectMode);
+      btn.addEventListener('touchend', selectMode);
     });
   }
 
@@ -12443,6 +13003,168 @@ function setupMobileBarControls() {
   setupEyeToggleMode();
 }
 
+/* ========== Mobile portrait: section toggle tabbar ========== */
+function setupSectionTabbar() {
+  const tabbar = document.getElementById('ew-section-tabbar');
+  if (!tabbar) return;
+
+  const portraitMQ = window.matchMedia(
+    '(max-width: 600px) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: portrait)'
+  );
+
+  function resolveSection(target) {
+    // In portrait, text+latex are merged into #ew-section-textlatex
+    const merged = document.getElementById('ew-section-textlatex');
+    if (target === 'textlatex') {
+      if (merged) return [merged];
+      // Fallback to separate sections
+      return [
+        document.getElementById('ew-section-text'),
+        document.getElementById('ew-section-latex'),
+      ].filter(Boolean);
+    }
+    const el = document.getElementById('ew-section-' + target);
+    return el ? [el] : [];
+  }
+
+  function syncBtn(btn) {
+    const sections = resolveSection(btn.dataset.target);
+    if (sections.length === 0) return;
+    const allVisible = sections.every(s => !s.classList.contains('collapsed'));
+    btn.classList.toggle('ew-tab-btn--on', allVisible);
+  }
+
+  function syncAll() {
+    tabbar.querySelectorAll('.ew-tab-btn').forEach(syncBtn);
+  }
+
+  tabbar.querySelectorAll('.ew-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sections = resolveSection(btn.dataset.target);
+      if (sections.length === 0) return;
+      const allVisible = sections.every(s => !s.classList.contains('collapsed'));
+      sections.forEach(s => s.classList.toggle('collapsed', allVisible));
+      btn.classList.toggle('ew-tab-btn--on', !allVisible);
+    });
+  });
+
+  // Sync initial state after a tick (merged section may not exist yet)
+  requestAnimationFrame(syncAll);
+
+  // Auto-open controls section on mobile portrait (since overlay is hidden)
+  if (portraitMQ.matches) {
+    const ctrlSection = document.getElementById('ew-section-controls');
+    if (ctrlSection && ctrlSection.classList.contains('collapsed')) {
+      ctrlSection.classList.remove('collapsed');
+      requestAnimationFrame(syncAll);
+    }
+  }
+
+  // Re-sync when orientation changes (merge/unmerge might happen)
+  portraitMQ.addEventListener('change', () => setTimeout(syncAll, 100));
+}
+
+/* ========== Mobile: swipe pages (expression+tree ↔ controls+visibility) ========== */
+
+function setupMobileSwipePages() {
+  const portraitMQ = window.matchMedia(
+    '(max-width: 600px) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: portrait)'
+  );
+  if (!portraitMQ.matches) return;
+
+  const exprWin = document.getElementById('expr-window');
+  if (!exprWin) return;
+
+  const textLatex = document.getElementById('ew-section-textlatex');
+  const tree = document.getElementById('ew-section-tree');
+  const controls = document.getElementById('ew-section-controls');
+  const visibility = document.getElementById('ew-section-visibility');
+  const tabbar = document.getElementById('ew-section-tabbar');
+
+  // Hide the bottom tabbar
+  if (tabbar) tabbar.style.display = 'none';
+
+  // Create page indicator labels
+  const labels = document.createElement('div');
+  labels.className = 'ew-page-labels';
+  const labelLeft = document.createElement('button');
+  labelLeft.className = 'ew-page-label ew-page-label--active';
+  labelLeft.dataset.page = '0';
+  labelLeft.textContent = 'f(x) & Tree';
+  const labelRight = document.createElement('button');
+  labelRight.className = 'ew-page-label';
+  labelRight.dataset.page = '1';
+  labelRight.textContent = 'Controls & Vis';
+  labels.appendChild(labelLeft);
+  labels.appendChild(labelRight);
+
+  // Create horizontal scroll-snap container
+  const scroller = document.createElement('div');
+  scroller.className = 'ew-pages-scroller';
+
+  // Page 1: Expression + Tree
+  const page1 = document.createElement('div');
+  page1.className = 'ew-page';
+  if (textLatex) { textLatex.classList.remove('collapsed'); page1.appendChild(textLatex); }
+  if (tree) { tree.classList.remove('collapsed'); page1.appendChild(tree); }
+
+  // Page 2: Controls + Visibility
+  const page2 = document.createElement('div');
+  page2.className = 'ew-page';
+  if (controls) { controls.classList.remove('collapsed'); page2.appendChild(controls); }
+  if (visibility) { visibility.classList.remove('collapsed'); page2.appendChild(visibility); }
+
+  scroller.appendChild(page1);
+  scroller.appendChild(page2);
+
+  // Enable swipe layout on the expr-window
+  exprWin.classList.add('has-swipe-pages');
+  exprWin.appendChild(labels);
+  exprWin.appendChild(scroller);
+
+  // ---- Restructure visibility into 2 columns ----
+  const visWrap = visibility ? visibility.querySelector('.ew-visibility-wrap') : null;
+  if (visWrap) {
+    const items = Array.from(visWrap.children);
+    // toggleDefs order: 0=Axis, 1=Gridlines, 2=Labels, 3=Transforms, 4=Intermediates, 5=Starbursts, 6=HUD
+    const leftCol = document.createElement('div');
+    leftCol.className = 'vis-column vis-column--left';
+    const rightCol = document.createElement('div');
+    rightCol.className = 'vis-column vis-column--right';
+
+    // Left: Axis, Gridlines, Labels (first 3)
+    for (let i = 0; i < 3 && i < items.length; i++) leftCol.appendChild(items[i]);
+
+    // Right: Starbursts (index 5), Transforms (index 3), Intermediates (index 4)
+    if (items[5]) rightCol.appendChild(items[5]);
+    if (items[3]) rightCol.appendChild(items[3]);
+    if (items[4]) rightCol.appendChild(items[4]);
+
+    // Hide HUD toggle on mobile pages
+    if (items[6]) items[6].style.display = 'none';
+
+    while (visWrap.firstChild) visWrap.removeChild(visWrap.firstChild);
+    visWrap.appendChild(leftCol);
+    visWrap.appendChild(rightCol);
+  }
+
+  // ---- Label click: scroll to page ----
+  labels.querySelectorAll('.ew-page-label').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.page);
+      scroller.scrollTo({ left: idx * scroller.clientWidth, behavior: 'smooth' });
+    });
+  });
+
+  // ---- Scroll sync: update active label ----
+  scroller.addEventListener('scroll', () => {
+    const idx = Math.round(scroller.scrollLeft / scroller.clientWidth);
+    labels.querySelectorAll('.ew-page-label').forEach((btn, i) => {
+      btn.classList.toggle('ew-page-label--active', i === idx);
+    });
+  });
+}
+
 /* ========== Mobile: eye-toggle mode (replace box contents with eye toggles) ========== */
 function setupEyeToggleMode() {
   const eyeBtn = document.getElementById('step-eye-mode-btn');
@@ -12540,7 +13262,7 @@ function isOverUI(cx, cy) {
   const nodeTooltip = document.querySelector('.node-tooltip');
   const els = [topbar, toggles, settingsMenu, modeOverlay, timelineCtrl, mobilePanel, mobileEye, settingsGear, trashZoneEl, exprWindow, radialBackdrop, radialPortal, nodeTooltip];
   for (const el of els) {
-    if (!el || el.style.display === 'none') continue;
+    if (!el || getComputedStyle(el).display === 'none') continue;
     const r = el.getBoundingClientRect();
     if (checkX >= r.left && checkX <= r.right && checkY >= r.top && checkY <= r.bottom) return true;
   }
@@ -14920,6 +15642,75 @@ function drawIntermediateCurves(transformFn) {
   const steps = state.steps;
   if (steps.length < 2) return;
 
+  // --- Pass 1: Area fills between consecutive intermediate curves ---
+  if (steps.length >= 2) {
+    const ctx = drawingContext;
+    const { minX: fillMinX, maxX: fillMaxX } = getVisibleWorldBounds();
+    const fillStep = 1 / view.scale;
+    const maxJumpPx = Math.max(120, height * 0.6);
+    const FILL_ALPHA = 0.12;
+
+    for (let k = 0; k < steps.length - 1; k++) {
+      // Fill between step[k] and step[k+1]
+      if (k === 0 && !state.stepEyes.x) continue;
+      if (k > 0 && state.stepEyes.ops[k - 1] === false) continue;
+      // For the last pair (k = steps.length-2), check y visibility
+      if (k < steps.length - 2 && state.stepEyes.ops[k] === false) continue;
+      if (k === steps.length - 2 && !state.stepEyes.y) continue;
+
+      const fnA = steps[k].fn;
+      const fnB = steps[k + 1].fn;
+      // Color: use the operation that transforms step[k] → step[k+1]
+      const col = getStepColor(steps[k + 1]);
+      const r = red(col), g = green(col), b = blue(col);
+
+      // Sample both curves, breaking at discontinuities
+      let ptsA = [], ptsB = [];
+      let prevSaX, prevSaY, prevSbX, prevSbY;
+
+      function flushFill() {
+        if (ptsA.length < 2) { ptsA.length = 0; ptsB.length = 0; return; }
+        ctx.save();
+        ctx.fillStyle = `rgba(${r},${g},${b},${FILL_ALPHA})`;
+        ctx.beginPath();
+        ctx.moveTo(ptsA[0].x, ptsA[0].y);
+        for (let i = 1; i < ptsA.length; i++) ctx.lineTo(ptsA[i].x, ptsA[i].y);
+        for (let i = ptsB.length - 1; i >= 0; i--) ctx.lineTo(ptsB[i].x, ptsB[i].y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        ptsA = []; ptsB = [];
+      }
+
+      for (let wx = fillMinX - fillStep; wx <= fillMaxX + fillStep; wx += fillStep) {
+        let ya, yb;
+        try { ya = fnA(wx); } catch { ya = NaN; }
+        try { yb = fnB(wx); } catch { yb = NaN; }
+        if (transformFn) {
+          ya = Number.isFinite(ya) ? transformFn(ya, wx) : NaN;
+          yb = Number.isFinite(yb) ? transformFn(yb, wx) : NaN;
+        }
+        if (!Number.isFinite(ya) || !Number.isFinite(yb)) { flushFill(); continue; }
+
+        const sa = worldToScreen(wx, ya);
+        const sb = worldToScreen(wx, yb);
+
+        // Break at large jumps (discontinuities)
+        if (ptsA.length > 0) {
+          const dA = dist(prevSaX, prevSaY, sa.x, sa.y);
+          const dB = dist(prevSbX, prevSbY, sb.x, sb.y);
+          if (dA > maxJumpPx || dB > maxJumpPx) { flushFill(); }
+        }
+
+        ptsA.push(sa); ptsB.push(sb);
+        prevSaX = sa.x; prevSaY = sa.y;
+        prevSbX = sb.x; prevSbY = sb.y;
+      }
+      flushFill();
+    }
+  }
+
+  // --- Pass 2: Intermediate curve lines (drawn on top of fills) ---
   for (let k = 0; k < steps.length - 1; k++) {
     // Check eye visibility: k=0 is x, k>=1 is ops[k-1]
     if (k === 0 && !state.stepEyes.x) continue;
@@ -14927,12 +15718,12 @@ function drawIntermediateCurves(transformFn) {
 
     const step = steps[k];
     const col = getStepColor(step);
-    const fadedCol = color(red(col), green(col), blue(col), 130);
+    const brightCol = color(red(col), green(col), blue(col), 130);
 
     if (transformFn) {
-      drawCurve((x) => transformFn(step.fn(x), x), fadedCol, 1.5);
+      drawCurve((x) => transformFn(step.fn(x), x), brightCol, 1.5);
     } else {
-      drawCurve((x) => step.fn(x), fadedCol, 1.5);
+      drawCurve((x) => step.fn(x), brightCol, 1.5);
     }
 
     // Subintermediates between this step and the next
@@ -15031,7 +15822,7 @@ function drawDeltaCurveAndArrows() {
       const base = worldToScreen(x, 0);
 
       if (steps.length > 0) {
-        drawKnotCircle(base.x, base.y, getStepColor("x"), undefined, 255 * alphaScale);
+        drawKnotCircle(base.x, base.y, getStepColor("x"), undefined, 150 * alphaScale);
 
         let prevDelta = 0;
         let prevStepDelta = null;
@@ -15044,16 +15835,12 @@ function drawDeltaCurveAndArrows() {
           if (!eyeVisible) { prevDelta = nextDelta; prevStepDelta = stepDelta; continue; }
           const a = worldToScreen(x, prevDelta);
           const b = worldToScreen(x, nextDelta);
-          let off = 0;
-          if (prevStepDelta !== null && prevStepDelta * stepDelta < 0) {
-            off = stepDelta > 0 ? -5 : 5;
-          }
           const col = getStepColor(steps[k]);
-          drawArrowScreen(a.x + off * xDirSx, a.y - off * xDirSy, b.x + off * xDirSx, b.y - off * xDirSy,
-            { col, alpha: 220 * alphaScale, strokeWeightPx: 2 });
+          drawArrowScreen(a.x, a.y, b.x, b.y,
+            { col, alpha: 60 * alphaScale, strokeWeightPx: 1.5 });
 
           const dotCol = (k === steps.length - 1) ? getStepColor("y") : getStepColor(steps[k]);
-          drawKnotCircle(b.x, b.y, dotCol, undefined, 255 * alphaScale);
+          drawKnotCircle(b.x, b.y, dotCol, undefined, 150 * alphaScale);
 
           prevDelta = nextDelta;
           prevStepDelta = stepDelta;
@@ -15065,7 +15852,7 @@ function drawDeltaCurveAndArrows() {
         const a = worldToScreen(x, 0);
         const b = worldToScreen(x, delta);
         const col = getDeltaArrowColor(delta);
-        drawArrowScreen(a.x, a.y, b.x, b.y, { col, alpha: 220 * alphaScale, strokeWeightPx: 2 });
+        drawArrowScreen(a.x, a.y, b.x, b.y, { col, alpha: 60 * alphaScale, strokeWeightPx: 1.5 });
       }
     }
   }
@@ -15246,13 +16033,9 @@ function drawCartesianTransformArrows() {
         if (!eyeVisible) { prevStepDelta = stepDelta; continue; }
         const a = worldToScreen(x, fromVal);
         const b = worldToScreen(x, toVal);
-        let off = 0;
-        if (prevStepDelta !== null && prevStepDelta * stepDelta < 0) {
-          off = stepDelta > 0 ? -5 : 5;
-        }
         const col = getStepColor(steps[j]);
-        drawArrowScreen(a.x + off * xDirSx, a.y - off * xDirSy, b.x + off * xDirSx, b.y - off * xDirSy,
-          { col, alpha: 220 * alphaScale, strokeWeightPx: 2 });
+        drawArrowScreen(a.x, a.y, b.x, b.y,
+          { col, alpha: 60 * alphaScale, strokeWeightPx: 1.5 });
         prevStepDelta = stepDelta;
       }
 
@@ -15261,9 +16044,9 @@ function drawCartesianTransformArrows() {
         if (j === values.length - 1 && !state.stepEyes.y) continue;
         if (j > 0 && j < values.length - 1 && state.stepEyes.ops[j - 1] === false) continue;
         const pt = worldToScreen(x, values[j]);
-        if (j === 0) drawKnotCircle(pt.x, pt.y, getStepColor("x"), undefined, 255 * alphaScale);
-        else if (j === values.length - 1) drawKnotCircle(pt.x, pt.y, getStepColor("y"), undefined, 255 * alphaScale);
-        else drawKnotCircle(pt.x, pt.y, getStepColor(steps[j - 1]), undefined, 255 * alphaScale);
+        if (j === 0) drawKnotCircle(pt.x, pt.y, getStepColor("x"), undefined, 150 * alphaScale);
+        else if (j === values.length - 1) drawKnotCircle(pt.x, pt.y, getStepColor("y"), undefined, 150 * alphaScale);
+        else drawKnotCircle(pt.x, pt.y, getStepColor(steps[j - 1]), undefined, 150 * alphaScale);
       }
     } else {
       let fx;
@@ -15271,9 +16054,9 @@ function drawCartesianTransformArrows() {
       if (!Number.isFinite(fx)) return;
       const a = worldToScreen(x, x);
       const b = worldToScreen(x, fx);
-      drawArrowScreen(a.x, a.y, b.x, b.y, { col: getStepColor("misc"), alpha: 200 * alphaScale, strokeWeightPx: 2 });
-      drawKnotCircle(a.x, a.y, getStepColor("x"), undefined, 255 * alphaScale);
-      drawKnotCircle(b.x, b.y, getStepColor("y"), undefined, 255 * alphaScale);
+      drawArrowScreen(a.x, a.y, b.x, b.y, { col: getStepColor("misc"), alpha: 60 * alphaScale, strokeWeightPx: 1.5 });
+      drawKnotCircle(a.x, a.y, getStepColor("x"), undefined, 150 * alphaScale);
+      drawKnotCircle(b.x, b.y, getStepColor("y"), undefined, 150 * alphaScale);
     }
   }
 
@@ -15454,6 +16237,11 @@ function draw() {
     updateLiveOpValues(null);
     updateLiveDagValues(null);
     updateLatexDisplayLive(null);
+    // Restore normal text overlay when cursor leaves canvas
+    if (updateLiveInputOverlay._active) {
+      updateLiveInputOverlay._active = false;
+      updateInputOverlay();
+    }
   }
 
   // ---- HUD overlay (HTML element) ----

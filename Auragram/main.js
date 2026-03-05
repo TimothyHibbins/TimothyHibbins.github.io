@@ -164,8 +164,8 @@
         const f4 = f2 * f2;
         const num = 12194 * 12194 * f4;
         const den = (f2 + 20.6 * 20.6)
-                  * Math.sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9))
-                  * (f2 + 12194 * 12194);
+            * Math.sqrt((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9))
+            * (f2 + 12194 * 12194);
         if (den === 0) return -200;
         return 20 * Math.log10(num / den) + 2.0; // +2.0 so A(1000 Hz) ≈ 0 dB
     }
@@ -195,10 +195,10 @@
     let noteColourSpec = false;      // colour spectrogram by note hue
     let harmCutoffPct = 0;          // harmonic cutoff slider (0 = no cutoff, 100 = reject all)
     let hoverFundNote = null;       // MIDI-ish note number of hovered fundamental (null = no hover)
-    let selNoteLo     = null;       // drag-selected note range low (MIDI note, null = no selection)
-    let selNoteHi     = null;       // drag-selected note range high (MIDI note)
-    let selRowLo      = null;       // drag-selected harmonic row range low (1-based, null = all)
-    let selRowHi      = null;       // drag-selected harmonic row range high (1-based)
+    let selNoteLo = null;       // drag-selected note range low (MIDI note, null = no selection)
+    let selNoteHi = null;       // drag-selected note range high (MIDI note)
+    let selRowLo = null;       // drag-selected harmonic row range low (1-based, null = all)
+    let selRowHi = null;       // drag-selected harmonic row range high (1-based)
     let showHarmonics = false;      // harmonic overlay (off by default)
     let sourceGrouped = true;       // group X axis by source (on by default)
     let colourMode = 'amplitude'; // default to amplitude heatmap
@@ -1966,7 +1966,7 @@
             const a0 = 0.42, a1 = 0.5, a2 = 0.08;
             for (let i = 0; i < fftLen; i++) {
                 win[i] = a0 - a1 * Math.cos(2 * Math.PI * i / (fftLen - 1))
-                            + a2 * Math.cos(4 * Math.PI * i / (fftLen - 1));
+                    + a2 * Math.cos(4 * Math.PI * i / (fftLen - 1));
             }
         }
 
@@ -2121,8 +2121,8 @@
         //  that represent distinct sound sources across the whole track.
         // ═══════════════════════════════════════════════════════════════
         const TMPL_SIM_THRESH = 0.80;   // cosine sim threshold for same template
-        const TMPL_MAX_OCT    = 1.5;    // max octave distance for same template
-        const MIN_TMPL_OBS    = Math.max(3, Math.round(nFrames * 0.008));
+        const TMPL_MAX_OCT = 1.5;    // max octave distance for same template
+        const MIN_TMPL_OBS = Math.max(3, Math.round(nFrames * 0.008));
 
         // Sort by energy (strongest seeds first for greedy clustering)
         envCollector.sort((a, b) => b.energy - a.energy);
@@ -2400,7 +2400,7 @@
             hoverMask = new Uint8Array(TB);
             const fftBinHz = audioBuffer.sampleRate / FFT_SIZE;
             const loRatio = Math.pow(2, -0.5 / 12);
-            const hiRatio = Math.pow(2,  0.5 / 12);
+            const hiRatio = Math.pow(2, 0.5 / 12);
             const detFreqs = [];
             for (const b of lastHoverBins) detFreqs.push(b * fftBinHz);
             detFreqs.sort((a, b) => a - b);
@@ -2449,7 +2449,7 @@
             if (frame >= analysedFrames) {
                 for (let px = 0; px < W; px++) {
                     const imgIdx = (py * W + px) * 4;
-                    tlPx[imgIdx]     = 8;
+                    tlPx[imgIdx] = 8;
                     tlPx[imgIdx + 1] = 8;
                     tlPx[imgIdx + 2] = 12;
                     tlPx[imgIdx + 3] = 255;
@@ -2473,7 +2473,7 @@
 
                 const t255 = Math.max(0, Math.min(255, (brightness * 255) | 0));
                 const imgIdx = (py * W + px) * 4;
-                tlPx[imgIdx]     = COLOUR_LUT_R[t255];
+                tlPx[imgIdx] = COLOUR_LUT_R[t255];
                 tlPx[imgIdx + 1] = COLOUR_LUT_G[t255];
                 tlPx[imgIdx + 2] = COLOUR_LUT_B[t255];
                 tlPx[imgIdx + 3] = 255;
@@ -3655,7 +3655,7 @@
             const eqDbRange = eqDbMax - eqDbMin;
 
             const hasTemplates = preAnalysis && preAnalysis.templates &&
-                                 preAnalysis.templates.length > 0;
+                preAnalysis.templates.length > 0;
 
             // ── Phase 1: Build fund info with session + template links ──
             const eqFundInfo = []; // {freq, hue, template, sessionIdx}
@@ -3712,13 +3712,13 @@
             const eqBinHNum = new Uint8Array(binCount);
             eqBinHNum.fill(255);
 
-            const EQ_BASE_HW     = 5;    // search radius for h=1
-            const EQ_HW_SCALE    = 1.2;  // extra bins per harmonic number
-            const EQ_CLAIM_PAD   = 4;    // extra bins beyond search around peak
-            const EQ_MIN_ENERGY  = MIN_DB + 6;  // minimum dB (no template)
+            const EQ_BASE_HW = 5;    // search radius for h=1
+            const EQ_HW_SCALE = 1.2;  // extra bins per harmonic number
+            const EQ_CLAIM_PAD = 4;    // extra bins beyond search around peak
+            const EQ_MIN_ENERGY = MIN_DB + 6;  // minimum dB (no template)
             const EQ_TMPL_ENERGY = MIN_DB + 3;  // lower threshold with template
-            const EQ_TMPL_TOL    = 18;           // dB tolerance for template match
-            const EQ_MAX_HARM    = 24;           // walk up to 24th harmonic
+            const EQ_TMPL_TOL = 18;           // dB tolerance for template match
+            const EQ_MAX_HARM = 24;           // walk up to 24th harmonic
 
             for (let fi = 0; fi < eqFundInfo.length; fi++) {
                 const info = eqFundInfo[fi];
@@ -3778,8 +3778,8 @@
             //  reverb, formant spread, and spectral leakage place energy
             //  that's clearly part of the same source but falls outside
             //  the tight claim windows around discrete peaks.
-            const PROP_RADIUS   = 25;   // max bins to search for a neighbour
-            const PROP_MIN_DB   = MIN_DB + 10;
+            const PROP_RADIUS = 25;   // max bins to search for a neighbour
+            const PROP_MIN_DB = MIN_DB + 10;
             for (let b = 0; b < binCount; b++) {
                 if (eqBinOwner[b] >= 0) continue;          // already claimed
                 if (freqData[b] < PROP_MIN_DB) continue;   // no energy
@@ -3836,7 +3836,7 @@
                     } else {
                         // Fallback: frequency-based hue
                         hue360 = ((Math.log2(info.freq / 30) /
-                                   Math.log2(4200 / 30)) * 330) % 360;
+                            Math.log2(4200 / 30)) * 330) % 360;
                     }
                     // Direct harmonics: full saturation, bright
                     // Echo/reverb: desaturated, darker — tinted but muted
@@ -3850,12 +3850,12 @@
                     const m = lit - C / 2;
                     const h6 = hue360 / 60;
                     let r1, g1, b1;
-                    if      (h6 < 1) { r1 = C; g1 = X; b1 = 0; }
+                    if (h6 < 1) { r1 = C; g1 = X; b1 = 0; }
                     else if (h6 < 2) { r1 = X; g1 = C; b1 = 0; }
                     else if (h6 < 3) { r1 = 0; g1 = C; b1 = X; }
                     else if (h6 < 4) { r1 = 0; g1 = X; b1 = C; }
                     else if (h6 < 5) { r1 = X; g1 = 0; b1 = C; }
-                    else             { r1 = C; g1 = 0; b1 = X; }
+                    else { r1 = C; g1 = 0; b1 = X; }
                     r = Math.round((r1 + m) * 255);
                     g = Math.round((g1 + m) * 255);
                     b_col = Math.round((b1 + m) * 255);
@@ -4065,7 +4065,7 @@
         const ROLLOFF_TOLERANCE = 6;
         const rolloffPassed = [];
         for (const fund of confirmedRaw) {
-            const lowH  = [1, 2];
+            const lowH = [1, 2];
             const highH = [4, 5, 6];
             let lowSum = 0, lowN = 0;
             for (const h of lowH) {
@@ -4078,7 +4078,7 @@
                 if (hBin < binCount) { highSum += freqData[hBin]; highN++; }
             }
             if (lowN === 0 || highN === 0) { rolloffPassed.push(fund); continue; }
-            const lowAvg  = lowSum  / lowN;
+            const lowAvg = lowSum / lowN;
             const highAvg = highSum / highN;
             if (highAvg - lowAvg <= ROLLOFF_TOLERANCE) {
                 rolloffPassed.push(fund);
@@ -4190,7 +4190,7 @@
         const peaks = [];
         const minScore = MIN_DB + 25;    // at least 25 dB above noise floor on average
         const fundThresh = MIN_DB + 50;  // fundamental must be clearly audible
-                                         // -50 dB — quiet fundamentals don't produce visible harmonics
+        // -50 dB — quiet fundamentals don't produce visible harmonics
         for (let i = minBin + 1; i < maxBin; i++) {
             if (hps[i] > hps[i - 1] && hps[i] > hps[i + 1] && hps[i] > minScore) {
                 // Reject phantom fundamentals: the bin at the fundamental frequency
