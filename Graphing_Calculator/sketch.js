@@ -7000,8 +7000,8 @@ function colorizeRawExpr(text) {
         const isInvTrig = (word === 'asin' || word === 'acos' || word === 'atan');
         const col = isMod ? OP_COLORS.mulDiv
           : (isTrig && isInvTrig) ? dimHexColor(OP_COLORS.trig, ARM_OP.OUT)
-          : isTrig ? OP_COLORS.trig
-          : isExp ? OP_COLORS.exp : OP_COLORS.misc;
+            : isTrig ? OP_COLORS.trig
+              : isExp ? OP_COLORS.exp : OP_COLORS.misc;
         spans.push({ text: word, color: col });
       } else if (word.startsWith("log_") && word.length > 4) {
         // log_base notation → split into "log_" (exp color) and base part
@@ -10106,7 +10106,7 @@ function autoSizeInput() {
     const overlayText = ui.exprOverlay ? ui.exprOverlay.textContent : '';
     const eqIdx = overlayText.indexOf('=');
     const hasYPfx = !!(overlayText && overlayText.length > 2
-                       && overlayText[0] === 'y' && eqIdx > 0);
+      && overlayText[0] === 'y' && eqIdx > 0);
 
     // Measure the full overlay text ("y = expr" or just "expr") at REF.
     m.textContent = overlayText || el.value || 'x';
@@ -10453,6 +10453,10 @@ function setup() {
     if (e.key === "Enter") {
       e.preventDefault();
       plotFunction();
+      // On mobile tap-to-edit: blur returns to LaTeX view
+      if (document.body.classList.contains('mobile')) {
+        ui.exprEl.blur();
+      }
     }
   });
 
@@ -10555,8 +10559,8 @@ function setup() {
     });
   })();
 
-  // ---- Mobile portrait: merge Text + LaTeX into a single swipeable section ----
-  (function setupSwipeableTextLatex() {
+  // ---- Mobile portrait: tap-to-edit (show LaTeX by default, text input on tap) ----
+  (function setupTapToEditTextLatex() {
     const secText = document.getElementById('ew-section-text');
     const secLatex = document.getElementById('ew-section-latex');
     if (!secText || !secLatex) return;
@@ -10569,90 +10573,69 @@ function setup() {
 
     // Create merged section
     const merged = document.createElement('div');
-    merged.className = 'ew-section ew-section--swipe';
+    merged.className = 'ew-section ew-section--tap-edit';
     merged.id = 'ew-section-textlatex';
 
-    // Header with tabs
-    const header = document.createElement('div');
-    header.className = 'ew-section__header';
-    header.style.cursor = 'pointer';
-    const collapseBtn = document.createElement('button');
-    collapseBtn.className = 'ew-section__collapse';
-    collapseBtn.title = 'Collapse';
-    collapseBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10"><polyline points="2,3 5,7 8,3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    header.appendChild(collapseBtn);
-
-    const tabs = document.createElement('span');
-    tabs.className = 'ew-swipe-tabs';
-    const tabText = document.createElement('span');
-    tabText.className = 'ew-swipe-tab active';
-    tabText.dataset.tab = 'text';
-    tabText.textContent = 'Text';
-    const tabLatex = document.createElement('span');
-    tabLatex.className = 'ew-swipe-tab';
-    tabLatex.dataset.tab = 'latex';
-    tabLatex.textContent = 'LaTeX';
-    tabs.appendChild(tabText);
-    tabs.appendChild(tabLatex);
-    header.appendChild(tabs);
-
-    // Options button (for latex)
-    const optBtn = document.createElement('button');
-    optBtn.className = 'ew-section__options-btn';
-    optBtn.dataset.section = 'latex';
-    optBtn.title = 'Options';
-    optBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>';
-    header.appendChild(optBtn);
-    merged.appendChild(header);
-
-    // Collapse on header click (but not on tabs or options)
-    header.addEventListener('click', (e) => {
-      if (e.target.closest('.ew-swipe-tab') || e.target.closest('.ew-section__options-btn')) return;
-      merged.classList.toggle('collapsed');
-    });
-
-    // Options toggle
-    optBtn.addEventListener('click', () => {
-      if (!optionsLatex) return;
-      const vis = optionsLatex.style.display !== 'none';
-      optionsLatex.style.display = vis ? 'none' : '';
-      optBtn.classList.toggle('active', !vis);
-    });
-
-    // Swipe container
-    const swipe = document.createElement('div');
-    swipe.className = 'ew-swipe-container';
-
-    const pageText = document.createElement('div');
-    pageText.className = 'ew-swipe-page';
-    const pageLatex = document.createElement('div');
-    pageLatex.className = 'ew-swipe-page';
-
-    swipe.appendChild(pageText);
-    swipe.appendChild(pageLatex);
-    merged.appendChild(swipe);
+    // Wrapper — shows LaTeX by default, text input on tap
+    const wrap = document.createElement('div');
+    wrap.className = 'ew-tap-edit-wrap';
+    merged.appendChild(wrap);
 
     // Move options drawer into merged section
     if (optionsLatex) merged.appendChild(optionsLatex);
 
+    const exprInput = bodyText.querySelector('.control__input');
+    let isEditing = false;
+
+    function showLatex() {
+      isEditing = false;
+      bodyText.style.display = 'none';
+      bodyLatex.style.display = '';
+      merged.classList.remove('tap-edit--editing');
+    }
+
+    function showText() {
+      isEditing = true;
+      bodyLatex.style.display = 'none';
+      bodyText.style.display = '';
+      merged.classList.add('tap-edit--editing');
+      if (exprInput) {
+        exprInput.focus();
+        exprInput.setSelectionRange(0, exprInput.value.length);
+      }
+    }
+
+    // Tap on LaTeX → switch to text editing
+    wrap.addEventListener('click', (e) => {
+      if (isEditing) return;
+      showText();
+    });
+
+    // Blur on input → switch back to LaTeX
+    if (exprInput) {
+      exprInput.addEventListener('blur', () => {
+        if (!isEditing) return;
+        showLatex();
+      });
+    }
+
     function activate() {
-      // Move bodies into swipe pages
-      pageText.appendChild(bodyText);
-      pageLatex.appendChild(bodyLatex);
+      // Move bodies into wrapper
+      wrap.appendChild(bodyLatex);
+      wrap.appendChild(bodyText);
+      bodyText.style.display = 'none';
+      bodyLatex.style.display = '';
+      isEditing = false;
       // Insert merged section and hide originals
       secText.style.display = 'none';
       secLatex.style.display = 'none';
       const exprWin = document.getElementById('expr-window');
-      // Insert before the tree section (which is order:1 in column-reverse, i.e. last child)
       exprWin.insertBefore(merged, secText);
       merged.style.display = '';
     }
 
     function deactivate() {
       // Move bodies back to originals
-      const origBodyText = secText.querySelector('.ew-section__body') || secText;
-      const origBodyLatex = secLatex.querySelector('.ew-section__body') || secLatex;
-      // bodyText/bodyLatex are the actual body elements with IDs, reinsert into parent sections
       const textBodySlot = secText.querySelector('.ew-section__header');
       const latexBodySlot = secLatex.querySelector('.ew-section__header');
       if (textBodySlot) textBodySlot.after(bodyText);
@@ -10661,36 +10644,11 @@ function setup() {
       if (optionsLatex) secLatex.appendChild(optionsLatex);
       secText.style.display = '';
       secLatex.style.display = '';
+      bodyText.style.display = '';
+      bodyLatex.style.display = '';
       merged.style.display = 'none';
       if (merged.parentNode) merged.parentNode.removeChild(merged);
     }
-
-    // Tab switching
-    function switchTab(tab) {
-      if (tab === 'text') {
-        swipe.scrollTo({ left: 0, behavior: 'smooth' });
-        tabText.classList.add('active');
-        tabLatex.classList.remove('active');
-      } else {
-        swipe.scrollTo({ left: swipe.scrollWidth / 2, behavior: 'smooth' });
-        tabText.classList.remove('active');
-        tabLatex.classList.add('active');
-      }
-    }
-    tabText.addEventListener('click', (e) => { e.stopPropagation(); switchTab('text'); });
-    tabLatex.addEventListener('click', (e) => { e.stopPropagation(); switchTab('latex'); });
-
-    // Update active tab on scroll
-    swipe.addEventListener('scroll', () => {
-      const half = swipe.scrollWidth / 2;
-      if (swipe.scrollLeft > half * 0.4) {
-        tabText.classList.remove('active');
-        tabLatex.classList.add('active');
-      } else {
-        tabText.classList.add('active');
-        tabLatex.classList.remove('active');
-      }
-    });
 
     // Activate/deactivate based on media query
     if (portraitMQ.matches) activate();
@@ -12680,8 +12638,8 @@ function setupTouchHandlers() {
           state.panStartOriginY = view.originY;
         }
 
-        // Value-select & panZoom both get a visible cursor
-        if (tm === "panZoom" || tm === "valueSelect") {
+        // Value-select: show touch cursor
+        if (tm === "valueSelect") {
           touchCursorX = activeTouches[0].clientX;
           touchCursorY = activeTouches[0].clientY + CURSOR_OFFSET_Y;
           touchActive = true;
@@ -12728,10 +12686,6 @@ function setupTouchHandlers() {
       view.originY = state.panStartOriginY + dy;
       state.viewDirty = true;
       if (ui.resetOverlay) ui.resetOverlay.style.display = "";
-
-      touchCursorX = activeTouches[0].clientX;
-      touchCursorY = activeTouches[0].clientY + CURSOR_OFFSET_Y;
-      window._mobileTouchCursor = { x: touchCursorX, y: touchCursorY, active: true };
       e.preventDefault();
     } else if (state.touchMode === "valueSelect" && activeTouches.length === 1) {
       // Value-select mode: move cursor only, no panning
@@ -12763,15 +12717,7 @@ function setupTouchHandlers() {
     if (activeTouches.length === 0) {
       state.isPanning = false;
 
-      // In panZoom mode, small-drag taps still expand columns (original behaviour)
-      if (state.touchMode === "panZoom" && prevPanning && e.changedTouches && e.changedTouches.length > 0) {
-        const ct = e.changedTouches[0];
-        const tdx = ct.clientX - panSX;
-        const tdy = ct.clientY - panSY;
-        if (Math.sqrt(tdx * tdx + tdy * tdy) < 10 && isDiscreteAny()) {
-          handleDiscreteColumnClick(ct.clientX, ct.clientY);
-        }
-      }
+      // panZoom mode: no column expansion or inspection on tap
 
       // In columnExpand mode, any tap expands/collapses a column
       if (state.touchMode === "columnExpand" && e.changedTouches && e.changedTouches.length > 0) {
@@ -13084,19 +13030,17 @@ function setupMobileSwipePages() {
   // Hide the bottom tabbar
   if (tabbar) tabbar.style.display = 'none';
 
-  // Create page indicator labels
-  const labels = document.createElement('div');
-  labels.className = 'ew-page-labels';
-  const labelLeft = document.createElement('button');
-  labelLeft.className = 'ew-page-label ew-page-label--active';
-  labelLeft.dataset.page = '0';
-  labelLeft.textContent = 'f(x) & Tree';
-  const labelRight = document.createElement('button');
-  labelRight.className = 'ew-page-label';
-  labelRight.dataset.page = '1';
-  labelRight.textContent = 'Controls & Vis';
-  labels.appendChild(labelLeft);
-  labels.appendChild(labelRight);
+  // ---- Move touch-mode pill into expr-window & update labels ----
+  const pill = document.getElementById('touch-mode-pill');
+  if (pill) {
+    const btnMap = { panZoom: 'zoom & pan', valueSelect: 'inspect value', columnExpand: 'expand steps' };
+    pill.querySelectorAll('.touch-mode-btn').forEach(btn => {
+      const tmode = btn.dataset.tmode;
+      if (btnMap[tmode]) btn.textContent = btnMap[tmode];
+    });
+    exprWin.insertBefore(pill, exprWin.firstChild);
+    pill.classList.add('touch-mode-pill--bar');
+  }
 
   // Create horizontal scroll-snap container
   const scroller = document.createElement('div');
@@ -13119,8 +13063,22 @@ function setupMobileSwipePages() {
 
   // Enable swipe layout on the expr-window
   exprWin.classList.add('has-swipe-pages');
-  exprWin.appendChild(labels);
   exprWin.appendChild(scroller);
+
+  // ---- Dynamic scroller height: match active page ----
+  function syncScrollerHeight() {
+    const idx = Math.round(scroller.scrollLeft / scroller.clientWidth);
+    const pages = scroller.querySelectorAll('.ew-page');
+    const active = pages[idx];
+    if (active) {
+      scroller.style.height = active.scrollHeight + 'px';
+    }
+  }
+  scroller.addEventListener('scroll', syncScrollerHeight);
+  const _heightRO = new ResizeObserver(syncScrollerHeight);
+  _heightRO.observe(page1);
+  _heightRO.observe(page2);
+  requestAnimationFrame(syncScrollerHeight);
 
   // ---- Restructure visibility into 2 columns ----
   const visWrap = visibility ? visibility.querySelector('.ew-visibility-wrap') : null;
@@ -13148,21 +13106,6 @@ function setupMobileSwipePages() {
     visWrap.appendChild(rightCol);
   }
 
-  // ---- Label click: scroll to page ----
-  labels.querySelectorAll('.ew-page-label').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = parseInt(btn.dataset.page);
-      scroller.scrollTo({ left: idx * scroller.clientWidth, behavior: 'smooth' });
-    });
-  });
-
-  // ---- Scroll sync: update active label ----
-  scroller.addEventListener('scroll', () => {
-    const idx = Math.round(scroller.scrollLeft / scroller.clientWidth);
-    labels.querySelectorAll('.ew-page-label').forEach((btn, i) => {
-      btn.classList.toggle('ew-page-label--active', i === idx);
-    });
-  });
 }
 
 /* ========== Mobile: eye-toggle mode (replace box contents with eye toggles) ========== */
