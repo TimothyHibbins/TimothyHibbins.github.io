@@ -1,6 +1,13 @@
 {
-    "name": "Graphing Calculator",
-    "short_name": "GraphCalc",
+    "name": "Intercalc",
+    "short_name": "Intercalc",
+    "icons": [
+        {
+            "src": "../Favicons/Intercalc.png",
+            "sizes": "any",
+            "type": "image/png"
+        }
+    ],
     "start_url": ".",
     "display": "standalone",
     "background_color": "#121212",

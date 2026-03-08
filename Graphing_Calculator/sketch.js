@@ -2556,7 +2556,7 @@ function rotateVec(x, y, angleDeg) {
  *   - Children may be values, x, or intermediate nodes
  *   - Intermediate nodes connect vertically (north) to the next operator above them
  */
-function computeDagPositions(layout) {
+function computeDagPositions(layout, equalsEdge) {
   if (!layout || !layout.nodes || !layout.mainPath || !layout.mainPath.opIds.length) return null;
   const { nodes } = layout;
   const rootOpId = layout.mainPath.opIds[0];
@@ -2617,9 +2617,95 @@ function computeDagPositions(layout) {
 
   // Per-edge connector length multiplier: edgeMult['opId-left'] or edgeMult['opId-right']
   const edgeMult = {};
+
+  // Clear arrow-flip flags from any previous render
+  for (const n of nodes) {
+    delete n._flipOutput;
+    delete n._pathChildId;
+    delete n._flipParentPipe;
+    delete n._flipChildPipe;
+  }
+
+  // Standard directions (Tree B / default): output south, inputs NE/NW, inter→op north
   const leftDir = rotateVec(0, 1, -120);   // NE
   const rightDir = rotateVec(0, 1, 120);   // NW
 
+  // Off-path Tree A directions: output north, inputs SW/SE, inter→op south
+  const leftDirA = rotateVec(0, -1, -120);   // SW
+  const rightDirA = rotateVec(0, -1, 120);   // SE
+
+  // ================================================================
+  // Identify Tree B and build the path from root to equals value
+  // ================================================================
+  const treeBSet = new Set();
+  const hasTreeSplit = !!(equalsEdge && equalsEdge.toId != null && equalsEdge.toId !== 'y');
+
+  // pathArmMap: for each op on the path from root to equals, which arm ('left'/'right') leads toward equals
+  // pathSet: all nodes (ops + intermediates) on the path from root to equals value
+  const pathArmMap = new Map();
+  const pathSet = new Set();
+
+  if (hasTreeSplit) {
+    // Collect Tree B: everything reachable from equals target going away from root
+    const eqNode = nodes[equalsEdge.toId];
+    if (eqNode && eqNode.type === 'intermediate' && eqNode.connectsToOpId != null) {
+      (function collect(nid) {
+        if (nid == null || treeBSet.has(nid)) return;
+        const nd = nodes[nid];
+        if (!nd) return;
+        treeBSet.add(nid);
+        if (nd.type === 'intermediate' && nd.connectsToOpId != null) collect(nd.connectsToOpId);
+        if (nd.type === 'op') {
+          if (nd.leftId != null) collect(nd.leftId);
+          if (nd.rightId != null && nd.rightId !== nd.leftId) collect(nd.rightId);
+        }
+      })(eqNode.connectsToOpId);
+    }
+
+    // Build path from rootOp to equalsEdge.toId via DFS
+    (function findPath(nodeId) {
+      if (nodeId == null) return false;
+      const nd = nodes[nodeId];
+      if (!nd) return false;
+      if (nodeId === equalsEdge.toId) { pathSet.add(nodeId); return true; }
+      if (nd.type === 'value') return false;
+      if (nd.type === 'intermediate') {
+        if (nd.connectsToOpId != null && findPath(nd.connectsToOpId)) {
+          pathSet.add(nodeId);
+          return true;
+        }
+        return false;
+      }
+      if (nd.type !== 'op') return false;
+      if (nd.leftId != null && findPath(nd.leftId)) {
+        pathArmMap.set(nodeId, 'left');
+        pathSet.add(nodeId);
+        return true;
+      }
+      if (nd.rightId != null && nd.rightId !== nd.leftId && findPath(nd.rightId)) {
+        pathArmMap.set(nodeId, 'right');
+        pathSet.add(nodeId);
+        return true;
+      }
+      return false;
+    })(rootOpId);
+  }
+
+  // ================================================================
+  // placeSubtree — direction rules:
+  //
+  // Standard/Tree B: output south, left→NE, right→NW, inter→op north
+  //
+  // Tree A on-path ops: the arm toward equals → NORTH (output).
+  //   The other arm and Y use rotated input directions:
+  //     path=left → 60° rotation: right→SW, Y→SE
+  //     path=right → -60° rotation: left→SE, Y→SW
+  //
+  // Tree A off-path ops: output north, left→SW, right→SE, inter→op south
+  //
+  // Intermediates: on-path or Tree B → north (y-PIPE)
+  //                off-path Tree A   → south (y+PIPE)
+  // ================================================================
   function placeSubtree(nodeId, x, y) {
     const node = nodes[nodeId];
     if (!node || node.x != null) return;
@@ -2630,7 +2716,36 @@ function computeDagPositions(layout) {
 
     if (node.type === "intermediate") {
       if (node.connectsToOpId != null) {
-        placeSubtree(node.connectsToOpId, x, y - PIPE);
+        const childInB = treeBSet.has(node.connectsToOpId);
+        const onPath = pathSet.has(nodeId);
+        // Inherit edge multiplier from the parent op's arm that leads to this intermediate
+        let intMult = 1;
+        const pId = parentOf[nodeId];
+        if (pId != null && nodes[pId] && nodes[pId].type === 'op') {
+          const side = nodes[pId].leftId === nodeId ? 'left' : 'right';
+          intMult = edgeMult[pId + '-' + side] || 1;
+        }
+        if (!hasTreeSplit || childInB) {
+          // Standard / Tree B border: inter→op north (child op's output south)
+          placeSubtree(node.connectsToOpId, x, y - PIPE * intMult);
+        } else if (onPath) {
+          // On-path Tree A: intermediate→childOp is the child op's INPUT arm,
+          // so it must be angled at 120° from the child op's output (north).
+          const childPathArm = pathArmMap.get(node.connectsToOpId);
+          if (childPathArm === 'left') {
+            // child's old-output arm → SE (rightDirA), so child is at NW from intermediate
+            placeSubtree(node.connectsToOpId, x + PIPE * intMult * rightDir.x, y + PIPE * intMult * rightDir.y);
+          } else if (childPathArm === 'right') {
+            // child's old-output arm → SW (leftDirA), so child is at NE from intermediate
+            placeSubtree(node.connectsToOpId, x + PIPE * intMult * leftDir.x, y + PIPE * intMult * leftDir.y);
+          } else {
+            // child not in pathArmMap (e.g. last op before equals value), go north
+            placeSubtree(node.connectsToOpId, x, y - PIPE * intMult);
+          }
+        } else {
+          // Off-path Tree A: inter→op south (child op's output north)
+          placeSubtree(node.connectsToOpId, x, y + PIPE * intMult);
+        }
       }
       return;
     }
@@ -2638,79 +2753,239 @@ function computeDagPositions(layout) {
     if (node.type === "op") {
       const lMult = edgeMult[nodeId + '-left'] || 1;
       const rMult = edgeMult[nodeId + '-right'] || 1;
-      if (node.leftId != null) {
-        placeSubtree(node.leftId, x + PIPE * lMult * leftDir.x, y + PIPE * lMult * leftDir.y);
-      }
-      if (node.rightId != null && node.rightId !== node.leftId) {
-        placeSubtree(node.rightId, x + PIPE * rMult * rightDir.x, y + PIPE * rMult * rightDir.y);
+      const inB = treeBSet.has(nodeId);
+
+      if (!hasTreeSplit || inB) {
+        // Standard / Tree B: left→NE, right→NW
+        if (node.leftId != null) {
+          placeSubtree(node.leftId, x + PIPE * lMult * leftDir.x, y + PIPE * lMult * leftDir.y);
+        }
+        if (node.rightId != null && node.rightId !== node.leftId) {
+          placeSubtree(node.rightId, x + PIPE * rMult * rightDir.x, y + PIPE * rMult * rightDir.y);
+        }
+      } else if (pathArmMap.has(nodeId)) {
+        // Tree A, ON the path: path arm → north, other arm → rotated input
+        const pathArm = pathArmMap.get(nodeId);
+        if (pathArm === 'left') {
+          // left → NORTH (output toward equals)
+          // right → SW (input, -60° rotation maps NW→SW)
+          if (node.leftId != null) {
+            placeSubtree(node.leftId, x, y - PIPE * lMult);
+          }
+          if (node.rightId != null && node.rightId !== node.leftId) {
+            placeSubtree(node.rightId, x + PIPE * rMult * leftDirA.x, y + PIPE * rMult * leftDirA.y);
+          }
+        } else {
+          // right → NORTH (output toward equals)
+          // left → SE (input, +60° rotation maps NE→SE)
+          if (node.leftId != null) {
+            placeSubtree(node.leftId, x + PIPE * lMult * rightDirA.x, y + PIPE * lMult * rightDirA.y);
+          }
+          if (node.rightId != null && node.rightId !== node.leftId) {
+            placeSubtree(node.rightId, x, y - PIPE * rMult);
+          }
+        }
+      } else {
+        // Tree A, OFF path: left→SW, right→SE
+        if (node.leftId != null) {
+          placeSubtree(node.leftId, x + PIPE * lMult * leftDirA.x, y + PIPE * lMult * leftDirA.y);
+        }
+        if (node.rightId != null && node.rightId !== node.leftId) {
+          placeSubtree(node.rightId, x + PIPE * rMult * rightDirA.x, y + PIPE * rMult * rightDirA.y);
+        }
       }
     }
   }
 
+  // Helper: compute depth of a subtree below a given node
+  function subtreeDepth(nodeId, visited) {
+    if (nodeId == null || visited.has(nodeId)) return 0;
+    visited.add(nodeId);
+    const n = nodes[nodeId];
+    if (!n) return 0;
+    if (n.type === 'value') return 1;
+    if (n.type === 'intermediate') {
+      return 1 + subtreeDepth(n.connectsToOpId, visited);
+    }
+    if (n.type === 'op') {
+      const ld = n.leftId != null ? subtreeDepth(n.leftId, visited) : 0;
+      const rd = (n.rightId != null && n.rightId !== n.leftId) ? subtreeDepth(n.rightId, visited) : 0;
+      return 1 + Math.max(ld, rd);
+    }
+    return 1;
+  }
+
   // Iterative overlap resolution with per-edge multipliers.
-  // Each iteration: find overlaps, increase only the specific arm of the common
-  // ancestor that leads to the more "inward" overlapping node.
+  // For each overlap between nodes in opposite subtrees, expand BOTH arms
+  // of the common ancestor. The relaxation pass afterwards will trim
+  // whichever arm turns out to be unnecessary.
+  // Also check for overlaps with the Y node position.
   const MIN_DIST = 2 * NODE_R + 8;
-  for (let iter = 0; iter < 15; iter++) {
+  for (let iter = 0; iter < 20; iter++) {
     for (const n of nodes) { n.x = null; n.y = null; }
     placeSubtree(rootOpId, 0, 0);
 
-    // Find worst overlap per ancestor
-    const ancOverlaps = new Map(); // ancId -> { sideA, sideB, dist }
+    // Compute Y position for this iteration (needed for Y overlap checks)
+    let _iterYX = 0, _iterYY = Y_OFF;
+    if (hasTreeSplit) {
+      const rpa = pathArmMap.get(rootOpId);
+      if (rpa === 'left') { _iterYX = rightDirA.x * Y_OFF; _iterYY = rightDirA.y * Y_OFF; }
+      else if (rpa === 'right') { _iterYX = leftDirA.x * Y_OFF; _iterYY = leftDirA.y * Y_OFF; }
+    }
+
+    // Collect all positioned node indices
+    const posNodes = [];
     for (let i = 0; i < nodes.length; i++) {
-      if (nodes[i].x == null) continue;
-      for (let j = i + 1; j < nodes.length; j++) {
-        if (nodes[j].x == null) continue;
+      if (nodes[i].x != null) posNodes.push(i);
+    }
+
+    // Find overlaps between all placed nodes
+    const edgesToExpand = new Set();
+    for (let a = 0; a < posNodes.length; a++) {
+      const i = posNodes[a];
+      // Check node-node overlaps
+      for (let b = a + 1; b < posNodes.length; b++) {
+        const j = posNodes[b];
         const dist = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
         if (dist >= MIN_DIST) continue;
         const anc = findCommonAncestorOp(i, j);
         if (anc == null) continue;
         const sideI = whichSide(anc, i);
         const sideJ = whichSide(anc, j);
+
         if (sideI && sideJ && sideI !== sideJ) {
-          // They're on opposite sides — expand BOTH sides to resolve
-          const keyL = anc + '-left';
-          const keyR = anc + '-right';
-          if (!ancOverlaps.has(keyL) || dist < ancOverlaps.get(keyL)) {
-            ancOverlaps.set(keyL, dist);
-          }
-          if (!ancOverlaps.has(keyR) || dist < ancOverlaps.get(keyR)) {
-            ancOverlaps.set(keyR, dist);
-          }
+          // Opposite sides — expand both arms; relaxation will trim the unneeded one
+          edgesToExpand.add(anc + '-left');
+          edgesToExpand.add(anc + '-right');
+        } else if (sideI && sideI === sideJ) {
+          edgesToExpand.add(anc + '-' + sideI);
+        } else {
+          // Fallback: expand both
+          edgesToExpand.add(anc + '-left');
+          edgesToExpand.add(anc + '-right');
+        }
+      }
+      // Check overlap with Y node
+      const yDist = Math.hypot(nodes[i].x - _iterYX, nodes[i].y - _iterYY);
+      if (yDist < MIN_DIST) {
+        // Node overlaps Y — expand the side of root that contains this node
+        const side = whichSide(rootOpId, i);
+        if (side) {
+          edgesToExpand.add(rootOpId + '-' + side);
+        } else {
+          edgesToExpand.add(rootOpId + '-left');
+          edgesToExpand.add(rootOpId + '-right');
         }
       }
     }
-    if (ancOverlaps.size === 0) break;
-    for (const key of ancOverlaps.keys()) {
+    if (edgesToExpand.size === 0) break;
+    for (const key of edgesToExpand) {
       edgeMult[key] = (edgeMult[key] || 1) + 1;
     }
   }
 
-  // Relaxation pass: try to reduce each multiplier by 1 if no overlaps result
+  // Helper: check overlap between all placed nodes AND with Y node
+  function _hasAnyOverlap() {
+    // Compute Y position for this configuration
+    let yxC = 0, yyC = Y_OFF;
+    if (hasTreeSplit) {
+      const rpa = pathArmMap.get(rootOpId);
+      if (rpa === 'left') { yxC = rightDirA.x * Y_OFF; yyC = rightDirA.y * Y_OFF; }
+      else if (rpa === 'right') { yxC = leftDirA.x * Y_OFF; yyC = leftDirA.y * Y_OFF; }
+    }
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].x == null) continue;
+      // Node-node
+      for (let j = i + 1; j < nodes.length; j++) {
+        if (nodes[j].x == null) continue;
+        if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) < MIN_DIST) return true;
+      }
+      // Node-Y
+      if (Math.hypot(nodes[i].x - yxC, nodes[i].y - yyC) < MIN_DIST) return true;
+    }
+    return false;
+  }
+
+  // Relaxation pass: try to reduce each multiplier; check node AND Y overlaps
   const multKeys = Object.keys(edgeMult).filter(k => edgeMult[k] > 1);
   for (const key of multKeys) {
     const orig = edgeMult[key];
-    edgeMult[key] = orig - 1;
-    // Re-place all nodes
+    // Try reducing to 1 first (aggressive)
+    edgeMult[key] = 1;
     for (const n of nodes) { n.x = null; n.y = null; }
     placeSubtree(rootOpId, 0, 0);
-    // Check for overlaps
-    let hasOverlap = false;
-    for (let i = 0; i < nodes.length && !hasOverlap; i++) {
-      if (nodes[i].x == null) continue;
-      for (let j = i + 1; j < nodes.length; j++) {
-        if (nodes[j].x == null) continue;
-        const dist = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
-        if (dist < MIN_DIST) { hasOverlap = true; break; }
-      }
+    if (!_hasAnyOverlap()) continue; // reduction to 1 works
+    // Try orig - 1
+    if (orig > 2) {
+      edgeMult[key] = orig - 1;
+      for (const n of nodes) { n.x = null; n.y = null; }
+      placeSubtree(rootOpId, 0, 0);
+      if (!_hasAnyOverlap()) continue; // reduction by 1 works
     }
-    if (hasOverlap) edgeMult[key] = orig; // revert
+    edgeMult[key] = orig; // revert
   }
   // Final placement with relaxed multipliers
   for (const n of nodes) { n.x = null; n.y = null; }
   placeSubtree(rootOpId, 0, 0);
 
-  return { rootOpId, yX: 0, yY: Y_OFF, PIPE, opToIntermediateId };
+  // Set arrow-flip flags for Tree A on-path nodes.
+  // These flags tell the renderer to reverse arrow directions on pipes
+  // along the path from root to the equals value.
+  if (hasTreeSplit) {
+    for (const [opId, pathArm] of pathArmMap) {
+      const nd = nodes[opId];
+      if (!nd) continue;
+      nd._flipOutput = true;
+      nd._pathChildId = pathArm === 'left' ? nd.leftId : nd.rightId;
+    }
+    for (const nid of pathSet) {
+      const nd = nodes[nid];
+      if (!nd || nd.type !== 'intermediate') continue;
+      nd._flipParentPipe = true;
+      if (nd.connectsToOpId != null && pathSet.has(nd.connectsToOpId)) {
+        nd._flipChildPipe = true;
+      }
+    }
+  }
+
+  // Re-center on the equals target node if an equalsEdge is set.
+  // This shifts the visual "focal point" from the root op to the
+  // value node that both sides of the equation equal.
+  //
+  // Y position depends on tree split:
+  //   No split: Y south of root = (0, Y_OFF)
+  //   Split: Y is at an input direction of root, computed from the path arm rotation.
+  //     path=left  → rotation -60°: Y goes to SE (rightDirA) from root
+  //     path=right → rotation +60°: Y goes to SW (leftDirA) from root
+  let yX = 0, yY = Y_OFF;
+  if (hasTreeSplit) {
+    const rootPathArm = pathArmMap.get(rootOpId);
+    if (rootPathArm === 'left') {
+      yX = rightDirA.x * Y_OFF;
+      yY = rightDirA.y * Y_OFF;
+    } else if (rootPathArm === 'right') {
+      yX = leftDirA.x * Y_OFF;
+      yY = leftDirA.y * Y_OFF;
+    } else {
+      // Fallback: root not on path (shouldn't happen), use south
+      yY = Y_OFF;
+    }
+  }
+  if (equalsEdge && equalsEdge.toId != null && equalsEdge.toId !== 'y') {
+    const eqNode = nodes[equalsEdge.toId];
+    if (eqNode && eqNode.x != null) {
+      const dx = eqNode.x, dy = eqNode.y;
+      // Shift all nodes so the equals target is at the origin
+      for (const n of nodes) {
+        if (n.x != null) { n.x -= dx; n.y -= dy; }
+      }
+      // Shift Y position too
+      yX -= dx;
+      yY -= dy;
+    }
+  }
+
+  return { rootOpId, yX, yY, PIPE, opToIntermediateId };
 }
 
 /**
@@ -3597,6 +3872,10 @@ function replaceOpWithConstant(opId, val, nodes, layout) {
 /** After deleting an operator, rebuild the expression + layout + re-render. */
 function rebuildAfterDelete(layout, preserveLayout) {
   try {
+    // Ensure mainPath root is up-to-date before walking tree
+    // (wrapping the y-output inserts a new root above the old one)
+    if (preserveLayout) _refreshMainPath(layout);
+
     // Rebuild expression from modified tree
     const treeResult = _walkPipeTree(layout);
     if (!treeResult) return;
@@ -3613,6 +3892,13 @@ function rebuildAfterDelete(layout, preserveLayout) {
       // but recompute mainPath since nodes may have been added/rewired.
       _refreshMainPath(layout);
       // state.pipeLayout is already layout — no reassignment needed
+      // Still re-parse for state.steps/ops so intermediate curves + delta arrows
+      // reflect the change immediately (these use the linearised step chain).
+      try {
+        const { steps, ops } = parseAndLinearize(newExpr);
+        state.steps = steps;
+        state.ops = ops;
+      } catch { /* non-critical; fall back to stale ops */ }
     } else {
       // Re-parse to get a clean layout
       const { steps, ops, pipeLayout } = parseAndLinearize(newExpr);
@@ -3711,7 +3997,7 @@ function _categoryForOpType(opType) {
  * Render the pipe diagram from the DAG: straight pipes only, 120° separation at junctions.
  * Uses SVG layer groups for correct z-ordering: pipes → arrows → nodes → text → debug.
  */
-function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDebug, showPipeDebug) {
+function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDebug, showPipeDebug, precomputedPositions) {
   if (!layout || !layout.nodes || !layout.mainPath || !layout.mainPath.opIds.length) {
     const empty = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     empty.setAttribute("viewBox", "0 0 100 40");
@@ -3719,7 +4005,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     empty.setAttribute("height", "40");
     return empty;
   }
-  const positions = computeDagPositions(layout);
+  const positions = precomputedPositions || computeDagPositions(layout, state.equalsEdge);
   if (!positions) return document.createElementNS("http://www.w3.org/2000/svg", "svg");
 
   const NS = "http://www.w3.org/2000/svg";
@@ -3765,8 +4051,8 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
 
   const R = 22;
   const JR = 18;
-  const PW = 15;       // pipe width
-  const ARROW_W = 2;   // thin arrow line width
+  const PW = 30;       // pipe width (2× for visibility on mobile)
+  const ARROW_W = 4;   // thin arrow line width
   const PAD = 18;      // reduced padding for compact tree view
   const CR = PIPE / 2; // ring circle radius — centerlines of neighbors just touch
   layout._CR = CR;      // expose for attachEqualsDrag
@@ -3994,6 +4280,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
   gRadialMenu.setAttribute("display", "none");
   svg.appendChild(gRadialMenu);
   let _radialDismiss = null;
+  let _radialTargetNd = null;  // target node for badge restore on dismiss
 
   /**
    * Convert SVG coordinate to screen coordinate using the SVG's CTM.
@@ -4066,6 +4353,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
 
     // ---- Determine which menu item matches the target node's current op ----
     const targetNd = nodes[targetNodeId];
+    _radialTargetNd = targetNd;  // store for dismissRadialMenu badge restore
     function itemMatchesNode(item) {
       if (!targetNd || item.action === "delete") return false;
       if (targetNd.type !== "op") return false;
@@ -4302,7 +4590,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       if (tspans.length > 0) {
         // Reconstruct symbol from tspan pattern
         const firstText = tspans[0].textContent || "";
-        if (firstText === "n" && tspans.length >= 2 && tspans[1].textContent === "m") {
+        if (firstText === "m" && tspans.length >= 2 && tspans[1].textContent === "n") {
           targetNd._origDisplaySymbol = "^";
         } else if (firstText.startsWith("log")) {
           targetNd._origDisplaySymbol = "log";
@@ -4345,6 +4633,16 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       document.removeEventListener("click", _radialDismiss, true);
       _radialDismiss = null;
     }
+    // Restore badge preview to original state (important on mobile where no mouseleave fires)
+    if (_radialTargetNd && _radialTargetNd._junctionEl && _radialTargetNd._symbolTextEl) {
+      const origCol = _radialTargetNd._origBadgeCol || "#888";
+      _radialTargetNd._junctionEl.setAttribute("stroke", origCol);
+      _radialTargetNd._junctionEl.removeAttribute("stroke-dasharray");
+      const origFontSize = badgeFontSizeForLabel(_radialTargetNd._origDisplaySymbol || "", JR);
+      setStyledLabel(_radialTargetNd._symbolTextEl, _radialTargetNd._origDisplaySymbol || "", origFontSize, origCol);
+      _radialTargetNd._symbolTextEl.setAttribute("fill", origCol);
+    }
+    _radialTargetNd = null;
   }
 
   function applyRadialMenuChoice(targetNodeId, nodeType, item, layout) {
@@ -4657,8 +4955,8 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
 
 
     // Arrowhead triangles — white in dark mode, black in light mode
-    const ALEN = 12;  // triangle length
-    const AHW = 4;   // triangle half-width at base
+    const ALEN = 24;  // triangle length (2× for visibility)
+    const AHW = 8;   // triangle half-width at base (2×)
     const nx = -uy, ny = ux; // perpendicular unit vector
     const arrowFill = isDarkMode ? "white" : "black";
 
@@ -4732,6 +5030,49 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     if (armLabel) {
       drawPipeLabel((ox + childX) / 2, (oy + childY) / 2, armLabel, colorStart);
     }
+  }
+
+  /** Add a transparent hit zone along a pipe (arm) for tap-to-wrap interaction.
+   *  On tap/click, opens the radial menu to wrap the child value in an operator. */
+  function addArmHitZone(x1, y1, x2, y2, childNodeId, childCx, childCy) {
+    // Shorten start so the hit zone doesn't overlap the parent op junction badge
+    const _adx = x2 - x1, _ady = y2 - y1;
+    const _aLen = Math.hypot(_adx, _ady) || 1;
+    const INSET = JR + 6;  // pull start away from op centre
+    const sx = x1 + INSET * _adx / _aLen;
+    const sy = y1 + INSET * _ady / _aLen;
+    const armHit = svgEl("line");
+    armHit.setAttribute("x1", sx);
+    armHit.setAttribute("y1", sy);
+    armHit.setAttribute("x2", x2);
+    armHit.setAttribute("y2", y2);
+    armHit.setAttribute("stroke", "transparent");
+    armHit.setAttribute("stroke-width", PW + 20); // wider than visual pipe for easy tapping
+    armHit.setAttribute("stroke-linecap", "round");
+    armHit.setAttribute("pointer-events", "stroke");
+    armHit.style.cursor = "pointer";
+    // Click → show radial menu for the connected value
+    armHit.addEventListener("click", (e) => {
+      e.stopPropagation();
+      hideNodeTooltip();
+      showRadialMenu(childNodeId, childCx, childCy, "value");
+    });
+    // Mobile tap support
+    let _tapX, _tapY;
+    armHit.addEventListener("touchstart", (e) => {
+      const t = e.touches[0];
+      _tapX = t.clientX; _tapY = t.clientY;
+    }, { passive: true });
+    armHit.addEventListener("touchend", (e) => {
+      if (!e.changedTouches.length) return;
+      const t = e.changedTouches[0];
+      if (Math.abs(t.clientX - _tapX) < 15 && Math.abs(t.clientY - _tapY) < 15) {
+        e.preventDefault();
+        hideNodeTooltip();
+        showRadialMenu(childNodeId, childCx, childCy, "value");
+      }
+    });
+    gInteract.appendChild(armHit);
   }
 
   function drawDebugLabel(x, y, label) {
@@ -4895,12 +5236,15 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
 
     // Pipe from parent operator to this intermediate
     // gradJunction → gradIntermediate  (B→A for ABC input arms, darken→bright for exp)
-    pipeToChild(parentX, parentY, px, py, gradJunction, gradIntermediate, intRad, JR, undefined, parentArmLabel);
+    // On-path Tree A intermediates: flip arrow to point FROM parent TOWARD intermediate
+    const _intParentArrow = node._flipParentPipe ? 'child' : undefined;
+    pipeToChild(parentX, parentY, px, py, gradJunction, gradIntermediate, intRad, JR, _intParentArrow, parentArmLabel);
 
     // Helper: draw the intermediate badge circle + live value text
     function drawIntBadge(strokeCol) {
       drawRing(px, py, strokeCol, nodeId);
       const circleEl = drawCircle(px, py, intRad, GLASS_FILL, strokeCol, 1.5);
+      circleEl.dataset.ringId = String(nodeId);
       node._circleEl = circleEl;
       // Live value text inside the intermediate circle
       const lv = svgEl("text");
@@ -4972,7 +5316,9 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         drawIntBadge(intStrokeCol);
 
         // Pipe from intermediate to child op: childGradInt → childGradJunc
-        pipeToChild(px, py, nextOp.x, nextOp.y, childGradInt, childGradJunc, JR, intRad, undefined, childOutLabel);
+        // On-path Tree A intermediates (not border to Tree B): flip arrow toward child op
+        const _intChildArrow = node._flipChildPipe ? 'child' : undefined;
+        pipeToChild(px, py, nextOp.x, nextOp.y, childGradInt, childGradJunc, JR, intRad, _intChildArrow, childOutLabel);
         drawNode(node.connectsToOpId, px, py, false);
       } else {
         drawIntBadge(intStrokeCol);
@@ -5099,7 +5445,11 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         if (Math.abs(t.clientX - _tapStartX) < 15 && Math.abs(t.clientY - _tapStartY) < 15) {
           e.preventDefault();
           hideNodeTooltip();
-          showRadialMenu(nodeId, cx, cy, "value");
+          if (document.body.classList.contains('mobile')) {
+            openMobileValueInput(nodeId, cx, cy);
+          } else {
+            showRadialMenu(nodeId, cx, cy, "value");
+          }
         }
       });
     }
@@ -5176,11 +5526,116 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     gInteract.appendChild(hit);
   }
 
+  /** Open an inline keyboard input over a value badge on mobile.
+   *  Uses a persistent pre-existing input for reliable iOS keyboard activation. */
+  // Pre-create the input once so iOS recognises it as an existing interactive element
+  let _mobileInput = document.getElementById('_gcMobileValInput');
+  if (!_mobileInput) {
+    _mobileInput = document.createElement('input');
+    _mobileInput.id = '_gcMobileValInput';
+    _mobileInput.type = 'text';
+    _mobileInput.inputMode = 'text';
+    _mobileInput.autocomplete = 'off';
+    _mobileInput.autocapitalize = 'off';
+    _mobileInput.spellcheck = false;
+    _mobileInput.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;pointer-events:none;';
+    document.body.appendChild(_mobileInput);
+  }
+  let _mobileInputCommitted = false;
+  let _mobileInputNodeId = null;
+  let _mobileInputCleanup = null;
+
+  function openMobileValueInput(nodeId, cx, cy) {
+    const node = nodes[nodeId];
+    if (!node) return;
+    // Clean up any in-progress edit
+    if (_mobileInputCleanup) _mobileInputCleanup();
+
+    _mobileInputNodeId = nodeId;
+    _mobileInputCommitted = false;
+
+    const screenPos = svgToScreen(cx, cy);
+    const isX = node.value === "x";
+    const badgeColor = isX ? OP_COLORS.x
+      : (node._circleEl ? (node._circleEl.getAttribute("stroke") || "#888") : "#888");
+    const MONO_FONT = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+    const isDark = isDarkMode;
+
+    const input = _mobileInput;
+    input.value = node.value === "0" ? "" : node.value;
+    input.style.cssText = [
+      'position:fixed',
+      `left:${screenPos.x}px`,
+      `top:${screenPos.y}px`,
+      'transform:translate(-50%,-50%)',
+      'width:72px',
+      'height:38px',
+      'text-align:center',
+      'font-size:18px',
+      `font-family:${MONO_FONT}`,
+      'font-style:normal',
+      `border:2px solid ${badgeColor}`,
+      'border-radius:20px',
+      `background:${isDark ? '#1c1e2e' : '#f7f7f9'}`,
+      `color:${badgeColor}`,
+      'z-index:9999',
+      'outline:none',
+      'padding:0 8px',
+      '-webkit-appearance:none',
+      'opacity:1',
+      'pointer-events:auto',
+    ].join(';');
+
+    // Focus synchronously — input already exists in DOM so iOS allows keyboard
+    input.focus();
+    if (input.value) input.select();
+
+    function commit() {
+      if (_mobileInputCommitted) return;
+      _mobileInputCommitted = true;
+      const val = input.value.trim();
+      if (val !== "" && val !== node.value) {
+        if (val === "x" || val === "t" || val === "pi" || val === "e" || val === "tau") {
+          applyDagValueChange(nodeId, val);
+        } else {
+          const num = parseFloat(val);
+          if (Number.isFinite(num)) {
+            applyDagValueChange(nodeId, val);
+          }
+        }
+      }
+      dismiss();
+      // Re-check timeline visibility (user may have typed "t")
+      const expr = ui.exprEl?.value ?? "";
+      state.usesT = /\bt\b/.test(expr.replace(/\s+/g, ""));
+      updateTimelineVisibility();
+      // Re-render diagram so badge colors/text update
+      renderStepRepresentation();
+    }
+    function dismiss() {
+      input.removeEventListener('blur', commit);
+      input.removeEventListener('keydown', onKey);
+      // Move offscreen instead of removing (keep in DOM for future taps)
+      input.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;pointer-events:none;';
+      input.blur();
+      _mobileInputCleanup = null;
+    }
+    function onKey(e) {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); dismiss(); }
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', onKey);
+    _mobileInputCleanup = dismiss;
+  }
+
   /** Create scroll-to-adjust dial on a numeric value node. */
   function addValueDial(nodeId, cx, cy, armCol) {
     const node = nodes[nodeId];
     const val = parseFloat(node.value);
     if (!Number.isFinite(val)) return;
+
+    let _holdScrollUsed = false;   // set by activateTouchDial, checked by tap handler
 
     const RING_THICK = 11;
     const HOVER_SCALE = 1.25;
@@ -5238,6 +5693,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     numText.setAttribute("y", cy);
     numText.setAttribute("text-anchor", "middle");
     numText.setAttribute("dominant-baseline", "central");
+    numText.setAttribute("dy", "0.05em"); // fine-tune vertical centering across browsers
     numText.setAttribute("font-size", BASE_FONT);
     numText.setAttribute("font-family", MATH_FONT);
     numText.setAttribute("font-style", "normal");
@@ -5295,7 +5751,8 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       hideNodeTooltip();
       showRadialMenu(nodeId, cx, cy, "value");
     });
-    // Mobile tap support — touchend fires reliably where click may not on SVG in scrollable containers
+    // Mobile tap support — on mobile, opens keyboard for direct value entry
+    // (wrap-operator menu moves to arm tap instead)
     {
       let _tapStartX, _tapStartY;
       hit.addEventListener("touchstart", (e) => {
@@ -5303,12 +5760,17 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         _tapStartX = t.clientX; _tapStartY = t.clientY;
       }, { passive: true });
       hit.addEventListener("touchend", (e) => {
+        if (_holdScrollUsed) { _holdScrollUsed = false; return; }
         if (!e.changedTouches.length) return;
         const t = e.changedTouches[0];
         if (Math.abs(t.clientX - _tapStartX) < 15 && Math.abs(t.clientY - _tapStartY) < 15) {
           e.preventDefault();
           hideNodeTooltip();
-          showRadialMenu(nodeId, cx, cy, "value");
+          if (document.body.classList.contains('mobile')) {
+            openMobileValueInput(nodeId, cx, cy);
+          } else {
+            showRadialMenu(nodeId, cx, cy, "value");
+          }
         }
       });
     }
@@ -5363,6 +5825,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       while (numText.firstChild) numText.removeChild(numText.firstChild);
       for (let i = 0; i < str.length; i++) {
         const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+        tspan.setAttribute("dominant-baseline", "central"); // ensure vertical centering in every tspan
         const col = charToCol(str, i);
         if (col === activeCol && activeCol >= 0) {
           tspan.setAttribute("fill", "#fff");
@@ -5635,6 +6098,9 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       let touchActive = false;
       let lastTouchY = 0;
       let touchScrollAccum = 0;
+      let dialFlipped = false;      // true = dial shown below finger
+      let touchStartY = 0;          // screen Y where touch started
+      const FLIP_PX = 50;           // px finger must move up before flip triggers
 
       function getColumnFromTouch(touch) {
         const pt = svg.createSVGPoint();
@@ -5646,22 +6112,35 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         return Math.max(0, Math.min(2, Math.floor(relX / COL_W)));
       }
 
+      function setDialPosition(flipped) {
+        dialFlipped = flipped;
+        const lift = flipped ? TOUCH_LIFT : -TOUCH_LIFT;
+        gDial.setAttribute("transform",
+          `translate(0,${lift}) translate(${cx},${cy}) scale(${TOUCH_SCALE}) translate(${-cx},${-cy})`);
+        // Reposition tooltip on the far side of the dial
+        const tipOffset = (R + RING_THICK) * TOUCH_SCALE + TOUCH_LIFT + 8;
+        if (flipped) {
+          showNodeTooltip(cx, cy + tipOffset, "Slide \u2195 to scroll, \u2194 to change place");
+        } else {
+          showNodeTooltip(cx, cy - tipOffset, "Slide \u2195 to scroll, \u2194 to change place");
+        }
+      }
+
       function activateTouchDial(touch) {
         touchActive = true;
+        _holdScrollUsed = true;
         lastTouchY = touch.clientY;
+        touchStartY = touch.clientY;
         touchScrollAccum = 0;
+        dialFlipped = false;
         // Hide original node visuals
         if (node._circleEl) node._circleEl.setAttribute("display", "none");
         if (node._textEl) node._textEl.setAttribute("display", "none");
         // Show dial scaled & lifted above touch point
         gDial.setAttribute("display", "");
-        gDial.setAttribute("transform",
-          `translate(0,${-TOUCH_LIFT}) translate(${cx},${cy}) scale(${TOUCH_SCALE}) translate(${-cx},${-cy})`);
+        setDialPosition(false);
         updateNumberDisplay();
         setActiveCol(getColumnFromTouch(touch));
-        // Tooltip above lifted dial
-        const tipOffset = (R + RING_THICK) * TOUCH_SCALE + TOUCH_LIFT + 8;
-        showNodeTooltip(cx, cy - tipOffset, "Slide \u2195 to scroll, \u2194 to change place");
       }
 
       function deactivateTouchDial() {
@@ -5691,13 +6170,14 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       }
 
       hit.addEventListener("touchstart", (e) => {
-        e.preventDefault();
+        // Don't preventDefault here — it kills iOS keyboard activation for subsequent focus().
+        // Scroll prevention happens in the touchmove handler instead.
         const touch = e.touches[0];
         holdTimer = setTimeout(() => {
           holdTimer = null;
           activateTouchDial(touch);
         }, HOLD_DELAY);
-      }, { passive: false });
+      }, { passive: true });
 
       hit.addEventListener("touchmove", (e) => {
         if (!touchActive && holdTimer) {
@@ -5757,6 +6237,15 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
           if (activeCol >= 0) positionDialLabels(activeCol, angOffset);
           if (!animId) animId = requestAnimationFrame(animateSnap);
         }
+
+        // Dynamic flip: when the finger moves up enough to obscure the dial,
+        // flip it to below the touch point (and back when finger returns)
+        const fingerAboveStart = touchStartY - touch.clientY;
+        if (!dialFlipped && fingerAboveStart > FLIP_PX) {
+          setDialPosition(true);
+        } else if (dialFlipped && fingerAboveStart < FLIP_PX - 20) {
+          setDialPosition(false);
+        }
       }, { passive: false });
 
       hit.addEventListener("touchend", () => {
@@ -5781,10 +6270,12 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       const isX = node.value === "x";
       const armCol = isX ? OP_COLORS.x : (parentArmColor || "#888");
       const circleEl = drawCircle(px, py, R, GLASS_FILL, armCol, 2);
+      circleEl.dataset.ringId = String(nodeId);
       node._circleEl = circleEl;  // ref so dial can hide on hover
       // Numbers: upright (non-italic). Variables/constants: italic (matches LaTeX)
       const isNumeric = /^-?[\d.]+$/.test(node.value);
       const textEl = drawText(px, py, node.value, 32, armCol, !isNumeric);
+      textEl.dataset.ringId = String(nodeId);
       node._textEl = textEl;  // ref for in-place updates
       drawDebugLabel(px, py + R + 12, String(nodeId));
       // Scroll-to-adjust dial for numeric constants
@@ -5883,7 +6374,9 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     // Other categories: darken→bright gradient adds depth.
     if (drawOutputArm && parentX != null && parentY != null) {
       const outStart = _nodeIsTrig ? outArmCol : darkenColor(outArmCol, 0.3);
-      pipeToChild(px, py, parentX, parentY, outStart, outArmCol, R, JR, 'child', outLabel);
+      // Tree A on-path root: output arm is now an input → flip arrow toward op
+      const _outArrowDir = node._flipOutput ? undefined : 'child';
+      pipeToChild(px, py, parentX, parentY, outStart, outArmCol, R, JR, _outArrowDir, outLabel);
     }
 
     // Ring circle + operator junction circle
@@ -5978,6 +6471,140 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       const SWAP_R = 10;
       const SWAP_DIST = JR + 16;
 
+      const _isMobileDevice = document.body.classList.contains('mobile');
+
+      // ---- Shared turnstile swap animation (used by buttons + swipe) ----
+      function performArmSwap(posA, posB) {
+        const endA = armEndpoints[posA], endB = armEndpoints[posB];
+        if (!endA || !endB) {
+          // Fallback: immediate swap, no animation
+          const temp = node.armAssignment[posA];
+          node.armAssignment[posA] = node.armAssignment[posB];
+          node.armAssignment[posB] = temp;
+          const info = deriveOpInfo(effectiveCat, node.armAssignment);
+          if (info) { node.opType = info.opType; node.symbol = info.symbol; }
+          applySwapToAstAndState();
+          renderStepRepresentation();
+          return;
+        }
+
+        // Compute rotation angle (A rotates toward B's position)
+        const θA = Math.atan2(endA.y - py, endA.x - px);
+        const θB = Math.atan2(endB.y - py, endB.x - px);
+        let delta = θB - θA;
+        while (delta > Math.PI) delta -= 2 * Math.PI;
+        while (delta < -Math.PI) delta += 2 * Math.PI;
+        const deltaDeg = delta * 180 / Math.PI;
+
+        // Arm animation colours — per-role for all categories
+        let animColA, animColB;
+        const animCC = effectiveCat && ARM_COLORS[effectiveCat];
+        if (animCC && node.armAssignment) {
+          animColA = animCC[node.armAssignment[posA]] || col;
+          animColB = animCC[node.armAssignment[posB]] || col;
+        } else {
+          animColA = animColB = col;
+        }
+
+        // Build overlay group
+        const animOverlay = svgEl("g");
+        animOverlay.style.pointerEvents = "none";
+
+        // Dim layer (covers entire SVG)
+        const dimLayer = svgEl("rect");
+        dimLayer.setAttribute("x", "-10000"); dimLayer.setAttribute("y", "-10000");
+        dimLayer.setAttribute("width", "20000"); dimLayer.setAttribute("height", "20000");
+        dimLayer.setAttribute("fill", isDarkMode ? "rgba(30,30,30,0.6)" : "rgba(255,255,255,0.6)");
+        animOverlay.appendChild(dimLayer);
+
+        // Static pivot badge
+        const pivotC = svgEl("circle");
+        pivotC.setAttribute("cx", px); pivotC.setAttribute("cy", py);
+        pivotC.setAttribute("r", JR);
+        pivotC.style.fill = GLASS_FILL;
+        pivotC.setAttribute("stroke", badgeCol);
+        pivotC.setAttribute("stroke-width", 2.5);
+        animOverlay.appendChild(pivotC);
+        const pivotT = svgEl("text");
+        pivotT.setAttribute("x", px); pivotT.setAttribute("y", py);
+        pivotT.setAttribute("text-anchor", "middle");
+        pivotT.setAttribute("dominant-baseline", "central");
+        pivotT.setAttribute("font-size", 15);
+        pivotT.setAttribute("font-family", MATH_FONT);
+        pivotT.setAttribute("fill", badgeCol);
+        pivotT.textContent = displaySymbol;
+        uprightText(pivotT, px, py);
+        animOverlay.appendChild(pivotT);
+
+        // Arm A: rotating line from junction to endA
+        const gA = svgEl("g");
+        const lineA = svgEl("line");
+        lineA.setAttribute("x1", px); lineA.setAttribute("y1", py);
+        lineA.setAttribute("x2", endA.x); lineA.setAttribute("y2", endA.y);
+        lineA.setAttribute("stroke", animColA);
+        lineA.setAttribute("stroke-width", PW);
+        lineA.setAttribute("stroke-linecap", "round");
+        lineA.setAttribute("opacity", "0.85");
+        gA.appendChild(lineA);
+        const smilA = svgEl("animateTransform");
+        smilA.setAttribute("attributeName", "transform");
+        smilA.setAttribute("type", "rotate");
+        smilA.setAttribute("from", `0 ${px} ${py}`);
+        smilA.setAttribute("to", `${deltaDeg} ${px} ${py}`);
+        smilA.setAttribute("dur", "0.4s");
+        smilA.setAttribute("fill", "freeze");
+        smilA.setAttribute("calcMode", "spline");
+        smilA.setAttribute("keyTimes", "0;1");
+        smilA.setAttribute("keySplines", "0.42 0 0.58 1");
+        smilA.setAttribute("begin", "indefinite");
+        gA.appendChild(smilA);
+        animOverlay.appendChild(gA);
+
+        // Arm B: rotating line from junction to endB (opposite direction)
+        const gB = svgEl("g");
+        const lineB = svgEl("line");
+        lineB.setAttribute("x1", px); lineB.setAttribute("y1", py);
+        lineB.setAttribute("x2", endB.x); lineB.setAttribute("y2", endB.y);
+        lineB.setAttribute("stroke", animColB);
+        lineB.setAttribute("stroke-width", PW);
+        lineB.setAttribute("stroke-linecap", "round");
+        lineB.setAttribute("opacity", "0.85");
+        gB.appendChild(lineB);
+        const smilB = svgEl("animateTransform");
+        smilB.setAttribute("attributeName", "transform");
+        smilB.setAttribute("type", "rotate");
+        smilB.setAttribute("from", `0 ${px} ${py}`);
+        smilB.setAttribute("to", `${-deltaDeg} ${px} ${py}`);
+        smilB.setAttribute("dur", "0.4s");
+        smilB.setAttribute("fill", "freeze");
+        smilB.setAttribute("calcMode", "spline");
+        smilB.setAttribute("keyTimes", "0;1");
+        smilB.setAttribute("keySplines", "0.42 0 0.58 1");
+        smilB.setAttribute("begin", "indefinite");
+        gB.appendChild(smilB);
+        animOverlay.appendChild(gB);
+
+        svg.appendChild(animOverlay);
+
+        // Start SMIL animations
+        smilA.beginElement();
+        smilB.beginElement();
+
+        // After animation: apply swap and re-render
+        const ANIM_DUR = 430;
+        setTimeout(() => {
+          const temp = node.armAssignment[posA];
+          node.armAssignment[posA] = node.armAssignment[posB];
+          node.armAssignment[posB] = temp;
+          const info = deriveOpInfo(effectiveCat, node.armAssignment);
+          if (info) { node.opType = info.opType; node.symbol = info.symbol; }
+          applySwapToAstAndState();
+          renderStepRepresentation();
+          updateInputOverlay();
+          updateLatexDisplay(ui.exprEl?.value ?? "");
+        }, ANIM_DUR);
+      }
+
       // Container group: hover zone (behind) + buttons (on top)
       // mouseenter/leave on the group handles show/hide for all children
       const swapGroup = svgEl("g");
@@ -6019,187 +6646,151 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       hoverZone.style.cursor = "pointer";
       swapGroup.appendChild(hoverZone);
 
-      for (const [posA, posB] of armPairs) {
-        const dA = armDirs[posA], dB = armDirs[posB];
-        // Bisector direction (between the two arms)
-        const mx = dA.x + dB.x, my = dA.y + dB.y;
-        const mLen = Math.hypot(mx, my) || 1;
-        const bx = px + SWAP_DIST * mx / mLen;
-        const by = py + SWAP_DIST * my / mLen;
+      // ---- Desktop: hover swap buttons ----
+      if (!_isMobileDevice) {
+        for (const [posA, posB] of armPairs) {
+          const dA = armDirs[posA], dB = armDirs[posB];
+          const mx = dA.x + dB.x, my = dA.y + dB.y;
+          const mLen = Math.hypot(mx, my) || 1;
+          const bx = px + SWAP_DIST * mx / mLen;
+          const by = py + SWAP_DIST * my / mLen;
 
-        const btnG = svgEl("g");
-        btnG.classList.add("swap-btn");
-        btnG.setAttribute("data-node-id", nodeId);
-        btnG.setAttribute("data-pos-a", posA);
-        btnG.setAttribute("data-pos-b", posB);
-        btnG.style.cursor = "pointer";
-        btnG.style.opacity = "0";
-        btnG.style.transition = "opacity 0.15s";
-        btnG.style.pointerEvents = "none";
+          const btnG = svgEl("g");
+          btnG.classList.add("swap-btn");
+          btnG.setAttribute("data-node-id", nodeId);
+          btnG.setAttribute("data-pos-a", posA);
+          btnG.setAttribute("data-pos-b", posB);
+          btnG.style.cursor = "pointer";
+          btnG.style.opacity = "0";
+          btnG.style.transition = "opacity 0.15s";
+          btnG.style.pointerEvents = "none";
 
-        const bg = svgEl("circle");
-        bg.setAttribute("cx", bx);
-        bg.setAttribute("cy", by);
-        bg.setAttribute("r", SWAP_R);
-        bg.setAttribute("fill", isDarkMode ? "rgba(40,40,40,0.9)" : "rgba(230,230,230,0.9)");
-        bg.setAttribute("stroke", "#888");
-        bg.setAttribute("stroke-width", 1);
-        btnG.appendChild(bg);
+          const bg = svgEl("circle");
+          bg.setAttribute("cx", bx);
+          bg.setAttribute("cy", by);
+          bg.setAttribute("r", SWAP_R);
+          bg.setAttribute("fill", isDarkMode ? "rgba(40,40,40,0.9)" : "rgba(230,230,230,0.9)");
+          bg.setAttribute("stroke", "#888");
+          bg.setAttribute("stroke-width", 1);
+          btnG.appendChild(bg);
 
-        // Swap icon: ↔ symbol
-        const ico = svgEl("text");
-        ico.setAttribute("x", bx);
-        ico.setAttribute("y", by);
-        ico.setAttribute("text-anchor", "middle");
-        ico.setAttribute("dominant-baseline", "central");
-        ico.setAttribute("font-size", 11);
-        ico.setAttribute("fill", "#ccc");
-        ico.textContent = "⇄";
-        uprightText(ico, bx, by);
-        btnG.appendChild(ico);
+          const ico = svgEl("text");
+          ico.setAttribute("x", bx);
+          ico.setAttribute("y", by);
+          ico.setAttribute("text-anchor", "middle");
+          ico.setAttribute("dominant-baseline", "central");
+          ico.setAttribute("font-size", 11);
+          ico.setAttribute("fill", "#ccc");
+          ico.textContent = "⇄";
+          uprightText(ico, bx, by);
+          btnG.appendChild(ico);
 
-        // Click handler: swap the two arms with turnstile animation
-        btnG.addEventListener("click", (e) => {
-          e.stopPropagation();
+          btnG.addEventListener("click", (e) => {
+            e.stopPropagation();
+            performArmSwap(posA, posB);
+          });
 
-          // --- Turnstile animation ---
-          const endA = armEndpoints[posA], endB = armEndpoints[posB];
-          if (!endA || !endB) {
-            // Fallback: immediate swap, no animation
-            const temp = node.armAssignment[posA];
-            node.armAssignment[posA] = node.armAssignment[posB];
-            node.armAssignment[posB] = temp;
-            const info = deriveOpInfo(effectiveCat, node.armAssignment);
-            if (info) { node.opType = info.opType; node.symbol = info.symbol; }
-            applySwapToAstAndState();
-            renderStepRepresentation();
+          swapGroup.appendChild(btnG);
+        }
+      }
+
+      // ---- Mobile: swipe-to-swap on arms ----
+      if (_isMobileDevice && armPairs.length > 0) {
+        // Build list of all arm positions (name + endpoint in SVG space)
+        const armNames = Object.keys(armEndpoints); // e.g. ["left", "right", "output"]
+
+        // Helper: convert screen coords to SVG-space coords
+        function screenToSvg(clientX, clientY) {
+          const pt = svg.createSVGPoint();
+          pt.x = clientX; pt.y = clientY;
+          const ctm = svg.getScreenCTM();
+          if (!ctm) return { x: clientX, y: clientY };
+          return pt.matrixTransform(ctm.inverse());
+        }
+
+        // Find the closest arm to an SVG-space point
+        function closestArm(svgPt) {
+          let best = null, bestDist = Infinity;
+          for (const name of armNames) {
+            const ep = armEndpoints[name];
+            // Distance from the touch point to the arm line (junction→endpoint)
+            // Use projection onto the line segment for better accuracy
+            const ax = ep.x - px, ay = ep.y - py;
+            const bx = svgPt.x - px, by = svgPt.y - py;
+            const armLen = Math.hypot(ax, ay) || 1;
+            // Project touch onto the arm direction
+            const dot = (bx * ax + by * ay) / armLen;
+            // Closest point on the segment
+            const t = Math.max(0, Math.min(armLen, dot));
+            const closX = px + t * ax / armLen;
+            const closY = py + t * ay / armLen;
+            const dist = Math.hypot(svgPt.x - closX, svgPt.y - closY);
+            if (dist < bestDist) { bestDist = dist; best = name; }
+          }
+          return best;
+        }
+
+        let _swipeStartClient = null;
+        let _swipeStartSvg = null;
+
+        // Use a larger hit zone for swipe detection — covers the full node area + arms
+        const swipeZone = svgEl("circle");
+        swipeZone.setAttribute("cx", px);
+        swipeZone.setAttribute("cy", py);
+        // Generous radius: reaches partway along the arms
+        const maxArmLen = Math.max(...armNames.map(n => {
+          const ep = armEndpoints[n];
+          return Math.hypot(ep.x - px, ep.y - py);
+        }));
+        swipeZone.setAttribute("r", Math.max(JR + 40, maxArmLen * 0.7));
+        swipeZone.setAttribute("fill", "transparent");
+        swipeZone.setAttribute("stroke", "none");
+        swipeZone.setAttribute("pointer-events", "all");
+        swipeZone.style.cursor = "pointer";
+
+        swipeZone.addEventListener("touchstart", (e) => {
+          const t = e.touches[0];
+          _swipeStartClient = { x: t.clientX, y: t.clientY };
+          _swipeStartSvg = screenToSvg(t.clientX, t.clientY);
+        }, { passive: true });
+
+        swipeZone.addEventListener("touchend", (e) => {
+          if (!_swipeStartClient || !e.changedTouches.length) return;
+          const t = e.changedTouches[0];
+          const dx = t.clientX - _swipeStartClient.x;
+          const dy = t.clientY - _swipeStartClient.y;
+          const screenDist = Math.hypot(dx, dy);
+
+          // Must be a deliberate swipe (not a tap)
+          if (screenDist < 30) {
+            _swipeStartClient = null;
+            _swipeStartSvg = null;
             return;
           }
 
-          // Compute rotation angle
-          const θA = Math.atan2(endA.y - py, endA.x - px);
-          const θB = Math.atan2(endB.y - py, endB.x - px);
-          let delta = θB - θA;
-          while (delta > Math.PI) delta -= 2 * Math.PI;
-          while (delta < -Math.PI) delta += 2 * Math.PI;
-          const deltaDeg = delta * 180 / Math.PI;
+          const endSvg = screenToSvg(t.clientX, t.clientY);
+          const startArm = closestArm(_swipeStartSvg);
+          const endArm = closestArm(endSvg);
 
-          // Arm animation colours — per-role for all categories
-          let animColA, animColB;
-          const animCC = effectiveCat && ARM_COLORS[effectiveCat];
-          if (animCC && node.armAssignment) {
-            animColA = animCC[node.armAssignment[posA]] || col;
-            animColB = animCC[node.armAssignment[posB]] || col;
-          } else {
-            animColA = animColB = col;
-          }
+          _swipeStartClient = null;
+          _swipeStartSvg = null;
 
-          // Build overlay group
-          const animOverlay = svgEl("g");
-          animOverlay.style.pointerEvents = "none";
+          // Only swap if start and end are different arms, and the pair is valid
+          if (!startArm || !endArm || startArm === endArm) return;
+          const pairValid = armPairs.some(([a, b]) =>
+            (a === startArm && b === endArm) || (a === endArm && b === startArm)
+          );
+          if (!pairValid) return;
 
-          // Dim layer (covers entire SVG)
-          const dimLayer = svgEl("rect");
-          dimLayer.setAttribute("x", "-10000"); dimLayer.setAttribute("y", "-10000");
-          dimLayer.setAttribute("width", "20000"); dimLayer.setAttribute("height", "20000");
-          dimLayer.setAttribute("fill", isDarkMode ? "rgba(30,30,30,0.6)" : "rgba(255,255,255,0.6)");
-          animOverlay.appendChild(dimLayer);
-
-          // Static pivot badge
-          const pivotC = svgEl("circle");
-          pivotC.setAttribute("cx", px); pivotC.setAttribute("cy", py);
-          pivotC.setAttribute("r", JR);
-          pivotC.style.fill = GLASS_FILL;
-          pivotC.setAttribute("stroke", badgeCol);
-          pivotC.setAttribute("stroke-width", 2.5);
-          animOverlay.appendChild(pivotC);
-          const pivotT = svgEl("text");
-          pivotT.setAttribute("x", px); pivotT.setAttribute("y", py);
-          pivotT.setAttribute("text-anchor", "middle");
-          pivotT.setAttribute("dominant-baseline", "central");
-          pivotT.setAttribute("font-size", 15);
-          pivotT.setAttribute("font-family", MATH_FONT);
-          pivotT.setAttribute("fill", badgeCol);
-          pivotT.textContent = displaySymbol;
-          uprightText(pivotT, px, py);
-          animOverlay.appendChild(pivotT);
-
-          // Arm A: rotating line from junction to endA
-          const gA = svgEl("g");
-          const lineA = svgEl("line");
-          lineA.setAttribute("x1", px); lineA.setAttribute("y1", py);
-          lineA.setAttribute("x2", endA.x); lineA.setAttribute("y2", endA.y);
-          lineA.setAttribute("stroke", animColA);
-          lineA.setAttribute("stroke-width", PW);
-          lineA.setAttribute("stroke-linecap", "round");
-          lineA.setAttribute("opacity", "0.85");
-          gA.appendChild(lineA);
-          const smilA = svgEl("animateTransform");
-          smilA.setAttribute("attributeName", "transform");
-          smilA.setAttribute("type", "rotate");
-          smilA.setAttribute("from", `0 ${px} ${py}`);
-          smilA.setAttribute("to", `${deltaDeg} ${px} ${py}`);
-          smilA.setAttribute("dur", "0.4s");
-          smilA.setAttribute("fill", "freeze");
-          smilA.setAttribute("calcMode", "spline");
-          smilA.setAttribute("keyTimes", "0;1");
-          smilA.setAttribute("keySplines", "0.42 0 0.58 1");
-          smilA.setAttribute("begin", "indefinite");
-          gA.appendChild(smilA);
-          animOverlay.appendChild(gA);
-
-          // Arm B: rotating line from junction to endB (opposite direction)
-          const gB = svgEl("g");
-          const lineB = svgEl("line");
-          lineB.setAttribute("x1", px); lineB.setAttribute("y1", py);
-          lineB.setAttribute("x2", endB.x); lineB.setAttribute("y2", endB.y);
-          lineB.setAttribute("stroke", animColB);
-          lineB.setAttribute("stroke-width", PW);
-          lineB.setAttribute("stroke-linecap", "round");
-          lineB.setAttribute("opacity", "0.85");
-          gB.appendChild(lineB);
-          const smilB = svgEl("animateTransform");
-          smilB.setAttribute("attributeName", "transform");
-          smilB.setAttribute("type", "rotate");
-          smilB.setAttribute("from", `0 ${px} ${py}`);
-          smilB.setAttribute("to", `${-deltaDeg} ${px} ${py}`);
-          smilB.setAttribute("dur", "0.4s");
-          smilB.setAttribute("fill", "freeze");
-          smilB.setAttribute("calcMode", "spline");
-          smilB.setAttribute("keyTimes", "0;1");
-          smilB.setAttribute("keySplines", "0.42 0 0.58 1");
-          smilB.setAttribute("begin", "indefinite");
-          gB.appendChild(smilB);
-          animOverlay.appendChild(gB);
-
-          svg.appendChild(animOverlay);
-
-          // Start SMIL animations
-          smilA.beginElement();
-          smilB.beginElement();
-
-          // After animation: apply swap and re-render
-          const ANIM_DUR = 430;
-          setTimeout(() => {
-            // Swap the role labels (no normalisation — positions stay, roles move)
-            const temp = node.armAssignment[posA];
-            node.armAssignment[posA] = node.armAssignment[posB];
-            node.armAssignment[posB] = temp;
-            // Update opType and symbol
-            const info = deriveOpInfo(effectiveCat, node.armAssignment);
-            if (info) { node.opType = info.opType; node.symbol = info.symbol; }
-            // Update AST, expression, overlay, latex, and re-render SVG
-            applySwapToAstAndState();
-            renderStepRepresentation();
-            updateInputOverlay();
-            updateLatexDisplay(ui.exprEl?.value ?? "");
-          }, ANIM_DUR);
+          e.preventDefault();
+          performArmSwap(startArm, endArm);
         });
 
-        swapGroup.appendChild(btnG);
+        // Insert swipe zone behind the hover zone (so taps on centre still open radial menu)
+        swapGroup.insertBefore(swipeZone, hoverZone);
       }
 
-      // Hover on the group shows/hides all buttons inside it
+      // Hover on the group shows/hides all buttons inside it (desktop only)
       const OP_HOVER_SCALE = 1.2;
       let _opDeleteHandler = null;
       swapGroup.addEventListener("mouseenter", () => {
@@ -6265,15 +6856,23 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         drawIntermediateNode(childId, px, py, armStart, armCol, label);
       } else {
         const childRad = child.type === "value" ? R : JR;
-        pipeToChild(px, py, child.x, child.y, armStart, armCol, childRad, JR, undefined, label);
+        // Tree A on-path ops: the path arm child becomes the output → flip arrow away from op
+        const _armArrowDir = (childId === node._pathChildId) ? 'child' : undefined;
+        pipeToChild(px, py, child.x, child.y, armStart, armCol, childRad, JR, _armArrowDir, label);
+        // Add arm hit zone for tap-to-wrap (before drawNode so node hit zone stays on top)
+        if (child.type === "value") {
+          addArmHitZone(px, py, child.x, child.y, childId, child.x, child.y);
+        }
         drawNode(childId, px, py, false, armCol);
       }
     }
   }
 
   // ---- Draw y node: black glass fill with green ring ----
-  drawCircle(yX, yY, R, GLASS_FILL, OP_COLORS.y, 2);
+  const yCircle = drawCircle(yX, yY, R, GLASS_FILL, OP_COLORS.y, 2);
+  yCircle.dataset.ringId = 'y';
   const yTextEl = drawText(yX, yY, "y", 32, OP_COLORS.y, true);
+  yTextEl.dataset.ringId = 'y';
   layout._yTextEl = yTextEl;  // ref for live value updates
   drawDebugLabel(yX, yY + R + 12, "y");
   // Allow wrapping y in an operator (inserts between current root and y)
@@ -6288,237 +6887,63 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
   // ==================================================================
 
   // ==================================================================
-  // ---- Equals marker: white ring + "=" pill on the equals pipe -----
+  // ---- Equals ring: white ring around the value that both sides equal ----
   // ==================================================================
   {
-    // Determine equals pipe endpoints
     const eq = state.equalsEdge;
-    let eqFromX, eqFromY, eqToX, eqToY;
+    // Determine the center of the equals value badge
+    let eqCX, eqCY;
+    let eqNodeId; // which node the ring is on ('y' or a numeric id)
     if (!eq) {
-      // Default: equals is on the Y→root pipe
-      eqFromX = yX; eqFromY = yY;
-      const root = nodes[rootOpId];
-      eqToX = root.x; eqToY = root.y;
+      // Default: equals ring around Y
+      eqCX = yX; eqCY = yY;
+      eqNodeId = 'y';
     } else {
-      const fromN = eq.fromId === 'y' ? { x: yX, y: yY } : nodes[eq.fromId];
+      // Ring around the toId node (the value both sides equal)
       const toN = eq.toId === 'y' ? { x: yX, y: yY } : nodes[eq.toId];
-      if (fromN && toN) {
-        eqFromX = fromN.x; eqFromY = fromN.y;
-        eqToX = toN.x; eqToY = toN.y;
+      if (toN && toN.x != null) {
+        eqCX = toN.x; eqCY = toN.y;
+        eqNodeId = eq.toId;
       }
     }
 
-    if (eqFromX != null && eqToX != null) {
-      const mx = (eqFromX + eqToX) / 2, my = (eqFromY + eqToY) / 2;
-      const dx = eqToX - eqFromX, dy = eqToY - eqFromY;
-      const dist = Math.hypot(dx, dy) || 1;
-      const ux = dx / dist, uy = dy / dist;
-      const nx = -uy, ny = ux; // perpendicular
+    if (eqCX != null) {
+      const EQ_RING_R = R + 6; // slightly larger than the value badge radius
+      const eqRing = svgEl("circle");
+      eqRing.setAttribute("cx", eqCX);
+      eqRing.setAttribute("cy", eqCY);
+      eqRing.setAttribute("r", EQ_RING_R);
+      eqRing.style.fill = "none";
+      eqRing.style.stroke = isDarkMode ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.75)";
+      eqRing.setAttribute("stroke-width", "3");
+      eqRing.classList.add("eq-ring");
+      gArrows.appendChild(eqRing);
 
-      // Two opposing arrow triangles representing the equals sign: ▶◀
-      const EQ_ALEN = 8;   // triangle length
-      const EQ_AHW = 3.5; // triangle half-width at base
-      const EQ_GAP = 2;   // gap between the two tips
-
-      // Position equals marker at from-end or to-end of the pipe
-      const atToEnd = eq && eq.atToEnd;
-      const eqPosX = atToEnd ? (eqToX - CR * ux) : (eqFromX + CR * ux);
-      const eqPosY = atToEnd ? (eqToY - CR * uy) : (eqFromY + CR * uy);
-
-      // Both triangles together at this position, tips pointing at each other (▶◀)
-      const triAx = eqPosX - EQ_GAP / 2 * ux, triAy = eqPosY - EQ_GAP / 2 * uy;
-      const triBx = eqPosX + EQ_GAP / 2 * ux, triBy = eqPosY + EQ_GAP / 2 * uy;
-
-      // Triangle A: tip pointing toward to-end (+u direction)
-      const aBase_x = triAx - EQ_ALEN * ux, aBase_y = triAy - EQ_ALEN * uy;
-      const triA = svgEl("polygon");
-      triA.setAttribute("points", [
-        `${triAx},${triAy}`,
-        `${aBase_x + EQ_AHW * nx},${aBase_y + EQ_AHW * ny}`,
-        `${aBase_x - EQ_AHW * nx},${aBase_y - EQ_AHW * ny}`
-      ].join(" "));
-      const eqFill = isDarkMode ? "white" : "black";
-      triA.style.fill = "var(--text)";
-      triA.setAttribute("opacity", 0.85);
-      triA.classList.add("eq-tri", "eq-tri-a");
-      gArrows.appendChild(triA);
-
-      // Triangle B: tip pointing toward from-end (-u direction)
-      const bBase_x = triBx + EQ_ALEN * ux, bBase_y = triBy + EQ_ALEN * uy;
-      const triB = svgEl("polygon");
-      triB.setAttribute("points", [
-        `${triBx},${triBy}`,
-        `${bBase_x + EQ_AHW * nx},${bBase_y + EQ_AHW * ny}`,
-        `${bBase_x - EQ_AHW * nx},${bBase_y - EQ_AHW * ny}`
-      ].join(" "));
-      triB.style.fill = "var(--text)";
-      triB.setAttribute("opacity", 0.85);
-      triB.classList.add("eq-tri", "eq-tri-b");
-      gArrows.appendChild(triB);
-
-      // Visible grab circle at the equals marker — ring matches theme
-      const grabR = EQ_ALEN + 4; // just big enough to enclose the double arrows
+      // Invisible grab circle for drag interaction
       const eqGrab = svgEl("circle");
-      eqGrab.setAttribute("cx", eqPosX);
-      eqGrab.setAttribute("cy", eqPosY);
-      eqGrab.setAttribute("r", grabR);
-      eqGrab.style.fill = isDarkMode ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
-      eqGrab.style.stroke = isDarkMode ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.35)";
-      eqGrab.setAttribute("stroke-width", "2");
+      eqGrab.setAttribute("cx", eqCX);
+      eqGrab.setAttribute("cy", eqCY);
+      eqGrab.setAttribute("r", EQ_RING_R + 6);
+      eqGrab.style.fill = "transparent";
+      eqGrab.style.stroke = "none";
       eqGrab.setAttribute("cursor", "grab");
       eqGrab.setAttribute("pointer-events", "all");
       eqGrab.classList.add("equals-grab");
+      eqGrab.dataset.nodeId = String(eqNodeId);
+      // Keep fromId/toId for backward compat with attachEqualsDrag
       eqGrab.dataset.fromId = eq ? String(eq.fromId) : 'y';
       eqGrab.dataset.toId = eq ? String(eq.toId) : String(rootOpId);
       gInteract.appendChild(eqGrab);
-
-      // ---- Hide normal arrow polygons that sit on the equals pipe ----
-      svg.querySelectorAll('polygon:not(.eq-tri)').forEach(p => {
-        const pts = p.getAttribute('points');
-        if (!pts) return;
-        const verts = pts.trim().split(/\s+/).map(v => v.split(',').map(Number));
-        let sx = 0, sy = 0;
-        for (const [vx, vy] of verts) { sx += vx; sy += vy; }
-        const centX = sx / verts.length, centY = sy / verts.length;
-        // Check if centroid is near the equals pipe midpoint
-        if (Math.hypot(centX - mx, centY - my) < dist / 2 + 2) {
-          p.setAttribute('opacity', '0');
-          p.classList.add('eq-hidden');
-        }
-      });
-
-
     }
   }
 
-  // ==================================================================
-  // ---- Post-process: permanently rotate arrow triangles for equalsEdge ----
-  // ==================================================================
-  const eqEdge = state.equalsEdge;
-  if (eqEdge && typeof eqEdge.fromId === 'number') {
-    // Find path from root to equalsEdge.toId
-    const eqPath = [];
-    function findEqPath(nodeId, target) {
-      if (nodeId == null) return false;
-      const nd = nodes[nodeId];
-      if (!nd) return false;
-      if (nodeId === target) return true;
-      if (nd.type === 'intermediate' && nd.connectsToOpId != null) {
-        return findEqPath(nd.connectsToOpId, target);
-      }
-      if (nd.type !== 'op') return false;
-      if (nd.leftId != null && findEqPath(nd.leftId, target)) {
-        eqPath.push({ nodeId, armToChild: 'left' });
-        return true;
-      }
-      if (nd.rightId != null && nd.rightId !== nd.leftId && findEqPath(nd.rightId, target)) {
-        eqPath.push({ nodeId, armToChild: 'right' });
-        return true;
-      }
-      return false;
-    }
-    findEqPath(rootOpId, eqEdge.toId);
-    eqPath.reverse();
-
-    // For each ring on the path, compute rotation and apply to arrow triangles
-    for (const step of eqPath) {
-      const nd = nodes[step.nodeId];
-      if (!nd || nd.type !== 'op') continue;
-      const cx = nd.x, cy = nd.y;
-
-      // Output direction (toward parent or Y)
-      let px, py;
-      if (step.nodeId === rootOpId) {
-        px = yX; py = yY;
-      } else {
-        for (let j = 0; j < nodes.length; j++) {
-          const pn = nodes[j];
-          if (pn && (pn.leftId === step.nodeId || pn.rightId === step.nodeId)) {
-            px = pn.x; py = pn.y; break;
-          }
-          if (pn && pn.type === 'intermediate' && pn.connectsToOpId === step.nodeId) {
-            px = pn.x; py = pn.y; break;
-          }
-        }
-      }
-      if (px == null) continue;
-      const outAngle = Math.atan2(py - cy, px - cx);
-
-      // Child direction (the arm equals exits through)
-      const childId = step.armToChild === 'left' ? nd.leftId : nd.rightId;
-      const child = nodes[childId];
-      if (!child || child.x == null) continue;
-      const childAngle = Math.atan2(child.y - cy, child.x - cx);
-
-      let rotRad = childAngle - outAngle;
-      if (rotRad > Math.PI) rotRad -= 2 * Math.PI;
-      if (rotRad < -Math.PI) rotRad += 2 * Math.PI;
-      const rotDeg = rotRad * 180 / Math.PI;
-      const rotStr = `rotate(${rotDeg}, ${cx}, ${cy})`;
-
-      // Find and rotate arrow triangles whose vertices are near this ring
-      svg.querySelectorAll('polygon:not(.eq-tri)').forEach(p => {
-        const pts = p.getAttribute('points');
-        if (!pts) return;
-        const verts = pts.trim().split(/\s+/).map(v => v.split(',').map(Number));
-        for (const [vx, vy] of verts) {
-          if (Math.hypot(vx - cx, vy - cy) < CR + 15) {
-            p.setAttribute('transform', rotStr);
-            break;
-          }
-        }
-      });
-    }
-
-    // After rotating arrows, recalculate which polygons should be hidden.
-    // Collect the centroids of actual eq-tri marker elements, then hide any
-    // regular polygon whose visual (rotated) centroid overlaps a marker,
-    // and UN-hide any previously-hidden polygon that has rotated away.
-    const eqTriCentroids = [];
-    svg.querySelectorAll('.eq-tri').forEach(tri => {
-      const pts = tri.getAttribute('points');
-      if (!pts) return;
-      const verts = pts.trim().split(/\s+/).map(v => v.split(',').map(Number));
-      let sx = 0, sy = 0;
-      for (const [vx, vy] of verts) { sx += vx; sy += vy; }
-      eqTriCentroids.push({ x: sx / verts.length, y: sy / verts.length });
-    });
-    const EQ_HIDE_R = 15;
-    svg.querySelectorAll('polygon:not(.eq-tri)').forEach(p => {
-      const pts = p.getAttribute('points');
-      if (!pts) return;
-      const verts = pts.trim().split(/\s+/).map(v => v.split(',').map(Number));
-      let sx = 0, sy = 0;
-      for (const [vx, vy] of verts) { sx += vx; sy += vy; }
-      let cx2 = sx / verts.length, cy2 = sy / verts.length;
-      // Account for rotation transform to get visual centroid
-      const t = p.getAttribute('transform');
-      if (t) {
-        const m = t.match(/rotate\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)/);
-        if (m) {
-          const deg = parseFloat(m[1]), rcx = parseFloat(m[2]), rcy = parseFloat(m[3]);
-          const rad = deg * Math.PI / 180;
-          const dx2 = cx2 - rcx, dy2 = cy2 - rcy;
-          cx2 = rcx + dx2 * Math.cos(rad) - dy2 * Math.sin(rad);
-          cy2 = rcy + dx2 * Math.sin(rad) + dy2 * Math.cos(rad);
-        }
-      }
-      let nearTri = false;
-      for (const tc of eqTriCentroids) {
-        if (Math.hypot(cx2 - tc.x, cy2 - tc.y) < EQ_HIDE_R) {
-          nearTri = true;
-          break;
-        }
-      }
-      if (nearTri) {
-        p.setAttribute('opacity', '0');
-        p.classList.add('eq-hidden');
-      } else if (p.classList.contains('eq-hidden')) {
-        p.removeAttribute('opacity');
-        p.classList.remove('eq-hidden');
-      }
-    });
+  // Save final (rotated) node positions for animation interpolation
+  const _newPositions = new Map();
+  _newPositions.set('y', { x: yX, y: yY });
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i].x != null) _newPositions.set(String(i), { x: nodes[i].x, y: nodes[i].y });
   }
+  svg._nodePositions = _newPositions;
 
   return svg;
 }
@@ -7044,9 +7469,10 @@ function updateInputOverlay() {
   ).matches;
 
   // "y = " prefix HTML — rendered inside the overlay so it's part of the expression display
+  // Wrapped in .ov-prefix so autoSizeInput can measure it directly
   const _eqCol = document.body.classList.contains('light') ? 'black' : 'white';
-  const yEqHtml = '<span style="color:' + OP_COLORS.y + '">y</span>'
-    + '<span style="color:' + _eqCol + '"> = </span>';
+  const yEqHtml = '<span class="ov-prefix"><span style="color:' + OP_COLORS.y + '">y</span>'
+    + '<span style="color:' + _eqCol + '"> = </span></span>';
   const showPrefix = !isEqActive;
 
   // On mobile portrait, force eq-active so no 4ch padding-left for y=
@@ -7478,10 +7904,11 @@ function renderPipeDiagram(ops, layout, showIntermediates) {
   const DOT_R = 3;     // small filled circles at spoke ends
   const RING_W = 1.5;   // ring stroke width
   const SPOKE_W = 2;     // spoke stroke width
-  const PW = 12;    // pipe stroke width
+  const PW = 24;    // pipe stroke width (2× for visibility on mobile)
   const GAP = 60;    // horizontal spacing (fallback for 0-ops)
   const PAD = 14;    // SVG padding
   const GREY = "#888";
+  const _counterDeg = 0;  // counter-rotation angle (matches DAG renderer)
 
   const S60 = Math.sin(Math.PI / 3);  // √3/2 ≈ 0.866
   const C60 = Math.cos(Math.PI / 3);  // 0.5
@@ -8804,15 +9231,17 @@ function renderPipeDiagram(ops, layout, showIntermediates) {
 // ==================================================================
 
 /** Module-level state for continuing drag across SVG rebuilds */
-let _eqDragContinuation = null; // { pointerId, clientX, clientY, fromId, toId, curT }
+let _eqDragContinuation = null; // { pointerId, clientX, clientY, targetId }
+
+/** Module-level storage for previous RAW (pre-rotation) node positions (for rAF animation) */
+let _prevRawPositions = null; // Map<string, {x, y}>  keyed by node index or 'y'
+let _treeAnimFrameId = null;  // rAF id for cancelling in-progress tree animation
 
 function attachEqualsDrag(svg, layout) {
   const grabs = svg.querySelectorAll('.equals-grab');
   if (!grabs.length) return;
   const { nodes } = layout;
   const rootOpId = layout.mainPath.opIds[0];
-  const CR = layout._CR || 34.5;
-  const EQ_ALEN = 8, EQ_AHW = 3.5, EQ_GAP = 2;
 
   /** Convert a pointer event to SVG-space coords */
   function svgPoint(evt) {
@@ -8824,94 +9253,70 @@ function attachEqualsDrag(svg, layout) {
   }
 
   // ================================================================
-  // Build the full pipe-edge network from the layout
+  // Build list of valid snap targets: Y, value nodes, intermediate nodes
   // ================================================================
-  const networkEdges = []; // { fromId, toId, fromX, fromY, toX, toY, len, ux, uy }
-
-  function addEdge(fromId, toId) {
-    const fromN = fromId === 'y'
-      ? { x: layout._yX, y: layout._yY }
-      : nodes[fromId];
-    const toN = nodes[toId];
-    if (!fromN || !toN || fromN.x == null || toN.x == null) return;
-    const dx = toN.x - fromN.x, dy = toN.y - fromN.y;
-    const len = Math.hypot(dx, dy);
-    if (len < 1) return;
-    networkEdges.push({
-      fromId, toId,
-      fromX: fromN.x, fromY: fromN.y,
-      toX: toN.x, toY: toN.y,
-      len, ux: dx / len, uy: dy / len
-    });
-  }
-
-  addEdge('y', rootOpId);
+  const valueTargets = []; // { id: 'y'|number, x, y }
+  valueTargets.push({ id: 'y', x: layout._yX, y: layout._yY });
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i];
-    if (!n) continue;
-    if (n.type === 'op') {
-      if (n.leftId != null) addEdge(i, n.leftId);
-      if (n.rightId != null && n.rightId !== n.leftId) addEdge(i, n.rightId);
-    } else if (n.type === 'intermediate') {
-      if (n.connectsToOpId != null) addEdge(i, n.connectsToOpId);
+    if (!n || n.x == null) continue;
+    if (n.type === 'value' || n.type === 'intermediate') {
+      valueTargets.push({ id: i, x: n.x, y: n.y });
     }
   }
-
 
   // ================================================================
   // Helpers
   // ================================================================
 
-  /** Find the edge index matching the current equalsEdge state */
-  function findCurrentEdgeIdx() {
-    const eq = state.equalsEdge;
-    if (!eq) {
-      return networkEdges.findIndex(
-        e => e.fromId === 'y' && e.toId === rootOpId
-      );
+  /** Find the parent operator of a given node (value or intermediate) */
+  function parentOpOf(nodeId) {
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      if (!n || n.type !== 'op') continue;
+      if (n.leftId === nodeId || n.rightId === nodeId) return i;
     }
-    return networkEdges.findIndex(
-      e => String(e.fromId) === String(eq.fromId) &&
-        String(e.toId) === String(eq.toId)
-    );
+    return null;
   }
 
-  const SLIDE_MARGIN = 5; // small margin from node centers
+  /** Build equalsEdge from a snap target node */
+  function equalsEdgeForTarget(targetId) {
+    if (targetId === 'y') return null;
+    const parentOp = parentOpOf(targetId);
+    if (parentOp != null) {
+      return { fromId: parentOp, toId: targetId };
+    }
+    return null;
+  }
+
+  /** Find the closest value target to a point */
+  function findClosestTarget(pt) {
+    let best = null, bestDist = Infinity;
+    for (const t of valueTargets) {
+      const d = Math.hypot(pt.x - t.x, pt.y - t.y);
+      if (d < bestDist) { bestDist = d; best = t; }
+    }
+    return best;
+  }
 
   // ================================================================
   // Drag state
   // ================================================================
   let dragging = false;
-  let curEdgeIdx = -1;
-  let curT = 0;                // world-unit parameter along current edge
-  let eqTriA = null, eqTriB = null, eqGrabEl = null;
-  let dragMoved = false;       // did the cursor actually move during the drag?
-  let savedPointerId = null;   // for re-capturing pointer after SVG rebuild
-  let lastClientX = 0, lastClientY = 0; // last pointer position
+  let curTargetId = null;      // 'y' or node index
+  let eqRingEl = null, eqGrabEl = null;
+  let dragMoved = false;
+  let savedPointerId = null;
+  let lastClientX = 0, lastClientY = 0;
 
   // ================================================================
-  // Visual marker update - sets SVG attributes directly, no rebuild
+  // Visual marker update — move ring + grab to a position
   // ================================================================
-  function updateMarkerVisual(mx, my, ux, uy) {
-    const nx = -uy, ny = ux;
-    // Triangle A: tip toward to-end
-    const tax = mx - (EQ_GAP / 2) * ux, tay = my - (EQ_GAP / 2) * uy;
-    const abx = tax - EQ_ALEN * ux, aby = tay - EQ_ALEN * uy;
-    if (eqTriA) {
-      eqTriA.setAttribute('points',
-        `${tax},${tay} ${abx + EQ_AHW * nx},${aby + EQ_AHW * ny} ${abx - EQ_AHW * nx},${aby - EQ_AHW * ny}`);
-      eqTriA.removeAttribute('transform');
+  function updateMarkerVisual(mx, my) {
+    if (eqRingEl) {
+      eqRingEl.setAttribute('cx', mx);
+      eqRingEl.setAttribute('cy', my);
     }
-    // Triangle B: tip toward from-end
-    const tbx = mx + (EQ_GAP / 2) * ux, tby = my + (EQ_GAP / 2) * uy;
-    const bbx = tbx + EQ_ALEN * ux, bby = tby + EQ_ALEN * uy;
-    if (eqTriB) {
-      eqTriB.setAttribute('points',
-        `${tbx},${tby} ${bbx + EQ_AHW * nx},${bby + EQ_AHW * ny} ${bbx - EQ_AHW * nx},${bby - EQ_AHW * ny}`);
-      eqTriB.removeAttribute('transform');
-    }
-
-    // Grab circle
     if (eqGrabEl) {
       eqGrabEl.setAttribute('cx', mx);
       eqGrabEl.setAttribute('cy', my);
@@ -8919,65 +9324,99 @@ function attachEqualsDrag(svg, layout) {
   }
 
   // ================================================================
-  // Core sliding logic — find the closest point on ANY edge in the
-  // network and place the marker there.  No junction transitions needed.
+  // Build pipe edge segments for constrained ring movement.
+  // Each edge: { fromId, toId, x1, y1, x2, y2 }
   // ================================================================
-  function slideToPosition(cursorPt) {
-    const prevEdgeIdx = curEdgeIdx;
-    let bestEdge = -1, bestDist = Infinity, bestT = 0;
-    for (let i = 0; i < networkEdges.length; i++) {
-      const e = networkEdges[i];
-      const relX = cursorPt.x - e.fromX;
-      const relY = cursorPt.y - e.fromY;
-      let t = relX * e.ux + relY * e.uy;
-      const tMin = SLIDE_MARGIN;
-      const tMax = Math.max(tMin, e.len - SLIDE_MARGIN);
-      t = Math.max(tMin, Math.min(tMax, t));
-      // perpendicular distance from cursor to this clamped point
-      const px = e.fromX + t * e.ux;
-      const py = e.fromY + t * e.uy;
-      const dist = Math.hypot(cursorPt.x - px, cursorPt.y - py);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestT = t;
-        bestEdge = i;
+  const pipeEdges = [];
+
+  function addEdge(fromId, toId, x1, y1, x2, y2) {
+    if (x1 != null && y1 != null && x2 != null && y2 != null) {
+      pipeEdges.push({ fromId, toId, x1, y1, x2, y2 });
+    }
+  }
+
+  // Y → rootOp
+  const rootNode = nodes[rootOpId];
+  if (rootNode && rootNode.x != null) {
+    addEdge('y', rootOpId, layout._yX, layout._yY, rootNode.x, rootNode.y);
+  }
+
+  // Walk all nodes to build edges
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (!n || n.x == null) continue;
+    if (n.type === 'op') {
+      // op → left child
+      if (n.leftId != null) {
+        const child = nodes[n.leftId];
+        if (child && child.x != null) addEdge(i, n.leftId, n.x, n.y, child.x, child.y);
+      }
+      // op → right child
+      if (n.rightId != null && n.rightId !== n.leftId) {
+        const child = nodes[n.rightId];
+        if (child && child.x != null) addEdge(i, n.rightId, n.x, n.y, child.x, child.y);
       }
     }
-    if (bestEdge >= 0) {
-      curEdgeIdx = bestEdge;
-      curT = bestT;
+    if (n.type === 'intermediate' && n.connectsToOpId != null) {
+      const child = nodes[n.connectsToOpId];
+      if (child && child.x != null) addEdge(i, n.connectsToOpId, n.x, n.y, child.x, child.y);
     }
+  }
 
-    // If the edge changed, do a live equation update + SVG rebuild
-    if (prevEdgeIdx >= 0 && curEdgeIdx !== prevEdgeIdx) {
-      liveEdgeUpdate();
-      return; // this closure is dead after SVG rebuild
+  /** Project a point onto a line segment, return { x, y, t } where t is 0..1 */
+  function projectOntoSegment(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1) return { x: x1, y: y1, t: 0 };
+    let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+    return { x: x1 + t * dx, y: y1 + t * dy, t };
+  }
+
+  /** Find the closest point on any pipe edge to the cursor */
+  function closestPointOnPipes(px, py) {
+    let bestDist = Infinity, bestPt = null, bestEdge = null;
+    for (const e of pipeEdges) {
+      const proj = projectOntoSegment(px, py, e.x1, e.y1, e.x2, e.y2);
+      const d = Math.hypot(px - proj.x, py - proj.y);
+      if (d < bestDist) {
+        bestDist = d;
+        bestPt = proj;
+        bestEdge = e;
+      }
     }
-
-    // Update visual
-    const edge = networkEdges[curEdgeIdx];
-    if (!edge) return;
-    const mx = edge.fromX + curT * edge.ux;
-    const my = edge.fromY + curT * edge.uy;
-    updateMarkerVisual(mx, my, edge.ux, edge.uy);
+    return { pt: bestPt, edge: bestEdge, dist: bestDist };
   }
 
   // ================================================================
-  // Live edge update — called mid-drag when the marker crosses to a
-  // different pipe.  Updates the equation + rebuilds SVG + resumes drag.
+  // Core drag logic — ring moves along pipes, snaps to nodes on arrival
   // ================================================================
-  function liveEdgeUpdate() {
-    const edge = networkEdges[curEdgeIdx];
-    if (!edge) return;
+  const SNAP_NODE_DIST = 12; // distance from a node center to trigger snap
 
-    // Compute new equalsEdge from current edge
-    let newEq;
-    if (edge.fromId === 'y') {
-      newEq = null;
-    } else {
-      newEq = { fromId: edge.fromId, toId: edge.toId };
-      newEq.atToEnd = curT > edge.len / 2;
+  function handleDragMove(cursorPt) {
+    const result = closestPointOnPipes(cursorPt.x, cursorPt.y);
+    if (!result.pt) return;
+
+    // Move ring to closest point on pipe
+    updateMarkerVisual(result.pt.x, result.pt.y);
+
+    // Check if close to a value/intermediate endpoint → snap
+    for (const t of valueTargets) {
+      const d = Math.hypot(result.pt.x - t.x, result.pt.y - t.y);
+      if (d <= SNAP_NODE_DIST && String(t.id) !== String(curTargetId)) {
+        curTargetId = t.id;
+        updateMarkerVisual(t.x, t.y);
+        return;
+      }
     }
+  }
+
+  // ================================================================
+  // Live target update — called mid-drag when the ring snaps to a
+  // different value node.  Updates equation + rebuilds SVG + resumes drag.
+  // ================================================================
+  function liveTargetUpdate() {
+    const newEq = equalsEdgeForTarget(curTargetId);
     state.equalsEdge = newEq;
 
     // Save continuation so the new attachEqualsDrag can resume the drag
@@ -8985,9 +9424,7 @@ function attachEqualsDrag(svg, layout) {
       pointerId: savedPointerId,
       clientX: lastClientX,
       clientY: lastClientY,
-      fromId: edge.fromId,
-      toId: edge.toId,
-      curT: curT
+      targetId: curTargetId
     };
     dragging = false;
 
@@ -9009,51 +9446,49 @@ function attachEqualsDrag(svg, layout) {
       updateInputOverlay();
       updateLatexDisplay(ui.exprEl?.value ?? "");
     } catch (err) {
-      console.error("[liveEdgeUpdate]", err);
+      console.error("[liveTargetUpdate]", err);
     } finally {
       requestAnimationFrame(() => { _swapInProgress = false; });
     }
   }
 
-  /** Reset marker visuals to the official rendered position */
-  function resetMarkerVisual() {
-    const idx = findCurrentEdgeIdx();
-    if (idx < 0) return;
-    const edge = networkEdges[idx];
-    if (!edge) return;
-    const atToEnd = state.equalsEdge?.atToEnd;
-    const t = atToEnd ? (edge.len - CR) : CR;
-    const mx = edge.fromX + t * edge.ux;
-    const my = edge.fromY + t * edge.uy;
-    updateMarkerVisual(mx, my, edge.ux, edge.uy);
-  }
-
   // ================================================================
-  // Commit - called on pointer release.  Sets state.equalsEdge and
-  // rebuilds the SVG exactly once.  Returns true if a rebuild happened.
+  // Commit — called on pointer release.  Snaps to nearest target if
+  // not already snapped, sets state.equalsEdge, and rebuilds SVG.
   // ================================================================
-  function commitPosition() {
-    if (curEdgeIdx < 0) return false;
-    const edge = networkEdges[curEdgeIdx];
-    if (!edge) return false;
-    if (!dragMoved) return false;
-
-    let newEq;
-    if (edge.fromId === 'y') {
-      newEq = null; // Y->root = default
-    } else {
-      newEq = { fromId: edge.fromId, toId: edge.toId };
-      newEq.atToEnd = curT > edge.len / 2;
+  function commitPosition(cursorPt) {
+    if (!dragMoved) {
+      // No movement — just rebuild to reset ring position
+      renderStepRepresentation();
+      return false;
     }
 
-    // Skip rebuild if nothing changed
+    // Project cursor onto pipes and snap to nearest node endpoint
+    if (cursorPt) {
+      const result = closestPointOnPipes(cursorPt.x, cursorPt.y);
+      if (result.pt) {
+        // Find closest value target to the projected point
+        let best = null, bestDist = Infinity;
+        for (const t of valueTargets) {
+          const d = Math.hypot(result.pt.x - t.x, result.pt.y - t.y);
+          if (d < bestDist) { bestDist = d; best = t; }
+        }
+        if (best) curTargetId = best.id;
+      }
+    }
+    if (curTargetId == null) return false;
+
+    const newEq = equalsEdgeForTarget(curTargetId);
+
     const oldEq = state.equalsEdge;
     const same = (!newEq && !oldEq) ||
       (newEq && oldEq &&
         String(newEq.fromId) === String(oldEq.fromId) &&
-        String(newEq.toId) === String(oldEq.toId) &&
-        !!newEq.atToEnd === !!oldEq.atToEnd);
-    if (same) return false;
+        String(newEq.toId) === String(oldEq.toId));
+    if (same) {
+      renderStepRepresentation();
+      return true;
+    }
 
     state.equalsEdge = newEq;
     _swapInProgress = true;
@@ -9088,17 +9523,13 @@ function attachEqualsDrag(svg, layout) {
     e.preventDefault();
     e.stopPropagation();
     const grab = e.currentTarget;
-
-    curEdgeIdx = findCurrentEdgeIdx();
-    if (curEdgeIdx < 0) return;
     grab.setPointerCapture(e.pointerId);
 
-    const edge = networkEdges[curEdgeIdx];
-    const atToEnd = state.equalsEdge?.atToEnd;
-    curT = atToEnd ? (edge.len - CR) : CR;
+    // Determine current target from state
+    const eq = state.equalsEdge;
+    curTargetId = eq ? eq.toId : 'y';
 
-    eqTriA = svg.querySelector('.eq-tri-a');
-    eqTriB = svg.querySelector('.eq-tri-b');
+    eqRingEl = svg.querySelector('.eq-ring');
     eqGrabEl = grab;
     dragMoved = false;
     dragging = true;
@@ -9113,20 +9544,7 @@ function attachEqualsDrag(svg, layout) {
     dragMoved = true;
     lastClientX = e.clientX;
     lastClientY = e.clientY;
-    slideToPosition(svgPoint(e));
-    // Dim the accordion if the cursor is behind/over it
-    // On mobile portrait the diagram is inside the pane, so skip dimming
-    const _isMPDrag = window.matchMedia(
-      '(max-width: 600px) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: portrait)'
-    ).matches;
-    if (!_isMPDrag) {
-      const ew = document.getElementById('expr-window');
-      if (ew) {
-        const r = ew.getBoundingClientRect();
-        const over = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-        ew.classList.toggle('dragging-dimmed', over);
-      }
-    }
+    handleDragMove(svgPoint(e));
   }
 
   function onPointerUp(e) {
@@ -9134,18 +9552,14 @@ function attachEqualsDrag(svg, layout) {
     dragging = false;
     e.currentTarget.releasePointerCapture(e.pointerId);
     e.currentTarget.style.cursor = 'grab';
-    if (!commitPosition()) resetMarkerVisual();
-    const ew = document.getElementById('expr-window');
-    if (ew) ew.classList.remove('dragging-dimmed');
+    commitPosition(svgPoint(e));
   }
 
   function onLostPointerCapture() {
     if (!dragging) return;
     dragging = false;
     if (eqGrabEl) eqGrabEl.style.cursor = 'grab';
-    if (!commitPosition()) resetMarkerVisual();
-    const ew = document.getElementById('expr-window');
-    if (ew) ew.classList.remove('dragging-dimmed');
+    commitPosition();
   }
 
   // Attach events to all grab circles
@@ -9157,21 +9571,13 @@ function attachEqualsDrag(svg, layout) {
   });
 
   // ================================================================
-  // Continuation: resume drag after SVG rebuild from liveEdgeUpdate
+  // Continuation: resume drag after SVG rebuild from liveTargetUpdate
   // ================================================================
   if (_eqDragContinuation) {
     const cont = _eqDragContinuation;
     _eqDragContinuation = null;
 
-    // Find the edge matching the continuation state
-    const matchIdx = networkEdges.findIndex(
-      e => String(e.fromId) === String(cont.fromId) &&
-        String(e.toId) === String(cont.toId)
-    );
-    if (matchIdx < 0) return;
-
-    curEdgeIdx = matchIdx;
-    curT = cont.curT;
+    curTargetId = cont.targetId;
 
     // Find the closest grab circle to the last pointer position
     let bestGrab = null, bestDist = Infinity;
@@ -9191,8 +9597,7 @@ function attachEqualsDrag(svg, layout) {
     if (bestGrab) {
       try {
         bestGrab.setPointerCapture(cont.pointerId);
-        eqTriA = svg.querySelector('.eq-tri-a');
-        eqTriB = svg.querySelector('.eq-tri-b');
+        eqRingEl = svg.querySelector('.eq-ring');
         eqGrabEl = bestGrab;
         savedPointerId = cont.pointerId;
         lastClientX = cont.clientX;
@@ -9201,13 +9606,9 @@ function attachEqualsDrag(svg, layout) {
         dragMoved = true;
         bestGrab.style.cursor = 'grabbing';
 
-        // Position the marker at the continued position
-        const edge = networkEdges[curEdgeIdx];
-        if (edge) {
-          const mx = edge.fromX + curT * edge.ux;
-          const my = edge.fromY + curT * edge.uy;
-          updateMarkerVisual(mx, my, edge.ux, edge.uy);
-        }
+        // Position ring at current target
+        const target = valueTargets.find(t => String(t.id) === String(curTargetId));
+        if (target) updateMarkerVisual(target.x, target.y);
       } catch (_) {
         // Pointer was released during rebuild — no continuation
       }
@@ -9280,11 +9681,6 @@ function performEqualsRotation(nodeId, fromArm, toArm, layout, opts) {
     }
   }
 
-  // Apply atToEnd positioning if specified by the caller
-  if (opts.atToEnd !== undefined && state.equalsEdge) {
-    state.equalsEdge.atToEnd = opts.atToEnd;
-  }
-
   _swapInProgress = true;
   try {
     const eqResult = generateEquation(layout, state.equalsEdge);
@@ -9313,6 +9709,7 @@ function performEqualsRotation(nodeId, fromArm, toArm, layout, opts) {
   }
 }
 
+/**
 /**
  * Generate a full equation (LHS = RHS) based on the equals edge position.
  * Traces from Y down to the cut point, applying inverse operations at each
@@ -9567,6 +9964,12 @@ function renderStepRepresentation() {
   el.classList.remove("step-rep--empty");
   // label is kept hidden; checkboxes preserved for JS state only
 
+  // Cancel any in-progress tree animation
+  if (_treeAnimFrameId) {
+    cancelAnimationFrame(_treeAnimFrameId);
+    _treeAnimFrameId = null;
+  }
+
   try {
     const intCb = document.getElementById("show-intermediates");
     const showInt = intCb ? intCb.checked : true;
@@ -9576,10 +9979,95 @@ function renderStepRepresentation() {
     const showDbg = dbgCb ? dbgCb.checked : false;
     const armCb = document.getElementById("pipe-arm-labels");
     const showArm = armCb ? armCb.checked : false;
-    const svg = pipeLayout
-      ? renderPipeDiagramDag(ops, pipeLayout, showInt, horz, showDbg, showArm)
-      : renderPipeDiagram(ops, null, showInt);
+
+    // Non-pipe layout: render immediately, no animation
+    if (!pipeLayout) {
+      const svg = renderPipeDiagram(ops, null, showInt);
+      el.appendChild(svg);
+      return;
+    }
+
+    // Compute new raw positions (before rotation is applied by render)
+    const positions = computeDagPositions(pipeLayout, state.equalsEdge);
+    if (!positions) return;
+    const { nodes } = pipeLayout;
+
+    // Snapshot raw positions (renderPipeDiagramDag will mutate node.x/y with rotation)
+    const newRaw = new Map();
+    newRaw.set('y', { x: positions.yX, y: positions.yY });
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].x != null) newRaw.set(String(i), { x: nodes[i].x, y: nodes[i].y });
+    }
+
+    // Decide whether to animate (skip during active drag)
+    const shouldAnimate = _prevRawPositions && !_eqDragContinuation;
+    let hasMoved = false;
+    if (shouldAnimate) {
+      for (const [key, newP] of newRaw) {
+        const oldP = _prevRawPositions.get(key);
+        if (!oldP || Math.abs(oldP.x - newP.x) > 0.5 || Math.abs(oldP.y - newP.y) > 0.5) {
+          hasMoved = true; break;
+        }
+      }
+    }
+
+    if (shouldAnimate && hasMoved) {
+      // ---- rAF full-tree animation: interpolate raw positions, rebuild SVG each frame ----
+      const oldRaw = _prevRawPositions;
+      const ANIM_MS = 300;
+      let startTime = null;
+
+      const animateFrame = (now) => {
+        if (startTime === null) startTime = now;
+        const elapsed = now - startTime;
+        const t = Math.min(1, elapsed / ANIM_MS);
+        const ease = 1 - Math.pow(1 - t, 3); // ease-out cubic
+
+        // Lerp all node positions (raw, pre-rotation)
+        const currentRaw = new Map();
+        for (const [key, newP] of newRaw) {
+          const oldP = oldRaw.get(key) || newP;
+          const lx = oldP.x + (newP.x - oldP.x) * ease;
+          const ly = oldP.y + (newP.y - oldP.y) * ease;
+          currentRaw.set(key, { x: lx, y: ly });
+          if (key === 'y') {
+            positions.yX = lx;
+            positions.yY = ly;
+          } else {
+            nodes[parseInt(key)].x = lx;
+            nodes[parseInt(key)].y = ly;
+          }
+        }
+        // Save interpolated positions so cancellation can resume from here
+        _prevRawPositions = currentRaw;
+
+        // Rebuild full SVG at interpolated positions
+        el.innerHTML = "";
+        const svg = renderPipeDiagramDag(ops, pipeLayout, showInt, horz, showDbg, showArm, positions);
+        el.appendChild(svg);
+
+        if (t < 1) {
+          _treeAnimFrameId = requestAnimationFrame(animateFrame);
+        } else {
+          _treeAnimFrameId = null;
+          _prevRawPositions = newRaw; // exact final positions
+          attachEqualsDrag(svg, pipeLayout);
+        }
+      };
+
+      // Render first frame synchronously at t=0 (old positions) to avoid blank flash
+      animateFrame(performance.now());
+      return;
+    }
+
+    // ---- No animation: render immediately ----
+    const svg = renderPipeDiagramDag(ops, pipeLayout, showInt, horz, showDbg, showArm, positions);
     el.appendChild(svg);
+    // Only save positions when NOT mid-drag — preserve pre-drag positions
+    // so that on release, animation fires from pre-drag → post-drag.
+    if (!_eqDragContinuation) {
+      _prevRawPositions = newRaw;
+    }
 
     // ---- Attach equals-marker drag interaction ----
     if (pipeLayout) {
@@ -10203,10 +10691,17 @@ function autoSizeInput() {
     // Use the LaTeX section body as the reference box — it's the same
     // swipe-container sibling so it has the identical available space,
     // and its dimensions aren't affected by the text input's font-size.
+    // Fall back to the text body when LaTeX body is hidden (during editing).
     const latexBody = document.getElementById('ew-body-latex');
-    if (!latexBody) return;
-    const containerW = latexBody.clientWidth;
-    const containerH = latexBody.clientHeight;
+    const textBody = document.getElementById('ew-body-text');
+    let containerW = 0, containerH = 0;
+    if (latexBody && latexBody.clientWidth > 0 && latexBody.clientHeight > 0) {
+      containerW = latexBody.clientWidth;
+      containerH = latexBody.clientHeight;
+    } else if (textBody && textBody.clientWidth > 0 && textBody.clientHeight > 0) {
+      containerW = textBody.clientWidth;
+      containerH = textBody.clientHeight;
+    }
     if (containerW <= 0 || containerH <= 0) return;
 
     const padW = 28;
@@ -10254,19 +10749,34 @@ function autoSizeInput() {
     // Position the input text at the exact pixel where the overlay's
     // "expr" portion starts.  Use text-align:left + padding-left for
     // pixel-perfect control (no browser centering quirks).
+    // Prefer measuring the overlay's actual .ov-prefix element for
+    // pixel-perfect alignment (avoids measurer ↔ overlay drift).
     if (hasYPfx) {
-      const prefixStr = overlayText.slice(0, eqIdx + 2); // "y = "
-      m.style.fontSize = clamped + 'px';
-      m.textContent = overlayText;
-      const fullW = m.offsetWidth;
-      m.textContent = prefixStr;
-      const prefW = m.offsetWidth;
-      // Overlay centres "y = expr" so expr starts at: (containerW - fullW)/2 + prefW
-      const exprStart = (containerW - fullW) / 2 + prefW;
-      el.style.textAlign = 'left';
-      el.style.boxSizing = 'border-box';
-      el.style.setProperty('padding-left', Math.max(0, exprStart) + 'px', 'important');
-      el.style.setProperty('padding-right', '0', 'important');
+      const prefEl = ui.exprOverlay ? ui.exprOverlay.querySelector('.ov-prefix') : null;
+      const controlRect = el.closest('.control--expr');
+      if (prefEl && controlRect) {
+        // getBoundingClientRect forces synchronous reflow at the new font-size
+        const cRect = controlRect.getBoundingClientRect();
+        const pRect = prefEl.getBoundingClientRect();
+        const exprStart = pRect.right - cRect.left;
+        el.style.textAlign = 'left';
+        el.style.boxSizing = 'border-box';
+        el.style.setProperty('padding-left', Math.max(0, exprStart) + 'px', 'important');
+        el.style.setProperty('padding-right', '0', 'important');
+      } else {
+        // Fallback: hidden measurer
+        const prefixStr = overlayText.slice(0, eqIdx + 2);
+        m.style.fontSize = clamped + 'px';
+        m.textContent = overlayText;
+        const fullW = m.offsetWidth;
+        m.textContent = prefixStr;
+        const prefW = m.offsetWidth;
+        const exprStart = (containerW - fullW) / 2 + prefW;
+        el.style.textAlign = 'left';
+        el.style.boxSizing = 'border-box';
+        el.style.setProperty('padding-left', Math.max(0, exprStart) + 'px', 'important');
+        el.style.setProperty('padding-right', '0', 'important');
+      }
     } else {
       el.style.textAlign = '';
       el.style.boxSizing = '';
@@ -10724,6 +11234,8 @@ function setup() {
       bodyText.style.display = 'none';
       bodyLatex.style.display = '';
       merged.classList.remove('tap-edit--editing');
+      // Restore tree section (was hidden when editing started)
+      if (window._gcRestoreTree) window._gcRestoreTree();
     }
 
     function showText() {
@@ -10751,6 +11263,8 @@ function setup() {
         }
         // Ensure overlay is fresh before focusing (recalculates colors + size)
         updateInputOverlay();
+        // Hide tree BEFORE focus so iOS doesn't fire blur from layout change
+        if (window._gcHideTreeForKeyboard) window._gcHideTreeForKeyboard();
         exprInput.focus();
         // Place cursor at end of text
         const len = exprInput.value.length;
@@ -10910,6 +11424,10 @@ function setup() {
     let _targetDeg = state.treeRotationDeg || 0;  // desired cumulative angle (scroll accumulates here)
     let _compassCumAngle = state.treeRotationDeg || 0; // cumulative (unwrapped) compass angle
 
+    // Horizontal mode adds -90° to the tree's effective rotation; mirror that in the compass
+    const _horzCb = document.getElementById('pipe-horizontal');
+    const _horzOffset = (_horzCb && _horzCb.checked) ? -90 : 0;
+
     // Build compass element – SVG dial showing "down" direction with 12 segment marks
     const compass = document.createElement('div');
     compass.className = 'tree-compass';
@@ -10935,8 +11453,12 @@ function setup() {
       `<circle cx="${cx0}" cy="${cy0}" r="${cR}" fill="none" stroke="currentColor" stroke-width="1" opacity="0.25"/>` +
       tickMarksSvg +
       `<g class="tree-compass__needle" style="transform-origin: ${cx0}px ${cy0}px;">` +
-      `<line x1="${cx0}" y1="${cy0 - cR + 7}" x2="${cx0}" y2="${cy0 + cR - 5}" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>` +
-      `<polyline points="${cx0 - 3.5},${cy0 + cR - 9} ${cx0},${cy0 + cR - 4.5} ${cx0 + 3.5},${cy0 + cR - 9}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>` +
+      // Top arrow: line from near top to just above centre, chevron pointing down
+      `<line x1="${cx0}" y1="${cy0 - cR + 5}" x2="${cx0}" y2="${cy0 - 3}" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>` +
+      `<polyline points="${cx0 - 3},${cy0 - 7} ${cx0},${cy0 - 3} ${cx0 + 3},${cy0 - 7}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>` +
+      // Bottom arrow: line from near bottom to just below centre, chevron pointing up
+      `<line x1="${cx0}" y1="${cy0 + cR - 5}" x2="${cx0}" y2="${cy0 + 3}" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>` +
+      `<polyline points="${cx0 - 3},${cy0 + 7} ${cx0},${cy0 + 3} ${cx0 + 3},${cy0 + 7}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>` +
       `</g>` +
       `</svg>`;
 
@@ -10948,7 +11470,7 @@ function setup() {
     function updateCompass() {
       const needle = compass.querySelector('.tree-compass__needle');
       if (!needle) return;
-      needle.style.transform = `rotate(${_compassCumAngle}deg)`;
+      needle.style.transform = `rotate(${_compassCumAngle + _horzOffset}deg)`;
     }
 
     /** Parse "x y w h" viewBox string into an object. */
@@ -13268,22 +13790,32 @@ function setupMobileSwipePages() {
     visWrap.appendChild(rightCol);
   }
 
-  // ---- Keyboard viewport handling: resize panel when keyboard appears ----
-  if (window.visualViewport) {
-    const vv = window.visualViewport;
-    const onResize = () => {
-      const kbHeight = window.innerHeight - vv.height;
-      if (kbHeight > 100) {
-        // Keyboard is up — shrink expr-window so it sits above keyboard
-        exprWin.style.bottom = kbHeight + 'px';
-        exprWin.style.maxHeight = (vv.height * 0.35) + 'px';
-      } else {
-        exprWin.style.bottom = '';
-        exprWin.style.maxHeight = '';
+  // ---- Keyboard viewport handling: hide tree when editing expression ----
+  {
+    const treeSection = document.getElementById('ew-section-tree');
+    let _treeSavedDisplay = null;
+
+    function hideTreeForKeyboard() {
+      if (treeSection && _treeSavedDisplay === null) {
+        _treeSavedDisplay = treeSection.style.display;
+        treeSection.style.display = 'none';
       }
-    };
-    vv.addEventListener('resize', onResize);
-    vv.addEventListener('scroll', onResize);
+    }
+    function restoreTree() {
+      if (treeSection && _treeSavedDisplay !== null) {
+        treeSection.style.display = _treeSavedDisplay;
+        _treeSavedDisplay = null;
+      }
+    }
+
+    // Tree hiding/restoring is now handled by showText()/showLatex() in
+    // setupTapToEditTextLatex — NOT via focus/blur listeners — because on iOS
+    // the DOM change during focus can trigger an immediate blur, causing a
+    // focus-blur cycle that prevents the input from receiving keystrokes.
+
+    // Expose for the mobile-value-input pill to use
+    window._gcHideTreeForKeyboard = hideTreeForKeyboard;
+    window._gcRestoreTree = restoreTree;
   }
 
 }
@@ -16351,7 +16883,7 @@ function draw() {
   const effectiveCursorY = isMobileCursor ? tc.y : mouseY;
   const cursorOnCanvas = isMobileCursor
     ? (tc.x >= 0 && tc.x <= width && tc.y >= 0 && tc.y <= height)
-    : (!inputFocused && isMouseOverCanvas() && !isOverUI());
+    : (!inputFocused && isMouseOverCanvas() && !isOverUI() && !document.body.classList.contains('mobile'));
   if (cursorOnCanvas) {
     document.body.style.cursor = isMobileCursor ? '' : 'none';
     // Temporarily override mouseX/mouseY for cursor drawing functions

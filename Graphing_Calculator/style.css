@@ -2069,7 +2069,10 @@ body.light .toolbox__item:hover {
 
   .timeline-value {
     font-size: 0.75rem;
-    min-width: 60px;
+    min-width: 88px;
+    text-align: right;
+    flex-shrink: 0;
+    overflow: visible;
   }
 
   /* Fullscreen button: hidden on iOS, elsewhere above mode bar */
@@ -3218,13 +3221,6 @@ body.light .node-tooltip {
   opacity: 1;
 }
 
-/* Dim accordion while user is dragging equals marker */
-.expr-window.dragging-dimmed {
-  opacity: 0.25;
-  pointer-events: none;
-  transition: opacity 0.15s;
-}
-
 /* ---- Mobile section toggle tabbar ---- */
 .ew-section-tabbar {
   display: none;
@@ -3388,6 +3384,7 @@ body.light .ew-panel-bar {
   transform: none !important;
   width: 100% !important;
   max-width: 100% !important;
+  box-sizing: border-box !important;
   border-radius: 0 !important;
   border-top: 1px solid var(--border);
   z-index: 1;
