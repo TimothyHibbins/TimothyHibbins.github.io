@@ -2797,41 +2797,104 @@ function computeDagPositions(layout, equalsEdge) {
     }
   }
 
-  // Helper: compute depth of a subtree below a given node
-  function subtreeDepth(nodeId, visited) {
-    if (nodeId == null || visited.has(nodeId)) return 0;
-    visited.add(nodeId);
-    const n = nodes[nodeId];
-    if (!n) return 0;
-    if (n.type === 'value') return 1;
-    if (n.type === 'intermediate') {
-      return 1 + subtreeDepth(n.connectsToOpId, visited);
-    }
-    if (n.type === 'op') {
-      const ld = n.leftId != null ? subtreeDepth(n.leftId, visited) : 0;
-      const rd = (n.rightId != null && n.rightId !== n.leftId) ? subtreeDepth(n.rightId, visited) : 0;
-      return 1 + Math.max(ld, rd);
-    }
-    return 1;
+  // ================================================================
+  // Overlap helpers
+  // ================================================================
+
+  // Distance from point (px,py) to line segment (x1,y1)-(x2,y2)
+  function ptSegDist(px, py, x1, y1, x2, y2) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq < 1e-6) return Math.hypot(px - x1, py - y1);
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
   }
 
-  // Iterative overlap resolution with per-edge multipliers.
-  // For each overlap between nodes in opposite subtrees, expand BOTH arms
-  // of the common ancestor. The relaxation pass afterwards will trim
-  // whichever arm turns out to be unnecessary.
-  // Also check for overlaps with the Y node position.
-  const MIN_DIST = 2 * NODE_R + 8;
-  for (let iter = 0; iter < 20; iter++) {
+  // Enumerate all pipe segments as { from, to } index pairs
+  function getPipeSegments() {
+    const segs = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      if (n.x == null) continue;
+      if (n.type === 'op') {
+        if (n.leftId != null && nodes[n.leftId] && nodes[n.leftId].x != null)
+          segs.push({ from: i, to: n.leftId });
+        if (n.rightId != null && n.rightId !== n.leftId && nodes[n.rightId] && nodes[n.rightId].x != null)
+          segs.push({ from: i, to: n.rightId });
+      }
+      if (n.type === 'intermediate' && n.connectsToOpId != null &&
+          nodes[n.connectsToOpId] && nodes[n.connectsToOpId].x != null) {
+        segs.push({ from: i, to: n.connectsToOpId });
+      }
+    }
+    return segs;
+  }
+
+  // Compute Y position for a given configuration
+  function _getIterY() {
+    let yx = 0, yy = Y_OFF;
+    if (hasTreeSplit) {
+      const rpa = pathArmMap.get(rootOpId);
+      if (rpa === 'left') { yx = rightDirA.x * Y_OFF; yy = rightDirA.y * Y_OFF; }
+      else if (rpa === 'right') { yx = leftDirA.x * Y_OFF; yy = leftDirA.y * Y_OFF; }
+    }
+    return { yx, yy };
+  }
+
+  // Mark edges for expansion when node i collides with something
+  function _markExpansion(edgesToExpand, nodeA, nodeB) {
+    const anc = findCommonAncestorOp(nodeA, nodeB);
+    if (anc == null) { edgesToExpand.add(rootOpId + '-left'); edgesToExpand.add(rootOpId + '-right'); return; }
+    const sA = whichSide(anc, nodeA);
+    const sB = whichSide(anc, nodeB);
+    if (sA && sB && sA !== sB) {
+      edgesToExpand.add(anc + '-left');
+      edgesToExpand.add(anc + '-right');
+    } else if (sA) {
+      edgesToExpand.add(anc + '-' + sA);
+    } else if (sB) {
+      edgesToExpand.add(anc + '-' + sB);
+    } else {
+      edgesToExpand.add(anc + '-left');
+      edgesToExpand.add(anc + '-right');
+    }
+  }
+
+  // Check all overlaps: node-node, node-Y, and node-pipe-segment
+  const NODE_NODE_MIN = 2 * NODE_R + 8;
+  const NODE_PIPE_MIN = NODE_R + 16; // node radius + approx half pipe width + margin
+
+  function _hasAnyOverlap() {
+    const { yx, yy } = _getIterY();
+    const segs = getPipeSegments();
+    for (let i = 0; i < nodes.length; i++) {
+      if (nodes[i].x == null) continue;
+      // Node-node
+      for (let j = i + 1; j < nodes.length; j++) {
+        if (nodes[j].x == null) continue;
+        if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) < NODE_NODE_MIN) return true;
+      }
+      // Node-Y
+      if (Math.hypot(nodes[i].x - yx, nodes[i].y - yy) < NODE_NODE_MIN) return true;
+      // Node-pipe-segment
+      for (const seg of segs) {
+        if (i === seg.from || i === seg.to) continue;
+        const d = ptSegDist(nodes[i].x, nodes[i].y,
+          nodes[seg.from].x, nodes[seg.from].y, nodes[seg.to].x, nodes[seg.to].y);
+        if (d < NODE_PIPE_MIN) return true;
+      }
+    }
+    return false;
+  }
+
+  // ================================================================
+  // Iterative overlap resolution
+  // ================================================================
+  for (let iter = 0; iter < 25; iter++) {
     for (const n of nodes) { n.x = null; n.y = null; }
     placeSubtree(rootOpId, 0, 0);
 
-    // Compute Y position for this iteration (needed for Y overlap checks)
-    let _iterYX = 0, _iterYY = Y_OFF;
-    if (hasTreeSplit) {
-      const rpa = pathArmMap.get(rootOpId);
-      if (rpa === 'left') { _iterYX = rightDirA.x * Y_OFF; _iterYY = rightDirA.y * Y_OFF; }
-      else if (rpa === 'right') { _iterYX = leftDirA.x * Y_OFF; _iterYY = leftDirA.y * Y_OFF; }
-    }
+    const { yx: _iterYX, yy: _iterYY } = _getIterY();
 
     // Collect all positioned node indices
     const posNodes = [];
@@ -2839,74 +2902,47 @@ function computeDagPositions(layout, equalsEdge) {
       if (nodes[i].x != null) posNodes.push(i);
     }
 
-    // Find overlaps between all placed nodes
     const edgesToExpand = new Set();
+
+    // 1) Node-node overlaps
     for (let a = 0; a < posNodes.length; a++) {
       const i = posNodes[a];
-      // Check node-node overlaps
       for (let b = a + 1; b < posNodes.length; b++) {
         const j = posNodes[b];
-        const dist = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y);
-        if (dist >= MIN_DIST) continue;
-        const anc = findCommonAncestorOp(i, j);
-        if (anc == null) continue;
-        const sideI = whichSide(anc, i);
-        const sideJ = whichSide(anc, j);
-
-        if (sideI && sideJ && sideI !== sideJ) {
-          // Opposite sides — expand both arms; relaxation will trim the unneeded one
-          edgesToExpand.add(anc + '-left');
-          edgesToExpand.add(anc + '-right');
-        } else if (sideI && sideI === sideJ) {
-          edgesToExpand.add(anc + '-' + sideI);
-        } else {
-          // Fallback: expand both
-          edgesToExpand.add(anc + '-left');
-          edgesToExpand.add(anc + '-right');
+        if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) < NODE_NODE_MIN) {
+          _markExpansion(edgesToExpand, i, j);
         }
       }
-      // Check overlap with Y node
-      const yDist = Math.hypot(nodes[i].x - _iterYX, nodes[i].y - _iterYY);
-      if (yDist < MIN_DIST) {
-        // Node overlaps Y — expand the side of root that contains this node
+      // Node-Y overlap
+      if (Math.hypot(nodes[i].x - _iterYX, nodes[i].y - _iterYY) < NODE_NODE_MIN) {
         const side = whichSide(rootOpId, i);
-        if (side) {
-          edgesToExpand.add(rootOpId + '-' + side);
-        } else {
-          edgesToExpand.add(rootOpId + '-left');
-          edgesToExpand.add(rootOpId + '-right');
+        if (side) edgesToExpand.add(rootOpId + '-' + side);
+        else { edgesToExpand.add(rootOpId + '-left'); edgesToExpand.add(rootOpId + '-right'); }
+      }
+    }
+
+    // 2) Node-pipe-segment overlaps
+    const segs = getPipeSegments();
+    for (const seg of segs) {
+      for (let i = 0; i < posNodes.length; i++) {
+        const ni = posNodes[i];
+        if (ni === seg.from || ni === seg.to) continue;
+        const d = ptSegDist(nodes[ni].x, nodes[ni].y,
+          nodes[seg.from].x, nodes[seg.from].y, nodes[seg.to].x, nodes[seg.to].y);
+        if (d < NODE_PIPE_MIN) {
+          // expand common ancestor of the node and one endpoint of the pipe
+          _markExpansion(edgesToExpand, ni, seg.from);
         }
       }
     }
+
     if (edgesToExpand.size === 0) break;
     for (const key of edgesToExpand) {
       edgeMult[key] = (edgeMult[key] || 1) + 1;
     }
   }
 
-  // Helper: check overlap between all placed nodes AND with Y node
-  function _hasAnyOverlap() {
-    // Compute Y position for this configuration
-    let yxC = 0, yyC = Y_OFF;
-    if (hasTreeSplit) {
-      const rpa = pathArmMap.get(rootOpId);
-      if (rpa === 'left') { yxC = rightDirA.x * Y_OFF; yyC = rightDirA.y * Y_OFF; }
-      else if (rpa === 'right') { yxC = leftDirA.x * Y_OFF; yyC = leftDirA.y * Y_OFF; }
-    }
-    for (let i = 0; i < nodes.length; i++) {
-      if (nodes[i].x == null) continue;
-      // Node-node
-      for (let j = i + 1; j < nodes.length; j++) {
-        if (nodes[j].x == null) continue;
-        if (Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) < MIN_DIST) return true;
-      }
-      // Node-Y
-      if (Math.hypot(nodes[i].x - yxC, nodes[i].y - yyC) < MIN_DIST) return true;
-    }
-    return false;
-  }
-
-  // Relaxation pass: try to reduce each multiplier; check node AND Y overlaps
+  // Relaxation pass: try reducing each multiplier; verify no overlaps remain
   const multKeys = Object.keys(edgeMult).filter(k => edgeMult[k] > 1);
   for (const key of multKeys) {
     const orig = edgeMult[key];
@@ -2914,13 +2950,13 @@ function computeDagPositions(layout, equalsEdge) {
     edgeMult[key] = 1;
     for (const n of nodes) { n.x = null; n.y = null; }
     placeSubtree(rootOpId, 0, 0);
-    if (!_hasAnyOverlap()) continue; // reduction to 1 works
-    // Try orig - 1
+    if (!_hasAnyOverlap()) continue;
+    // Try reducing by 1
     if (orig > 2) {
       edgeMult[key] = orig - 1;
       for (const n of nodes) { n.x = null; n.y = null; }
       placeSubtree(rootOpId, 0, 0);
-      if (!_hasAnyOverlap()) continue; // reduction by 1 works
+      if (!_hasAnyOverlap()) continue;
     }
     edgeMult[key] = orig; // revert
   }
@@ -10014,7 +10050,17 @@ function renderStepRepresentation() {
     if (shouldAnimate && hasMoved) {
       // ---- rAF full-tree animation: interpolate raw positions, rebuild SVG each frame ----
       const oldRaw = _prevRawPositions;
-      const ANIM_MS = 300;
+
+      // Scale animation duration by the largest displacement
+      let maxDist = 0;
+      for (const [key, newP] of newRaw) {
+        const oldP = oldRaw.get(key);
+        if (oldP) {
+          const d = Math.hypot(newP.x - oldP.x, newP.y - oldP.y);
+          if (d > maxDist) maxDist = d;
+        }
+      }
+      const ANIM_MS = Math.min(600, Math.max(150, maxDist * 2.5));
       let startTime = null;
 
       const animateFrame = (now) => {
