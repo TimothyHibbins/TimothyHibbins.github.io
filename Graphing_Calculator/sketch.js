@@ -117,7 +117,7 @@ const state = {
   viewDirty: false, // true after pan/zoom
   lightMode: false,
   theme: "auto", // "light", "dark", "auto"
-  toggles: { xgrid: true, ygrid: true, xaxis: false, yaxis: false, arrows: true, intermediates: true, subintermediates: false, starbursts: false, xlabels: false, ylabels: false },
+  toggles: { xgrid: true, ygrid: true, xaxis: false, yaxis: false, arrows: true, intermediates: true, subintermediates: true, starbursts: false, xlabels: false, ylabels: false },
   glowCurves: true, // when true, curves are 1px bright with coloured glow (continuous/discreteX only)
   equalizeColors: false, // when true, normalize OP_COLORS to uniform perceptual lightness
   latexOpsOrder: false, // when true, LaTeX matches ops sequence order rather than conventional math
@@ -158,6 +158,18 @@ function isDiscreteAny() {
   return state.discreteMode === "discrete" || state.discreteMode === "discreteX";
 }
 
+/** Strip leading "y = " or "y=" prefix from raw input text. */
+function stripYPrefix(raw) {
+  return (raw || '').replace(/^\s*y\s*=\s*/i, '');
+}
+
+/** Set the expression input value, ensuring "y = " prefix is present.
+ *  Pass the raw expression body (without "y = "). */
+function setExprInput(body) {
+  if (!ui.exprEl) return;
+  ui.exprEl.value = 'y = ' + stripYPrefix(body);
+}
+
 function setStatus(message, kind = "info") {
   state.statusText = message || "";
   state.statusKind = kind;
@@ -165,7 +177,7 @@ function setStatus(message, kind = "info") {
 
 function setStatusForCurrentMode() {
   if (!state.fn) return;
-  const expr = state.lastExpr || ui.exprEl?.value || "";
+  const expr = state.lastExpr || stripYPrefix(ui.exprEl?.value || "");
   if (state.mode === "cartesian") {
     setStatus(`Plotting y = ${expr}`, "info");
   } else if (state.mode === "delta") {
@@ -198,7 +210,7 @@ function resetView() {
     bottomH = (toggleBar && toggleBar.style.display !== 'none') ? toggleBar.getBoundingClientRect().height : 0;
   }
 
-  view.originX = width * 0.5;
+  view.originX = isMobilePortrait ? width * 0.5 : width * (2 / 3);
   view.originY = topH + (height - topH - bottomH) * 0.5;
   view.scale = 80;
   // Keep rotation / axis orientation unchanged
@@ -1730,7 +1742,7 @@ function updateLatexDisplay(raw, xVal) {
   const el = ui.latexEl;
   if (!el || typeof katex === "undefined") return;
   _lastLatexLiveKey = "__force__"; // invalidate live cache
-  const result = exprToColoredLatex(raw || "", xVal);
+  const result = exprToColoredLatex(stripYPrefix(raw || ""), xVal);
   if (!result) {
     el.style.opacity = "0";
     return;
@@ -1764,7 +1776,7 @@ function updateLatexDisplay(raw, xVal) {
  */
 let _lastLatexLiveKey = null;
 function updateLatexDisplayLive(xVal) {
-  const raw = ui.exprEl?.value ?? "";
+  const raw = stripYPrefix(ui.exprEl?.value ?? "");
   // Build a cheap cache key — formatted x value (or null for symbolic mode)
   const key = (xVal !== null && xVal !== undefined && Number.isFinite(xVal))
     ? formatLatexNumber(xVal)
@@ -1977,7 +1989,7 @@ function latexToExpr(latex) {
  * Get the raw (uncolored) LaTeX string for the current expression.
  */
 function getRawLatex() {
-  const raw = ui.exprEl?.value ?? "";
+  const raw = stripYPrefix(ui.exprEl?.value ?? "");
   if (!raw.trim()) return "";
 
   // When equalsEdge is active and displaySpans exist, use spans for the equation
@@ -2823,7 +2835,7 @@ function computeDagPositions(layout, equalsEdge) {
           segs.push({ from: i, to: n.rightId });
       }
       if (n.type === 'intermediate' && n.connectsToOpId != null &&
-          nodes[n.connectsToOpId] && nodes[n.connectsToOpId].x != null) {
+        nodes[n.connectsToOpId] && nodes[n.connectsToOpId].x != null) {
         segs.push({ from: i, to: n.connectsToOpId });
       }
     }
@@ -3671,7 +3683,7 @@ function applySwapToAstAndState() {
     if (!newExpr || newExpr === "?") return;
 
     // Update expression input and compile the JS function
-    if (ui.exprEl) { ui.exprEl.value = newExpr; autoSizeInput(); }
+    setExprInput(newExpr); autoSizeInput();
     state.lastExpr = newExpr;
     state.fn = compileExpression(newExpr);
 
@@ -3844,7 +3856,7 @@ function deleteOperatorNode(opId, layout) {
   }
 
   function applyNewExprFromDelete(newExpr) {
-    if (ui.exprEl) { ui.exprEl.value = newExpr; autoSizeInput(); }
+    setExprInput(newExpr); autoSizeInput();
     state.lastExpr = newExpr;
     state.fn = compileExpression(newExpr);
     const { steps, ops, pipeLayout } = parseAndLinearize(newExpr);
@@ -3918,7 +3930,7 @@ function rebuildAfterDelete(layout, preserveLayout) {
     const newExpr = treeResult.text;
 
     // Update state
-    if (ui.exprEl) { ui.exprEl.value = newExpr; autoSizeInput(); }
+    setExprInput(newExpr); autoSizeInput();
     state.lastExpr = newExpr;
     state.fn = compileExpression(newExpr);
     state.displaySpans = treeResult.spans;
@@ -4639,6 +4651,8 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     }
 
     for (const item of items) {
+      // Hide trash when opening menu for a wrap (value node) — nothing to delete yet
+      if (item.action === "delete" && nodeType === "value") continue;
       const isCurrent = nodeType === "op" && itemMatchesNode(item);
       portal.appendChild(makeBtn(item, cx + item.x * step, cy + item.y * step, isCurrent));
     }
@@ -5068,48 +5082,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     }
   }
 
-  /** Add a transparent hit zone along a pipe (arm) for tap-to-wrap interaction.
-   *  On tap/click, opens the radial menu to wrap the child value in an operator. */
-  function addArmHitZone(x1, y1, x2, y2, childNodeId, childCx, childCy) {
-    // Shorten start so the hit zone doesn't overlap the parent op junction badge
-    const _adx = x2 - x1, _ady = y2 - y1;
-    const _aLen = Math.hypot(_adx, _ady) || 1;
-    const INSET = JR + 6;  // pull start away from op centre
-    const sx = x1 + INSET * _adx / _aLen;
-    const sy = y1 + INSET * _ady / _aLen;
-    const armHit = svgEl("line");
-    armHit.setAttribute("x1", sx);
-    armHit.setAttribute("y1", sy);
-    armHit.setAttribute("x2", x2);
-    armHit.setAttribute("y2", y2);
-    armHit.setAttribute("stroke", "transparent");
-    armHit.setAttribute("stroke-width", PW + 20); // wider than visual pipe for easy tapping
-    armHit.setAttribute("stroke-linecap", "round");
-    armHit.setAttribute("pointer-events", "stroke");
-    armHit.style.cursor = "pointer";
-    // Click → show radial menu for the connected value
-    armHit.addEventListener("click", (e) => {
-      e.stopPropagation();
-      hideNodeTooltip();
-      showRadialMenu(childNodeId, childCx, childCy, "value");
-    });
-    // Mobile tap support
-    let _tapX, _tapY;
-    armHit.addEventListener("touchstart", (e) => {
-      const t = e.touches[0];
-      _tapX = t.clientX; _tapY = t.clientY;
-    }, { passive: true });
-    armHit.addEventListener("touchend", (e) => {
-      if (!e.changedTouches.length) return;
-      const t = e.changedTouches[0];
-      if (Math.abs(t.clientX - _tapX) < 15 && Math.abs(t.clientY - _tapY) < 15) {
-        e.preventDefault();
-        hideNodeTooltip();
-        showRadialMenu(childNodeId, childCx, childCy, "value");
-      }
-    });
-    gInteract.appendChild(armHit);
-  }
+  // (addArmHitZone removed — tap-to-wrap is now handled by the arm drag system in endDrag)
 
   function drawDebugLabel(x, y, label) {
     const w = Math.max(20, label.length * 6.5);
@@ -5195,10 +5168,9 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
   function badgeFontSizeForLabel(label, radius) {
     const len = label.length;
     if (len <= 1) return radius * 0.83;       // ~15 for JR=18
-    if (len <= 2) return radius * 0.72;
-    if (len === 3) return radius * 0.61;
-    if (len === 4) return radius * 0.5;
-    return radius * 0.42;
+    if (len <= 3) return radius * 0.72;
+    if (len === 4) return radius * 0.56;
+    return radius * 0.46;
   }
 
   /**
@@ -5365,7 +5337,8 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
   }
 
   // ---- Compute set of node IDs on the equals path (for badge inversion) ----
-  const _eqPathNodeSet = new Set();
+  // Map: nodeId → "left" | "right" (arm used to reach the child on the path)
+  const _eqPathNodeMap = new Map();
   {
     const eqEdge = state.equalsEdge;
     if (eqEdge && typeof eqEdge.fromId === 'number') {
@@ -5379,11 +5352,11 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         }
         if (nd.type !== 'op') return false;
         if (nd.leftId != null && _buildEqPath(nd.leftId, target)) {
-          _eqPathNodeSet.add(nid);
+          _eqPathNodeMap.set(nid, "left");
           return true;
         }
         if (nd.rightId != null && nd.rightId !== nd.leftId && _buildEqPath(nd.rightId, target)) {
-          _eqPathNodeSet.add(nid);
+          _eqPathNodeMap.set(nid, "right");
           return true;
         }
         return false;
@@ -5408,14 +5381,17 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     } else {
       const treeResult = _walkPipeTree(layout);
       if (treeResult) {
-        if (ui.exprEl) { ui.exprEl.value = treeResult.text; autoSizeInput(); }
+        setExprInput(treeResult.text); autoSizeInput();
         state.lastExpr = treeResult.text;
         state.fn = compileExpression(treeResult.text);
         state.displaySpans = treeResult.spans;
       }
     }
     try {
-      const expr = ui.exprEl?.value ?? "";
+      // When equalsEdge is active, use the full tree expression so state.ops stays populated
+      const expr = state.equalsEdge
+        ? (_walkPipeTree(layout)?.text || "")
+        : stripYPrefix(ui.exprEl?.value ?? "");
       const { steps, ops: newOps } = parseAndLinearize(expr);
       state.steps = steps;
       state.ops = newOps;
@@ -5775,7 +5751,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     const hit = svgEl("circle");
     hit.setAttribute("cx", cx);
     hit.setAttribute("cy", cy);
-    hit.setAttribute("r", DIAL_R * HOVER_SCALE + 2);
+    hit.setAttribute("r", R + 2);  // Start at node radius; expands when dial pops out
     hit.setAttribute("fill", "transparent");
     hit.setAttribute("stroke", "none");
     hit.dataset.badgeHit = "1";
@@ -6024,6 +6000,8 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     }
 
     hit.addEventListener("mouseenter", (e) => {
+      // Expand hit zone to cover the full dial area
+      hit.setAttribute("r", DIAL_R * HOVER_SCALE + 2);
       // Hide original node circle + text so they don't show behind the scaled dial
       if (node._circleEl) node._circleEl.setAttribute("display", "none");
       if (node._textEl) node._textEl.setAttribute("display", "none");
@@ -6043,6 +6021,8 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     });
 
     hit.addEventListener("mouseleave", () => {
+      // Shrink hit zone back to node radius
+      hit.setAttribute("r", R + 2);
       document.removeEventListener("keydown", onKeyDown);
       gDial.setAttribute("display", "none");
       gDial.removeAttribute("transform");
@@ -6396,13 +6376,34 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
 
     // If this node is on the equals path, show the INVERSE operator symbol
     // (e.g. "+" → "−", "×" → "÷") to match the rearranged LHS equation
-    if (_eqPathNodeSet.has(nodeId) && effectiveCat) {
+    if (_eqPathNodeMap.has(nodeId) && effectiveCat) {
       if (effectiveCat === "addSub") {
         displaySymbol = displaySymbol === "+" ? "\u2212" : "+";
       } else if (effectiveCat === "mulDiv") {
         displaySymbol = displaySymbol === "\u00d7" ? "\u00f7" : "\u00d7";
+      } else if (effectiveCat === "exp") {
+        // Determine which arm the path goes through
+        const pathArm = _eqPathNodeMap.get(nodeId); // "left" or "right"
+        const pathRole = roles ? roles[pathArm] : null;
+        const outputRole = roles ? roles.output : null;
+        // Inversion depends on output role and path direction:
+        // base^exponent = power
+        if (outputRole === "power") {
+          displaySymbol = pathRole === "base" ? "\u207f\u221a" : "log";
+        } else if (outputRole === "base") {
+          displaySymbol = pathRole === "power" ? "^" : "log";
+        } else if (outputRole === "exponent") {
+          displaySymbol = pathRole === "power" ? "^" : "\u207f\u221a";
+        }
       }
-      // exp family inversion (^↔√↔log) is complex; skip for now
+    }
+    // Trig nodes on the equals path: swap function to inverse (sin↔asin etc.)
+    if (_eqPathNodeMap.has(nodeId) && _nodeIsTrig) {
+      const _TRIG_INV = { sin: "asin", asin: "sin", cos: "acos", acos: "cos", tan: "atan", atan: "tan" };
+      const fnName = node.fn || (node.ast && node.ast.fn) || null;
+      if (fnName && _TRIG_INV[fnName]) {
+        displaySymbol = _TRIG_INV[fnName];
+      }
     }
 
     // Output arm pipe toward parent
@@ -6423,7 +6424,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     // Operator symbol — use styled rendering for ^ (n^m) and log (log(m))
     // Scale font size to fit within the junction circle radius
     const badgeFontSize = badgeFontSizeForLabel(displaySymbol, JR);
-    const isSymbol = /^[+\-×÷\^/%⌈⌉⌊⌋|·]|log|ⁿ√$/.test(displaySymbol);
+    const isSymbol = /^[+\-×÷\^/%⌈⌉⌊⌋|·]$|^(log|ⁿ√|sin|cos|tan|asin|acos|atan|abs|round|ceil|floor|mod)$/.test(displaySymbol);
     const symTextEl = drawText(px, py, "", badgeFontSize, badgeCol, !isSymbol);
     setStyledLabel(symTextEl, displaySymbol, badgeFontSize, badgeCol);
     // Tag the just-added text for animation
@@ -6457,17 +6458,17 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
     // Radial menu click target for operator nodes
     attachRadialClick(nodeId, px, py, "op", JR);
 
-    // ---- Swap buttons (3 between each pair of arms) ----
-    if (roles && effectiveCat) {
+    // ---- Drag-to-swap arms (unified desktop + mobile) ----
+    // Allow both binary ops (roles && effectiveCat) and unary trig/call nodes
+    const _hasDragableArms = (roles && effectiveCat) || (node.leftId != null && parentX != null);
+    if (_hasDragableArms) {
       // Compute actual directions to each arm endpoint
       const armDirs = {};
-      // Output direction: toward parent
       if (parentX != null && parentY != null) {
         const dx = parentX - px, dy = parentY - py;
         const len = Math.hypot(dx, dy) || 1;
         armDirs.output = { x: dx / len, y: dy / len };
       }
-      // Left direction: toward left child
       if (node.leftId != null) {
         const lc = nodes[node.leftId];
         if (lc && lc.x != null) {
@@ -6476,7 +6477,6 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
           armDirs.left = { x: dx / len, y: dy / len };
         }
       }
-      // Right direction: toward right child
       if (node.rightId != null && node.rightId !== node.leftId) {
         const rc = nodes[node.rightId];
         if (rc && rc.x != null) {
@@ -6486,7 +6486,7 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         }
       }
 
-      // Actual endpoint positions (for swap animation)
+      // Actual endpoint positions
       const armEndpoints = {};
       if (parentX != null && parentY != null) armEndpoints.output = { x: parentX, y: parentY };
       if (node.leftId != null) {
@@ -6498,69 +6498,148 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         if (rc && rc.x != null) armEndpoints.right = { x: rc.x, y: rc.y };
       }
 
-      // Create swap buttons between each pair of arms that exists
       const armPairs = [];
       if (armDirs.left && armDirs.right) armPairs.push(["left", "right"]);
       if (armDirs.left && armDirs.output) armPairs.push(["left", "output"]);
       if (armDirs.right && armDirs.output) armPairs.push(["right", "output"]);
 
-      const SWAP_R = 10;
-      const SWAP_DIST = JR + 16;
+      const armNames = Object.keys(armEndpoints);
 
-      const _isMobileDevice = document.body.classList.contains('mobile');
-
-      // ---- Shared turnstile swap animation (used by buttons + swipe) ----
-      function performArmSwap(posA, posB) {
-        const endA = armEndpoints[posA], endB = armEndpoints[posB];
-        if (!endA || !endB) {
-          // Fallback: immediate swap, no animation
-          const temp = node.armAssignment[posA];
-          node.armAssignment[posA] = node.armAssignment[posB];
-          node.armAssignment[posB] = temp;
-          const info = deriveOpInfo(effectiveCat, node.armAssignment);
-          if (info) { node.opType = info.opType; node.symbol = info.symbol; }
-          applySwapToAstAndState();
-          renderStepRepresentation();
-          return;
-        }
-
-        // Compute rotation angle (A rotates toward B's position)
-        const θA = Math.atan2(endA.y - py, endA.x - px);
-        const θB = Math.atan2(endB.y - py, endB.x - px);
-        let delta = θB - θA;
-        while (delta > Math.PI) delta -= 2 * Math.PI;
-        while (delta < -Math.PI) delta += 2 * Math.PI;
-        const deltaDeg = delta * 180 / Math.PI;
-
-        // Arm animation colours — per-role for all categories
-        let animColA, animColB;
+      // Arm colours for overlay
+      function armColor(pos) {
         const animCC = effectiveCat && ARM_COLORS[effectiveCat];
-        if (animCC && node.armAssignment) {
-          animColA = animCC[node.armAssignment[posA]] || col;
-          animColB = animCC[node.armAssignment[posB]] || col;
-        } else {
-          animColA = animColB = col;
+        if (animCC && node.armAssignment) return animCC[node.armAssignment[pos]] || col;
+        // Trig: use the per-arm colors computed earlier
+        if (pos === 'output') return outArmCol || col;
+        if (pos === 'left') return leftArmCol || col;
+        if (pos === 'right') return rightArmCol || col;
+        return col;
+      }
+
+      // Helper: convert screen coords to SVG-space coords
+      function screenToSvg(clientX, clientY) {
+        const pt = svg.createSVGPoint();
+        pt.x = clientX; pt.y = clientY;
+        const ctm = svg.getScreenCTM();
+        if (!ctm) return { x: clientX, y: clientY };
+        return pt.matrixTransform(ctm.inverse());
+      }
+
+      // Find the closest arm to an SVG-space point
+      function closestArm(svgPt) {
+        let best = null, bestDist = Infinity;
+        for (const name of armNames) {
+          const ep = armEndpoints[name];
+          const ax = ep.x - px, ay = ep.y - py;
+          const bx = svgPt.x - px, by = svgPt.y - py;
+          const armLen = Math.hypot(ax, ay) || 1;
+          const dot = (bx * ax + by * ay) / armLen;
+          const t = Math.max(0, Math.min(armLen, dot));
+          const closX = px + t * ax / armLen;
+          const closY = py + t * ay / armLen;
+          const dist = Math.hypot(svgPt.x - closX, svgPt.y - closY);
+          if (dist < bestDist) { bestDist = dist; best = name; }
+        }
+        return best;
+      }
+
+      // ---- Drag state ----
+      let _dragging = false;
+      let _dragPosA = null;           // arm being dragged
+      let _dragOverlay = null;
+      let _dragLineA = null, _dragLabelA = null;
+      let _dragLinesOther = {};       // {posName: svgLine} for each partner arm
+      let _dragLabelsOther = {};      // {posName: svgGroup}
+      let _dragStartAngle = 0;
+      let _dragArmLenA = 0;           // natural SVG-space length of arm A
+      let _dragPartnerInfo = [];      // [{pos, startAngle, halfwayRotation, len}]
+      let _dragCurrentTarget = null;  // partner pos arm A is heading toward
+      let _dragWrapReady = false;
+      let _dragStartClientX = 0;
+      let _dragStartClientY = 0;
+      let _dragCleanupListeners = null; // fn to remove document move/up listeners
+      let _isMobile = 'ontouchstart' in window;
+      const WRAP_DRAG_DIST = 45;     // SVG px beyond endpoint to trigger wrap
+      const TAP_THRESHOLD = 10;      // px — max movement to count as tap
+
+      function startDrag(posA, clientX, clientY) {
+        _dragging = true;
+        _dragPosA = posA;
+        _dragWrapReady = false;
+        _dragCurrentTarget = null;
+        _dragStartClientX = clientX;
+        _dragStartClientY = clientY;
+
+        const endA = armEndpoints[posA];
+        _dragStartAngle = Math.atan2(endA.y - py, endA.x - px);
+        _dragArmLenA = Math.hypot(endA.x - px, endA.y - py);
+
+        // Build info for every other arm (potential swap partners)
+        _dragPartnerInfo = [];
+        for (const name of armNames) {
+          if (name === posA) continue;
+          const ep = armEndpoints[name];
+          const θ = Math.atan2(ep.y - py, ep.x - px);
+          let halfDiff = θ - _dragStartAngle;
+          while (halfDiff > Math.PI) halfDiff -= 2 * Math.PI;
+          while (halfDiff < -Math.PI) halfDiff += 2 * Math.PI;
+          _dragPartnerInfo.push({
+            pos: name,
+            startAngle: θ,
+            halfwayRotation: halfDiff / 2,
+            len: Math.hypot(ep.x - px, ep.y - py)
+          });
         }
 
-        // Build overlay group
-        const animOverlay = svgEl("g");
-        animOverlay.style.pointerEvents = "none";
+        // ---- Build overlay ----
+        _dragOverlay = svgEl("g");
+        _dragOverlay.style.pointerEvents = "none";
 
-        // Dim layer (covers entire SVG)
-        const dimLayer = svgEl("rect");
-        dimLayer.setAttribute("x", "-10000"); dimLayer.setAttribute("y", "-10000");
-        dimLayer.setAttribute("width", "20000"); dimLayer.setAttribute("height", "20000");
-        dimLayer.setAttribute("fill", isDarkMode ? "rgba(30,30,30,0.6)" : "rgba(255,255,255,0.6)");
-        animOverlay.appendChild(dimLayer);
+        // Partner arm lines (static, dimmed until targeted)
+        _dragLinesOther = {};
+        _dragLabelsOther = {};
+        for (const info of _dragPartnerInfo) {
+          const ep = armEndpoints[info.pos];
+          const col = armColor(info.pos);
+          const line = svgEl("line");
+          line.setAttribute("x1", px); line.setAttribute("y1", py);
+          line.setAttribute("x2", ep.x); line.setAttribute("y2", ep.y);
+          line.setAttribute("stroke", col);
+          line.setAttribute("stroke-width", PW);
+          line.setAttribute("stroke-linecap", "round");
+          line.setAttribute("opacity", "1");
+          _dragOverlay.appendChild(line);
+          _dragLinesOther[info.pos] = line;
+          const label = (node.armAssignment && node.armAssignment[info.pos]) || info.pos;
+          const lbl = _makeDragLabel((px + ep.x) / 2, (py + ep.y) / 2, label, col);
+          lbl.setAttribute("opacity", "1");
+          _dragOverlay.appendChild(lbl);
+          _dragLabelsOther[info.pos] = lbl;
+        }
 
-        // Static pivot badge
+        // Arm A line (on top, highlighted, moveable)
+        const colA = armColor(posA);
+        _dragLineA = svgEl("line");
+        _dragLineA.setAttribute("x1", px); _dragLineA.setAttribute("y1", py);
+        _dragLineA.setAttribute("x2", endA.x); _dragLineA.setAttribute("y2", endA.y);
+        _dragLineA.setAttribute("stroke", colA);
+        _dragLineA.setAttribute("stroke-width", PW);
+        _dragLineA.setAttribute("stroke-linecap", "round");
+        _dragLineA.setAttribute("opacity", "1");
+        _dragOverlay.appendChild(_dragLineA);
+
+        const labelA = (node.armAssignment && node.armAssignment[posA]) || posA;
+        _dragLabelA = _makeDragLabel((px + endA.x) / 2, (py + endA.y) / 2, labelA, colA);
+        _dragOverlay.appendChild(_dragLabelA);
+
+        // Pivot badge on top of all arms so it stays visible during rotation
         const pivotC = svgEl("circle");
         pivotC.setAttribute("cx", px); pivotC.setAttribute("cy", py);
         pivotC.setAttribute("r", JR);
         pivotC.style.fill = GLASS_FILL;
         pivotC.setAttribute("stroke", badgeCol);
         pivotC.setAttribute("stroke-width", 2.5);
-        animOverlay.appendChild(pivotC);
+        _dragOverlay.appendChild(pivotC);
         const pivotT = svgEl("text");
         pivotT.setAttribute("x", px); pivotT.setAttribute("y", py);
         pivotT.setAttribute("text-anchor", "middle");
@@ -6570,84 +6649,454 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         pivotT.setAttribute("fill", badgeCol);
         pivotT.textContent = displaySymbol;
         uprightText(pivotT, px, py);
-        animOverlay.appendChild(pivotT);
+        _dragOverlay.appendChild(pivotT);
 
-        // Arm A: rotating line from junction to endA
-        const gA = svgEl("g");
-        const lineA = svgEl("line");
-        lineA.setAttribute("x1", px); lineA.setAttribute("y1", py);
-        lineA.setAttribute("x2", endA.x); lineA.setAttribute("y2", endA.y);
-        lineA.setAttribute("stroke", animColA);
-        lineA.setAttribute("stroke-width", PW);
-        lineA.setAttribute("stroke-linecap", "round");
-        lineA.setAttribute("opacity", "0.85");
-        gA.appendChild(lineA);
-        const smilA = svgEl("animateTransform");
-        smilA.setAttribute("attributeName", "transform");
-        smilA.setAttribute("type", "rotate");
-        smilA.setAttribute("from", `0 ${px} ${py}`);
-        smilA.setAttribute("to", `${deltaDeg} ${px} ${py}`);
-        smilA.setAttribute("dur", "0.4s");
-        smilA.setAttribute("fill", "freeze");
-        smilA.setAttribute("calcMode", "spline");
-        smilA.setAttribute("keyTimes", "0;1");
-        smilA.setAttribute("keySplines", "0.42 0 0.58 1");
-        smilA.setAttribute("begin", "indefinite");
-        gA.appendChild(smilA);
-        animOverlay.appendChild(gA);
-
-        // Arm B: rotating line from junction to endB (opposite direction)
-        const gB = svgEl("g");
-        const lineB = svgEl("line");
-        lineB.setAttribute("x1", px); lineB.setAttribute("y1", py);
-        lineB.setAttribute("x2", endB.x); lineB.setAttribute("y2", endB.y);
-        lineB.setAttribute("stroke", animColB);
-        lineB.setAttribute("stroke-width", PW);
-        lineB.setAttribute("stroke-linecap", "round");
-        lineB.setAttribute("opacity", "0.85");
-        gB.appendChild(lineB);
-        const smilB = svgEl("animateTransform");
-        smilB.setAttribute("attributeName", "transform");
-        smilB.setAttribute("type", "rotate");
-        smilB.setAttribute("from", `0 ${px} ${py}`);
-        smilB.setAttribute("to", `${-deltaDeg} ${px} ${py}`);
-        smilB.setAttribute("dur", "0.4s");
-        smilB.setAttribute("fill", "freeze");
-        smilB.setAttribute("calcMode", "spline");
-        smilB.setAttribute("keyTimes", "0;1");
-        smilB.setAttribute("keySplines", "0.42 0 0.58 1");
-        smilB.setAttribute("begin", "indefinite");
-        gB.appendChild(smilB);
-        animOverlay.appendChild(gB);
-
-        svg.appendChild(animOverlay);
-
-        // Start SMIL animations
-        smilA.beginElement();
-        smilB.beginElement();
-
-        // After animation: apply swap and re-render
-        const ANIM_DUR = 430;
-        setTimeout(() => {
-          const temp = node.armAssignment[posA];
-          node.armAssignment[posA] = node.armAssignment[posB];
-          node.armAssignment[posB] = temp;
-          const info = deriveOpInfo(effectiveCat, node.armAssignment);
-          if (info) { node.opType = info.opType; node.symbol = info.symbol; }
-          applySwapToAstAndState();
-          renderStepRepresentation();
-          updateInputOverlay();
-          updateLatexDisplay(ui.exprEl?.value ?? "");
-        }, ANIM_DUR);
+        svg.appendChild(_dragOverlay);
       }
 
-      // Container group: hover zone (behind) + buttons (on top)
-      // mouseenter/leave on the group handles show/hide for all children
+      function _makeDragLabel(cx, cy, label, color) {
+        const g = svgEl("g");
+        const tw = Math.max(20, String(label).length * 8);
+        const th = 16;
+        const bg = svgEl("rect");
+        bg.setAttribute("x", cx - tw / 2); bg.setAttribute("y", cy - th / 2);
+        bg.setAttribute("width", tw); bg.setAttribute("height", th);
+        bg.setAttribute("fill", isDarkMode ? "#1a1a1a" : "#f5f5f5");
+        bg.setAttribute("stroke", color); bg.setAttribute("stroke-width", 0.8);
+        bg.setAttribute("rx", 4); bg.setAttribute("opacity", 0.95);
+        g.appendChild(bg);
+        const t = svgEl("text");
+        t.setAttribute("x", cx); t.setAttribute("y", cy);
+        t.setAttribute("text-anchor", "middle");
+        t.setAttribute("dominant-baseline", "central");
+        t.setAttribute("fill", color); t.setAttribute("font-size", 10);
+        t.setAttribute("font-family", MATH_FONT);
+        t.setAttribute("font-weight", "600");
+        t.textContent = label;
+        uprightText(t, cx, cy);
+        g.appendChild(t);
+        return g;
+      }
+
+      function updateDrag(clientX, clientY) {
+        if (!_dragging || !_dragOverlay) return;
+        const svgPt = screenToSvg(clientX, clientY);
+        const cursorAngle = Math.atan2(svgPt.y - py, svgPt.x - px);
+        const cursorDist = Math.hypot(svgPt.x - px, svgPt.y - py);
+
+        // Rotation from arm A's start angle
+        let rotation = cursorAngle - _dragStartAngle;
+        while (rotation > Math.PI) rotation -= 2 * Math.PI;
+        while (rotation < -Math.PI) rotation += 2 * Math.PI;
+
+        // Clamp: don't let arm A rotate past any partner's position
+        let maxCW = Math.PI, maxCCW = -Math.PI;
+        for (const info of _dragPartnerInfo) {
+          const full = info.halfwayRotation * 2;
+          if (full > 0) maxCW = Math.min(maxCW, full);
+          if (full < 0) maxCCW = Math.max(maxCCW, full);
+        }
+        rotation = Math.max(maxCCW, Math.min(maxCW, rotation));
+
+        // Outward stretch for input arms connected to value children
+        const outwardExtra = Math.max(0, cursorDist - _dragArmLenA);
+        const isInputArm = (_dragPosA === 'left' || _dragPosA === 'right');
+        const wChildId = isInputArm ? (_dragPosA === 'left' ? node.leftId : node.rightId) : null;
+        const wChild = wChildId != null ? nodes[wChildId] : null;
+        const canWrap = isInputArm && wChild && wChild.type === 'value';
+        _dragWrapReady = canWrap && outwardExtra > WRAP_DRAG_DIST;
+        const effectiveLenA = canWrap && outwardExtra > 0
+          ? _dragArmLenA + outwardExtra : _dragArmLenA;
+
+        // Update arm A position
+        const newAngleA = _dragStartAngle + rotation;
+        const axA = px + effectiveLenA * Math.cos(newAngleA);
+        const ayA = py + effectiveLenA * Math.sin(newAngleA);
+        _dragLineA.setAttribute("x2", axA);
+        _dragLineA.setAttribute("y2", ayA);
+        _dragLineA.setAttribute("opacity", "1");
+
+        // Dynamic partner: which arm is A heading toward?
+        _dragCurrentTarget = null;
+        let bestProgress = 0;
+        for (const info of _dragPartnerInfo) {
+          const hw = info.halfwayRotation;
+          if (Math.abs(hw) < 0.001) continue;
+          const progress = rotation / hw;  // >0 = heading toward this partner
+          if (progress > bestProgress) {
+            bestProgress = progress;
+            _dragCurrentTarget = info.pos;
+          }
+        }
+
+        // Update partner arm lines: mirror-rotate the targeted one, reset others
+        for (const info of _dragPartnerInfo) {
+          const line = _dragLinesOther[info.pos];
+          const lbl = _dragLabelsOther[info.pos];
+          const ep = armEndpoints[info.pos];
+          if (info.pos === _dragCurrentTarget) {
+            // Mirror: rotate this partner's arm by -rotation from its start angle
+            const mirrorAngle = info.startAngle - rotation;
+            const mx = px + info.len * Math.cos(mirrorAngle);
+            const my = py + info.len * Math.sin(mirrorAngle);
+            line.setAttribute("x2", mx);
+            line.setAttribute("y2", my);
+            const past = bestProgress > 1;
+            line.setAttribute("opacity", "1");
+            lbl.setAttribute("opacity", "1");
+            // Update label to follow the partner's new midpoint
+            const lmx = px + info.len * 0.5 * Math.cos(mirrorAngle);
+            const lmy = py + info.len * 0.5 * Math.sin(mirrorAngle);
+            _updateDragLabelPos(lbl, lmx, lmy);
+          } else {
+            // Reset to original position
+            line.setAttribute("x2", ep.x);
+            line.setAttribute("y2", ep.y);
+            line.setAttribute("opacity", "0.3");
+            lbl.setAttribute("opacity", "0.3");
+            _updateDragLabelPos(lbl, (px + ep.x) / 2, (py + ep.y) / 2);
+          }
+        }
+
+        // Update arm A label position
+        const labelOffset = _isMobile ? 0.6 : 0.5;
+        const midAx = px + effectiveLenA * labelOffset * Math.cos(newAngleA);
+        const midAy = py + effectiveLenA * labelOffset * Math.sin(newAngleA);
+        const perpScale = _isMobile ? PW * 0.9 : 0;
+        const perpAx = -Math.sin(newAngleA) * perpScale;
+        const perpAy = Math.cos(newAngleA) * perpScale;
+        _updateDragLabelPos(_dragLabelA, midAx + perpAx, midAy + perpAy);
+
+        // Auto-release: when the arm has been dragged far enough, immediately
+        // wrap without waiting for mouseup/touchend.
+        if (_dragWrapReady) {
+          _dragging = false;
+          if (_dragCleanupListeners) { _dragCleanupListeners(); _dragCleanupListeners = null; }
+          _cleanupDragOverlay();
+          // Eat the click event that fires when the user physically releases
+          // the mouse button, so it doesn't dismiss the radial menu.
+          const _eatClick = (ev) => {
+            ev.stopImmediatePropagation();
+            document.removeEventListener("click", _eatClick, true);
+          };
+          document.addEventListener("click", _eatClick, true);
+          setTimeout(() => document.removeEventListener("click", _eatClick, true), 800);
+          const wChildId2 = _dragPosA === 'left' ? node.leftId : node.rightId;
+          const wChild2 = wChildId2 != null ? nodes[wChildId2] : null;
+          if (wChild2) showRadialMenu(wChildId2, wChild2.x, wChild2.y, "value");
+        }
+      }
+
+      function _updateDragLabelPos(labelG, cx, cy) {
+        const bg = labelG.querySelector("rect");
+        const t = labelG.querySelector("text");
+        const tw = parseFloat(bg.getAttribute("width"));
+        const th = parseFloat(bg.getAttribute("height"));
+        bg.setAttribute("x", cx - tw / 2);
+        bg.setAttribute("y", cy - th / 2);
+        t.setAttribute("x", cx);
+        t.setAttribute("y", cy);
+        uprightText(t, cx, cy);
+      }
+
+      function _cleanupDragOverlay() {
+        if (_dragOverlay && _dragOverlay.parentNode) {
+          _dragOverlay.parentNode.removeChild(_dragOverlay);
+        }
+        _dragOverlay = null;
+        _dragLineA = null; _dragLabelA = null;
+        _dragLinesOther = {}; _dragLabelsOther = {};
+      }
+
+      function endDrag(clientX, clientY) {
+        if (!_dragging) return;
+        _dragging = false;
+
+        // Outward drag → wrap: open radial menu for the child value
+        if (_dragWrapReady) {
+          _cleanupDragOverlay();
+          const wChildId = _dragPosA === 'left' ? node.leftId : node.rightId;
+          const wChild = wChildId != null ? nodes[wChildId] : null;
+          if (wChild) showRadialMenu(wChildId, wChild.x, wChild.y, "value");
+          return;
+        }
+
+        // Check final rotation to determine swap
+        const x2 = parseFloat(_dragLineA.getAttribute("x2"));
+        const y2 = parseFloat(_dragLineA.getAttribute("y2"));
+        const finalAngle = Math.atan2(y2 - py, x2 - px);
+        let totalRotation = finalAngle - _dragStartAngle;
+        while (totalRotation > Math.PI) totalRotation -= 2 * Math.PI;
+        while (totalRotation < -Math.PI) totalRotation += 2 * Math.PI;
+
+        // Find the partner arm A has passed halfway to
+        let swapTarget = null;
+        let bestProgress = 1; // must exceed 1 to trigger swap
+        for (const info of _dragPartnerInfo) {
+          const hw = info.halfwayRotation;
+          if (Math.abs(hw) < 0.001) continue;
+          const progress = totalRotation / hw;
+          if (progress > bestProgress) {
+            bestProgress = progress;
+            swapTarget = info.pos;
+          }
+        }
+
+        if (swapTarget && node.armAssignment && effectiveCat) {
+          const targetInfo = _dragPartnerInfo.find(i => i.pos === swapTarget);
+          const targetEp = armEndpoints[swapTarget];
+          const armAEp = armEndpoints[_dragPosA];
+          // Arm A animates to swap target's endpoint, target animates to arm A's endpoint
+          const SNAP_DUR = 180; // ms
+          const startTime = performance.now();
+          // Capture current positions of arm A and target
+          const aX1 = parseFloat(_dragLineA.getAttribute("x2"));
+          const aY1 = parseFloat(_dragLineA.getAttribute("y2"));
+          const tLine = _dragLinesOther[swapTarget];
+          const tX1 = parseFloat(tLine.getAttribute("x2"));
+          const tY1 = parseFloat(tLine.getAttribute("y2"));
+          // Target endpoints (swapped)
+          const aX2 = targetEp.x, aY2 = targetEp.y;
+          const tX2 = armAEp.x, tY2 = armAEp.y;
+          // Label elements
+          const aLbl = _dragLabelA, tLbl = _dragLabelsOther[swapTarget];
+
+          function animateSnap(now) {
+            const elapsed = now - startTime;
+            const t = Math.min(1, elapsed / SNAP_DUR);
+            // Ease-out cubic
+            const e = 1 - Math.pow(1 - t, 3);
+
+            const ax = aX1 + (aX2 - aX1) * e;
+            const ay = aY1 + (aY2 - aY1) * e;
+            _dragLineA.setAttribute("x2", ax);
+            _dragLineA.setAttribute("y2", ay);
+            _updateDragLabelPos(aLbl, (px + ax) / 2, (py + ay) / 2);
+
+            const tx = tX1 + (tX2 - tX1) * e;
+            const ty = tY1 + (tY2 - tY1) * e;
+            tLine.setAttribute("x2", tx);
+            tLine.setAttribute("y2", ty);
+            _updateDragLabelPos(tLbl, (px + tx) / 2, (py + ty) / 2);
+
+            // Fade non-targeted partners out
+            for (const info of _dragPartnerInfo) {
+              if (info.pos === swapTarget) continue;
+              const ol = _dragLinesOther[info.pos];
+              const olbl = _dragLabelsOther[info.pos];
+              if (ol) ol.setAttribute("opacity", Math.max(0, 0.3 * (1 - e)));
+              if (olbl) olbl.setAttribute("opacity", Math.max(0, 0.3 * (1 - e)));
+            }
+
+            if (t < 1) {
+              requestAnimationFrame(animateSnap);
+            } else {
+              // Animation done — apply the swap
+              _cleanupDragOverlay();
+              const temp = node.armAssignment[_dragPosA];
+              node.armAssignment[_dragPosA] = node.armAssignment[swapTarget];
+              node.armAssignment[swapTarget] = temp;
+              const info2 = deriveOpInfo(effectiveCat, node.armAssignment);
+              if (info2) { node.opType = info2.opType; node.symbol = info2.symbol; }
+              applySwapToAstAndState();
+              renderStepRepresentation();
+              updateInputOverlay();
+              updateLatexDisplay(ui.exprEl?.value ?? "");
+            }
+          }
+          requestAnimationFrame(animateSnap);
+        } else if (swapTarget && _nodeIsTrig) {
+          // Trig swap: invert the function (sin↔asin, cos↔acos, tan↔atan)
+          const _TRIG_INV = { sin: "asin", asin: "sin", cos: "acos", acos: "cos", tan: "atan", atan: "tan" };
+          const curFn = node.fn || (node.ast && node.ast.fn) || null;
+          const invFn = curFn ? _TRIG_INV[curFn] : null;
+          if (invFn) {
+            const targetEp = armEndpoints[swapTarget];
+            const armAEp = armEndpoints[_dragPosA];
+            const SNAP_DUR = 180;
+            const startTime = performance.now();
+            const aX1 = parseFloat(_dragLineA.getAttribute("x2"));
+            const aY1 = parseFloat(_dragLineA.getAttribute("y2"));
+            const tLine = _dragLinesOther[swapTarget];
+            const tX1 = parseFloat(tLine.getAttribute("x2"));
+            const tY1 = parseFloat(tLine.getAttribute("y2"));
+            const aX2 = targetEp.x, aY2 = targetEp.y;
+            const tX2 = armAEp.x, tY2 = armAEp.y;
+            const aLbl = _dragLabelA, tLbl = _dragLabelsOther[swapTarget];
+
+            function animateTrigSnap(now) {
+              const elapsed = now - startTime;
+              const t = Math.min(1, elapsed / SNAP_DUR);
+              const e = 1 - Math.pow(1 - t, 3);
+
+              const ax = aX1 + (aX2 - aX1) * e;
+              const ay = aY1 + (aY2 - aY1) * e;
+              _dragLineA.setAttribute("x2", ax);
+              _dragLineA.setAttribute("y2", ay);
+              _updateDragLabelPos(aLbl, (px + ax) / 2, (py + ay) / 2);
+
+              const tx = tX1 + (tX2 - tX1) * e;
+              const ty = tY1 + (tY2 - tY1) * e;
+              tLine.setAttribute("x2", tx);
+              tLine.setAttribute("y2", ty);
+              _updateDragLabelPos(tLbl, (px + tx) / 2, (py + ty) / 2);
+
+              if (t < 1) {
+                requestAnimationFrame(animateTrigSnap);
+              } else {
+                _cleanupDragOverlay();
+                // Apply the trig inversion
+                node.fn = invFn;
+                node.symbol = invFn;
+                if (node.ast) { node.ast.fn = invFn; node.ast.symbol = invFn; }
+                applySwapToAstAndState();
+                renderStepRepresentation();
+                updateInputOverlay();
+                updateLatexDisplay(ui.exprEl?.value ?? "");
+              }
+            }
+            requestAnimationFrame(animateTrigSnap);
+          } else {
+            // Unknown trig function — snap back
+            const armAEp = armEndpoints[_dragPosA];
+            const SNAP_DUR = 150;
+            const startTime = performance.now();
+            const aX1 = parseFloat(_dragLineA.getAttribute("x2"));
+            const aY1 = parseFloat(_dragLineA.getAttribute("y2"));
+            const aX2 = armAEp.x, aY2 = armAEp.y;
+            const aLbl = _dragLabelA;
+            function animateBackTrig(now) {
+              const elapsed = now - startTime;
+              const t = Math.min(1, elapsed / SNAP_DUR);
+              const e = 1 - Math.pow(1 - t, 3);
+              const ax = aX1 + (aX2 - aX1) * e;
+              const ay = aY1 + (aY2 - aY1) * e;
+              _dragLineA.setAttribute("x2", ax);
+              _dragLineA.setAttribute("y2", ay);
+              _updateDragLabelPos(aLbl, (px + ax) / 2, (py + ay) / 2);
+              if (t < 1) { requestAnimationFrame(animateBackTrig); }
+              else { _cleanupDragOverlay(); }
+            }
+            requestAnimationFrame(animateBackTrig);
+          }
+        } else {
+          // No swap — animate arm A back to its original position
+          const armAEp = armEndpoints[_dragPosA];
+          const SNAP_DUR = 150;
+          const startTime = performance.now();
+          const aX1 = parseFloat(_dragLineA.getAttribute("x2"));
+          const aY1 = parseFloat(_dragLineA.getAttribute("y2"));
+          const aX2 = armAEp.x, aY2 = armAEp.y;
+          const aLbl = _dragLabelA;
+
+          function animateBack(now) {
+            const elapsed = now - startTime;
+            const t = Math.min(1, elapsed / SNAP_DUR);
+            const e = 1 - Math.pow(1 - t, 3);
+
+            const ax = aX1 + (aX2 - aX1) * e;
+            const ay = aY1 + (aY2 - aY1) * e;
+            _dragLineA.setAttribute("x2", ax);
+            _dragLineA.setAttribute("y2", ay);
+            _updateDragLabelPos(aLbl, (px + ax) / 2, (py + ay) / 2);
+
+            if (t < 1) {
+              requestAnimationFrame(animateBack);
+            } else {
+              _cleanupDragOverlay();
+            }
+          }
+          requestAnimationFrame(animateBack);
+        }
+      }
+
+      // ---- Interaction group ----
       const swapGroup = svgEl("g");
       swapGroup.classList.add("swap-group");
       swapGroup.setAttribute("data-node-id", nodeId);
 
-      // Hover zone: invisible circle — appended first so it's behind buttons
+      // ---- Arm drag zones (one per arm, along the pipe) ----
+      // Appended BEFORE the badge hover zone so the badge sits on top and intercepts clicks
+      if (armPairs.length > 0) {
+        for (const name of armNames) {
+          const ep = armEndpoints[name];
+          const armLen = Math.hypot(ep.x - px, ep.y - py);
+          if (armLen < 5) continue;
+
+          // Inset start point away from junction centre so hit zone
+          // doesn't overlap the operator badge
+          const INSET = JR + 8;
+          const adx = ep.x - px, ady = ep.y - py;
+          const hx1 = px + INSET * adx / armLen;
+          const hy1 = py + INSET * ady / armLen;
+
+          const hitLine = svgEl("line");
+          hitLine.setAttribute("x1", hx1); hitLine.setAttribute("y1", hy1);
+          hitLine.setAttribute("x2", ep.x); hitLine.setAttribute("y2", ep.y);
+          hitLine.setAttribute("stroke", "transparent");
+          hitLine.setAttribute("stroke-width", Math.max(PW + 10, 35));
+          hitLine.setAttribute("stroke-linecap", "round");
+          hitLine.setAttribute("pointer-events", "stroke");
+          hitLine.style.cursor = "grab";
+
+          // Mouse drag
+          hitLine.addEventListener("mousedown", (e) => {
+            if (e.button !== 0) return;
+            e.stopPropagation();
+            e.preventDefault();
+            startDrag(name, e.clientX, e.clientY);
+
+            const onMove = (ev) => updateDrag(ev.clientX, ev.clientY);
+            const onUp = (ev) => {
+              _dragCleanupListeners = null;
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+              endDrag(ev.clientX, ev.clientY);
+            };
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
+            _dragCleanupListeners = () => {
+              document.removeEventListener("mousemove", onMove);
+              document.removeEventListener("mouseup", onUp);
+            };
+          });
+
+          // Touch drag
+          hitLine.addEventListener("touchstart", (e) => {
+            if (e.touches.length !== 1) return;
+            e.stopPropagation();
+            const t = e.touches[0];
+            startDrag(name, t.clientX, t.clientY);
+
+            const onMove = (ev) => {
+              if (ev.touches.length !== 1) return;
+              ev.preventDefault();
+              updateDrag(ev.touches[0].clientX, ev.touches[0].clientY);
+            };
+            const onEnd = (ev) => {
+              _dragCleanupListeners = null;
+              document.removeEventListener("touchmove", onMove);
+              document.removeEventListener("touchend", onEnd);
+              document.removeEventListener("touchcancel", onEnd);
+              const ct = ev.changedTouches?.[0];
+              endDrag(ct?.clientX, ct?.clientY);
+            };
+            document.addEventListener("touchmove", onMove, { passive: false });
+            document.addEventListener("touchend", onEnd);
+            document.addEventListener("touchcancel", onEnd);
+            _dragCleanupListeners = () => {
+              document.removeEventListener("touchmove", onMove);
+              document.removeEventListener("touchend", onEnd);
+              document.removeEventListener("touchcancel", onEnd);
+            };
+          }, { passive: false });
+
+          swapGroup.appendChild(hitLine);
+        }
+      }
+
+      // Hover zone: invisible circle for operator click/tap
+      // Appended AFTER arm hitLines so it sits on top and receives clicks near the badge
       const hoverZone = svgEl("circle");
       hoverZone.setAttribute("cx", px);
       hoverZone.setAttribute("cy", py);
@@ -6656,20 +7105,81 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       hoverZone.setAttribute("stroke", "none");
       hoverZone.setAttribute("pointer-events", "all");
       hoverZone.dataset.badgeHit = "1";
-      // Click on the hover zone centre opens the radial menu to change operator
+      let _justDragged = false;
       hoverZone.addEventListener("click", (e) => {
+        if (_dragging || _justDragged) return;
         e.stopPropagation();
         hideNodeTooltip();
         showRadialMenu(nodeId, px, py, "op");
       });
-      // Mobile tap support — touchend fires reliably where click may not on SVG in scrollable containers
+      // Forward mousedown near arms (away from badge centre) to the arm drag system
+      hoverZone.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        const svgPt = screenToSvg(e.clientX, e.clientY);
+        const dist = Math.hypot(svgPt.x - px, svgPt.y - py);
+        if (dist <= JR + 6) return; // near badge centre — let click handle it
+        const nearest = closestArm(svgPt);
+        if (!nearest) return;
+        e.stopPropagation();
+        e.preventDefault();
+        startDrag(nearest, e.clientX, e.clientY);
+        const onMove = (ev) => updateDrag(ev.clientX, ev.clientY);
+        const onUp = (ev) => {
+          _dragCleanupListeners = null;
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+          endDrag(ev.clientX, ev.clientY);
+          _justDragged = true;
+          requestAnimationFrame(() => { _justDragged = false; });
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        _dragCleanupListeners = () => {
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+        };
+      });
       {
-        let _tapStartX, _tapStartY;
+        let _tapStartX, _tapStartY, _touchForwarded = false;
         hoverZone.addEventListener("touchstart", (e) => {
           const t = e.touches[0];
           _tapStartX = t.clientX; _tapStartY = t.clientY;
-        }, { passive: true });
+          _touchForwarded = false;
+          const svgPt = screenToSvg(t.clientX, t.clientY);
+          const dist = Math.hypot(svgPt.x - px, svgPt.y - py);
+          if (dist > JR + 6) {
+            const nearest = closestArm(svgPt);
+            if (nearest) {
+              _touchForwarded = true;
+              e.stopPropagation();
+              e.preventDefault();
+              startDrag(nearest, t.clientX, t.clientY);
+              const onMove = (ev) => {
+                if (ev.touches.length !== 1) return;
+                ev.preventDefault();
+                updateDrag(ev.touches[0].clientX, ev.touches[0].clientY);
+              };
+              const onEnd = (ev) => {
+                _dragCleanupListeners = null;
+                document.removeEventListener("touchmove", onMove);
+                document.removeEventListener("touchend", onEnd);
+                document.removeEventListener("touchcancel", onEnd);
+                const ct = ev.changedTouches?.[0];
+                endDrag(ct?.clientX, ct?.clientY);
+              };
+              document.addEventListener("touchmove", onMove, { passive: false });
+              document.addEventListener("touchend", onEnd);
+              document.addEventListener("touchcancel", onEnd);
+              _dragCleanupListeners = () => {
+                document.removeEventListener("touchmove", onMove);
+                document.removeEventListener("touchend", onEnd);
+                document.removeEventListener("touchcancel", onEnd);
+              };
+            }
+          }
+        }, { passive: false });
         hoverZone.addEventListener("touchend", (e) => {
+          if (_dragging || _touchForwarded) return;
           if (!e.changedTouches.length) return;
           const t = e.changedTouches[0];
           if (Math.abs(t.clientX - _tapStartX) < 15 && Math.abs(t.clientY - _tapStartY) < 15) {
@@ -6682,158 +7192,10 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
       hoverZone.style.cursor = "pointer";
       swapGroup.appendChild(hoverZone);
 
-      // ---- Desktop: hover swap buttons ----
-      if (!_isMobileDevice) {
-        for (const [posA, posB] of armPairs) {
-          const dA = armDirs[posA], dB = armDirs[posB];
-          const mx = dA.x + dB.x, my = dA.y + dB.y;
-          const mLen = Math.hypot(mx, my) || 1;
-          const bx = px + SWAP_DIST * mx / mLen;
-          const by = py + SWAP_DIST * my / mLen;
-
-          const btnG = svgEl("g");
-          btnG.classList.add("swap-btn");
-          btnG.setAttribute("data-node-id", nodeId);
-          btnG.setAttribute("data-pos-a", posA);
-          btnG.setAttribute("data-pos-b", posB);
-          btnG.style.cursor = "pointer";
-          btnG.style.opacity = "0";
-          btnG.style.transition = "opacity 0.15s";
-          btnG.style.pointerEvents = "none";
-
-          const bg = svgEl("circle");
-          bg.setAttribute("cx", bx);
-          bg.setAttribute("cy", by);
-          bg.setAttribute("r", SWAP_R);
-          bg.setAttribute("fill", isDarkMode ? "rgba(40,40,40,0.9)" : "rgba(230,230,230,0.9)");
-          bg.setAttribute("stroke", "#888");
-          bg.setAttribute("stroke-width", 1);
-          btnG.appendChild(bg);
-
-          const ico = svgEl("text");
-          ico.setAttribute("x", bx);
-          ico.setAttribute("y", by);
-          ico.setAttribute("text-anchor", "middle");
-          ico.setAttribute("dominant-baseline", "central");
-          ico.setAttribute("font-size", 11);
-          ico.setAttribute("fill", "#ccc");
-          ico.textContent = "⇄";
-          uprightText(ico, bx, by);
-          btnG.appendChild(ico);
-
-          btnG.addEventListener("click", (e) => {
-            e.stopPropagation();
-            performArmSwap(posA, posB);
-          });
-
-          swapGroup.appendChild(btnG);
-        }
-      }
-
-      // ---- Mobile: swipe-to-swap on arms ----
-      if (_isMobileDevice && armPairs.length > 0) {
-        // Build list of all arm positions (name + endpoint in SVG space)
-        const armNames = Object.keys(armEndpoints); // e.g. ["left", "right", "output"]
-
-        // Helper: convert screen coords to SVG-space coords
-        function screenToSvg(clientX, clientY) {
-          const pt = svg.createSVGPoint();
-          pt.x = clientX; pt.y = clientY;
-          const ctm = svg.getScreenCTM();
-          if (!ctm) return { x: clientX, y: clientY };
-          return pt.matrixTransform(ctm.inverse());
-        }
-
-        // Find the closest arm to an SVG-space point
-        function closestArm(svgPt) {
-          let best = null, bestDist = Infinity;
-          for (const name of armNames) {
-            const ep = armEndpoints[name];
-            // Distance from the touch point to the arm line (junction→endpoint)
-            // Use projection onto the line segment for better accuracy
-            const ax = ep.x - px, ay = ep.y - py;
-            const bx = svgPt.x - px, by = svgPt.y - py;
-            const armLen = Math.hypot(ax, ay) || 1;
-            // Project touch onto the arm direction
-            const dot = (bx * ax + by * ay) / armLen;
-            // Closest point on the segment
-            const t = Math.max(0, Math.min(armLen, dot));
-            const closX = px + t * ax / armLen;
-            const closY = py + t * ay / armLen;
-            const dist = Math.hypot(svgPt.x - closX, svgPt.y - closY);
-            if (dist < bestDist) { bestDist = dist; best = name; }
-          }
-          return best;
-        }
-
-        let _swipeStartClient = null;
-        let _swipeStartSvg = null;
-
-        // Use a larger hit zone for swipe detection — covers the full node area + arms
-        const swipeZone = svgEl("circle");
-        swipeZone.setAttribute("cx", px);
-        swipeZone.setAttribute("cy", py);
-        // Generous radius: reaches partway along the arms
-        const maxArmLen = Math.max(...armNames.map(n => {
-          const ep = armEndpoints[n];
-          return Math.hypot(ep.x - px, ep.y - py);
-        }));
-        swipeZone.setAttribute("r", Math.max(JR + 40, maxArmLen * 0.7));
-        swipeZone.setAttribute("fill", "transparent");
-        swipeZone.setAttribute("stroke", "none");
-        swipeZone.setAttribute("pointer-events", "all");
-        swipeZone.style.cursor = "pointer";
-
-        swipeZone.addEventListener("touchstart", (e) => {
-          const t = e.touches[0];
-          _swipeStartClient = { x: t.clientX, y: t.clientY };
-          _swipeStartSvg = screenToSvg(t.clientX, t.clientY);
-        }, { passive: true });
-
-        swipeZone.addEventListener("touchend", (e) => {
-          if (!_swipeStartClient || !e.changedTouches.length) return;
-          const t = e.changedTouches[0];
-          const dx = t.clientX - _swipeStartClient.x;
-          const dy = t.clientY - _swipeStartClient.y;
-          const screenDist = Math.hypot(dx, dy);
-
-          // Must be a deliberate swipe (not a tap)
-          if (screenDist < 30) {
-            _swipeStartClient = null;
-            _swipeStartSvg = null;
-            return;
-          }
-
-          const endSvg = screenToSvg(t.clientX, t.clientY);
-          const startArm = closestArm(_swipeStartSvg);
-          const endArm = closestArm(endSvg);
-
-          _swipeStartClient = null;
-          _swipeStartSvg = null;
-
-          // Only swap if start and end are different arms, and the pair is valid
-          if (!startArm || !endArm || startArm === endArm) return;
-          const pairValid = armPairs.some(([a, b]) =>
-            (a === startArm && b === endArm) || (a === endArm && b === startArm)
-          );
-          if (!pairValid) return;
-
-          e.preventDefault();
-          performArmSwap(startArm, endArm);
-        });
-
-        // Insert swipe zone behind the hover zone (so taps on centre still open radial menu)
-        swapGroup.insertBefore(swipeZone, hoverZone);
-      }
-
-      // Hover on the group shows/hides all buttons inside it (desktop only)
+      // Hover on the group: expand junction badge + keyboard delete
       const OP_HOVER_SCALE = 1.2;
       let _opDeleteHandler = null;
       swapGroup.addEventListener("mouseenter", () => {
-        swapGroup.querySelectorAll(".swap-btn").forEach(b => {
-          b.style.opacity = "1"; b.style.pointerEvents = "auto";
-        });
-        // Expand the junction circle and symbol text (preserving counter-rotation on text)
         const circleXform = `translate(${px},${py}) scale(${OP_HOVER_SCALE}) translate(${-px},${-py})`;
         const textXform = _counterDeg !== 0
           ? `translate(${px},${py}) scale(${OP_HOVER_SCALE}) rotate(${_counterDeg}) translate(${-px},${-py})`
@@ -6844,7 +7206,6 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
           node._symbolTextEl.style.transformOrigin = "0 0";
           node._symbolTextEl.setAttribute("transform", textXform);
         }
-        // Attach keyboard delete listener
         _opDeleteHandler = (e) => {
           if (e.key === "Backspace" || e.key === "Delete" || e.key === "d" || e.key === "D") {
             e.preventDefault();
@@ -6854,10 +7215,6 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         document.addEventListener("keydown", _opDeleteHandler);
       });
       swapGroup.addEventListener("mouseleave", () => {
-        swapGroup.querySelectorAll(".swap-btn").forEach(b => {
-          b.style.opacity = "0"; b.style.pointerEvents = "none";
-        });
-        // Restore original transforms (counter-rotation for text)
         if (node._junctionEl) node._junctionEl.removeAttribute("transform");
         if (node._symbolTextEl) {
           node._symbolTextEl.style.transformBox = "";
@@ -6895,10 +7252,6 @@ function renderPipeDiagramDag(ops, layout, showIntermediates, horizontal, showDe
         // Tree A on-path ops: the path arm child becomes the output → flip arrow away from op
         const _armArrowDir = (childId === node._pathChildId) ? 'child' : undefined;
         pipeToChild(px, py, child.x, child.y, armStart, armCol, childRad, JR, _armArrowDir, label);
-        // Add arm hit zone for tap-to-wrap (before drawNode so node hit zone stays on top)
-        if (child.type === "value") {
-          addArmHitZone(px, py, child.x, child.y, childId, child.x, child.y);
-        }
         drawNode(childId, px, py, false, armCol);
       }
     }
@@ -7296,7 +7649,7 @@ function applyOpsChange(relayout) {
     state.fn = steps.length > 0 ? steps[steps.length - 1].fn : null;
     syncInputFromOps();
     if (relayout) {
-      const expr = ui.exprEl?.value ?? "";
+      const expr = stripYPrefix(ui.exprEl?.value ?? "");
       if (expr.trim()) {
         try {
           const { pipeLayout } = parseAndLinearize(expr);
@@ -7481,7 +7834,7 @@ function buildDisplayExpr(ops) {
 function syncInputFromOps() {
   if (!ui.exprEl || !state.ops.length) return;
   const { text, spans } = buildDisplayExpr(state.ops);
-  ui.exprEl.value = text;
+  setExprInput(text);
   state.lastExpr = text;
   state.displaySpans = spans;
   updateInputOverlay();
@@ -7496,44 +7849,49 @@ function updateInputOverlay() {
   if (!ui.exprOverlay || !ui.exprEl) return;
   const controlEl = ui.exprEl.closest('.control--expr');
   const isEqActive = !!state.equalsEdge;
-  // Toggle eq-active class for equalsEdge state (removes y= indent on input)
+  // Toggle eq-active class for equalsEdge state
   if (controlEl) controlEl.classList.toggle('eq-active', isEqActive);
-  const text = ui.exprEl.value;
+  const rawText = ui.exprEl.value;
 
   const _isMobilePortrait = window.matchMedia(
     '(max-width: 600px) and (orientation: portrait), (hover: none) and (pointer: coarse) and (orientation: portrait)'
   ).matches;
 
-  // "y = " prefix HTML — rendered inside the overlay so it's part of the expression display
-  // Wrapped in .ov-prefix so autoSizeInput can measure it directly
-  const _eqCol = document.body.classList.contains('light') ? 'black' : 'white';
-  const yEqHtml = '<span class="ov-prefix"><span style="color:' + OP_COLORS.y + '">y</span>'
-    + '<span style="color:' + _eqCol + '"> = </span></span>';
-  const showPrefix = !isEqActive;
-
-  // On mobile portrait, force eq-active so no 4ch padding-left for y=
+  // On mobile portrait, force eq-active
   if (_isMobilePortrait && controlEl) controlEl.classList.add('eq-active');
 
-  if (!text) {
-    // Even when empty, show "y = " in the overlay (unless eq-active or mobile)
-    ui.exprOverlay.innerHTML = showPrefix ? yEqHtml : '';
-    if (controlEl) controlEl.classList.toggle('has-overlay', showPrefix && !!yEqHtml);
+  // Detect "y = " prefix in the input text and build colored HTML for it
+  const _eqCol = document.body.classList.contains('light') ? 'black' : 'white';
+  const prefixMatch = !isEqActive ? rawText.match(/^(y\s*=\s*)/i) : null;
+  const prefix = prefixMatch ? prefixMatch[1] : '';
+  const text = prefix ? rawText.slice(prefix.length) : rawText;
+
+  let prefixHtml = '';
+  if (prefix) {
+    // Color "y" in the y-variable color, rest (" = " / "=" etc.) in theme color
+    prefixHtml = '<span style="color:' + OP_COLORS.y + '">y</span>'
+      + '<span style="color:' + _eqCol + '">' + escapeHtml(prefix.slice(1)) + '</span>';
+  }
+
+  if (!text && !isEqActive) {
+    ui.exprOverlay.innerHTML = prefixHtml;
+    if (controlEl) controlEl.classList.toggle('has-overlay', !!prefixHtml);
     return;
   }
 
   // If we have pre-built spans from buildDisplayExpr (after Enter/plotFunction), use them
   if (state.displaySpans && state.displaySpans.length) {
     const spanText = state.displaySpans.map(s => s.text).join('');
-    // When equalsEdge is active, always use displaySpans (input has RHS only, spans have LHS = RHS)
-    if (spanText === text || isEqActive) {
+    // When equalsEdge is active, displaySpans cover the full equation (LHS = RHS)
+    // Otherwise, displaySpans cover just the expression body
+    if (spanText === text || (isEqActive && spanText === rawText)) {
       const spansHtml = state.displaySpans
         .map(s => {
           const opacity = s.isBracket ? 0.35 : (s.opacity || 1);
           return '<span style="color:' + s.color + ';opacity:' + opacity + '">' + escapeHtml(s.text) + '</span>';
         })
         .join('');
-      // Prepend "y = " only in normal mode (eq-active displaySpans already contain y)
-      ui.exprOverlay.innerHTML = isEqActive ? spansHtml : yEqHtml + spansHtml;
+      ui.exprOverlay.innerHTML = (isEqActive ? '' : prefixHtml) + spansHtml;
       if (controlEl) controlEl.classList.add('has-overlay');
       return;
     }
@@ -7543,7 +7901,7 @@ function updateInputOverlay() {
   let spans;
   if (state.pipeLayout && state.pipeLayout.nodes && state.pipeLayout.mainPath) {
     spans = pipeLayoutToColoredSpans(state.pipeLayout);
-    // Verify span text matches the actual input — fall back if mismatch
+    // Verify span text matches the expression body — fall back if mismatch
     if (spans && spans.length > 0) {
       const spanText = spans.map(s => s.text).join('');
       if (spanText !== text) spans = null;
@@ -7556,10 +7914,10 @@ function updateInputOverlay() {
     const spansHtml = spans
       .map(s => '<span style="color:' + s.color + (s.opacity ? ';opacity:' + s.opacity : '') + '">' + escapeHtml(s.text) + '</span>')
       .join('');
-    ui.exprOverlay.innerHTML = yEqHtml + spansHtml;
+    ui.exprOverlay.innerHTML = prefixHtml + spansHtml;
     if (controlEl) controlEl.classList.add('has-overlay');
   } else {
-    ui.exprOverlay.innerHTML = yEqHtml;
+    ui.exprOverlay.innerHTML = prefixHtml;
     if (controlEl) controlEl.classList.toggle('has-overlay', !!ui.exprOverlay.innerHTML);
   }
   // Re-measure input width now that overlay content has changed (may shrink)
@@ -8911,7 +9269,7 @@ function renderPipeDiagram(ops, layout, showIntermediates) {
         const rootAst = rootNode && rootNode.ast;
         if (rootAst && ui.exprEl) {
           const newExpr = exprString(rootAst);
-          ui.exprEl.value = newExpr;
+          setExprInput(newExpr);
           try {
             state.fn = compileExpression(newExpr);
             state.lastExpr = newExpr;
@@ -9107,7 +9465,7 @@ function renderPipeDiagram(ops, layout, showIntermediates) {
             const rootAst = rootNode && rootNode.ast;
             if (rootAst && ui.exprEl) {
               const newExpr = exprString(rootAst);
-              ui.exprEl.value = newExpr;
+              setExprInput(newExpr);
               try {
                 state.fn = compileExpression(newExpr);
                 state.lastExpr = newExpr;
@@ -9166,7 +9524,7 @@ function renderPipeDiagram(ops, layout, showIntermediates) {
             const rootAst = rootNode && rootNode.ast;
             if (rootAst && ui.exprEl) {
               const newExpr = exprString(rootAst);
-              ui.exprEl.value = newExpr;
+              setExprInput(newExpr);
               try {
                 state.fn = compileExpression(newExpr);
                 state.lastExpr = newExpr;
@@ -9442,6 +9800,7 @@ function attachEqualsDrag(svg, layout) {
       if (d <= SNAP_NODE_DIST && String(t.id) !== String(curTargetId)) {
         curTargetId = t.id;
         updateMarkerVisual(t.x, t.y);
+        liveTargetUpdate();
         return;
       }
     }
@@ -9472,7 +9831,7 @@ function attachEqualsDrag(svg, layout) {
       } else {
         const treeResult = _walkPipeTree(layout);
         if (treeResult) {
-          if (ui.exprEl) { ui.exprEl.value = treeResult.text; autoSizeInput(); }
+          setExprInput(treeResult.text); autoSizeInput();
           state.lastExpr = treeResult.text;
           state.fn = compileExpression(treeResult.text);
           state.displaySpans = treeResult.spans;
@@ -9535,7 +9894,7 @@ function attachEqualsDrag(svg, layout) {
       } else {
         const treeResult = _walkPipeTree(layout);
         if (treeResult) {
-          if (ui.exprEl) { ui.exprEl.value = treeResult.text; autoSizeInput(); }
+          setExprInput(treeResult.text); autoSizeInput();
           state.lastExpr = treeResult.text;
           state.fn = compileExpression(treeResult.text);
           state.displaySpans = treeResult.spans;
@@ -9729,7 +10088,7 @@ function performEqualsRotation(nodeId, fromArm, toArm, layout, opts) {
       state.equalsRhsExpr = null;
       const treeResult = _walkPipeTree(layout);
       if (treeResult) {
-        if (ui.exprEl) { ui.exprEl.value = treeResult.text; autoSizeInput(); }
+        setExprInput(treeResult.text); autoSizeInput();
         state.lastExpr = treeResult.text;
         state.fn = compileExpression(treeResult.text);
         state.displaySpans = treeResult.spans;
@@ -9821,7 +10180,22 @@ function generateEquation(layout, equalsEdge) {
 
   for (const step of pathDown) {
     const nd = nodes[step.nodeId];
-    if (!nd || !nd.armAssignment) continue;
+    if (!nd) continue;
+
+    // Trig / unary call nodes: fn(arg) = result → arg = inverseFn(result)
+    const _fnName = nd.fn || (nd.ast && nd.ast.fn) || null;
+    if (nd.opType === "call" && _fnName && TRIG_FNS.has(_fnName)) {
+      const _TRIG_INV = { sin: "asin", asin: "sin", cos: "acos", acos: "cos", tan: "atan", atan: "tan" };
+      const invFn = _TRIG_INV[_fnName];
+      if (invFn) {
+        const trigCol = OP_COLORS.trig || OP_COLORS.misc;
+        lhsText = `${invFn}(${lhsText})`;
+        lhsSpans = [sp(invFn, trigCol), sp("(", "var(--muted)", 0.35), ...lhsSpans, sp(")", "var(--muted)", 0.35)];
+      }
+      continue;
+    }
+
+    if (!nd.armAssignment) continue;
     const cat = nd.armCategory || _categoryForOpType(nd.opType);
     const roles = nd.armAssignment;
     if (!cat || !roles) continue;
@@ -9845,10 +10219,10 @@ function generateEquation(layout, equalsEdge) {
     const otherRole = roles[otherArm];
     const badge = OP_COLORS[cat] || OP_COLORS.misc;
 
-    // Apply arm color to uncolored spans (var(--text) means _walkSubtree left them default)
+    // Apply arm color to uncolored spans (var(--text) or null means _walkSubtree left them default)
     const otherArmColor = (ARM_COLORS[cat] && ARM_COLORS[cat][otherRole]) || badge;
     const otherSpans = rawOtherSpans.map(s =>
-      s.color === "var(--text)" ? { ...s, color: otherArmColor } : s
+      (s.color === "var(--text)" || s.color === null) ? { ...s, color: otherArmColor } : s
     );
 
     // Apply the inverse: LHS = inverse(LHS, otherArm)
@@ -9931,7 +10305,29 @@ function generateEquation(layout, equalsEdge) {
   // RHS: the subtree below the cut
   const rhsResult = _walkSubtree(layout, targetId);
   const rhsText = rhsResult ? rhsResult.text : "?";
-  const rhsSpans = rhsResult ? rhsResult.spans : [sp("?", "var(--muted)")];
+
+  // Determine arm color for the RHS subtree root (from the last op on the path)
+  let rhsArmColor = "var(--text)";
+  if (pathDown.length > 0) {
+    const lastStep = pathDown[pathDown.length - 1];
+    const lastNd = nodes[lastStep.nodeId];
+    if (lastNd) {
+      const lastCat = lastNd.armCategory || _categoryForOpType(lastNd.opType);
+      const lastRoles = lastNd.armAssignment;
+      if (lastCat && lastRoles) {
+        const rhsRole = lastRoles[lastStep.armToChild];
+        rhsArmColor = (ARM_COLORS[lastCat] && ARM_COLORS[lastCat][rhsRole]) || OP_COLORS[lastCat] || OP_COLORS.misc;
+      } else {
+        // Trig / unary call: use the trig color for the input arm
+        const _fnN = lastNd.fn || (lastNd.ast && lastNd.ast.fn) || null;
+        if (_fnN && TRIG_FNS.has(_fnN)) {
+          rhsArmColor = OP_COLORS.trig || OP_COLORS.misc;
+        }
+      }
+    }
+  }
+  const rhsSpans = (rhsResult ? rhsResult.spans : [sp("?", "var(--muted)")])
+    .map(s => (s.color === null || s.color === "var(--text)") ? { ...s, color: rhsArmColor } : s);
 
   // Combine: LHS = RHS
   const fullText = `${lhsText} = ${rhsText}`;
@@ -9985,7 +10381,12 @@ function applyEqualsResult(eqResult) {
   state.equalsLhsSpans = lhsSpans;
   state.equalsFullSpans = fullSpans;
   state.equalsRhsExpr = rhsExpr;
-  state.fn = compileExpression(rhsExpr);
+  // Compile fn from the full tree so the graph always shows the correct curve,
+  // regardless of where the equals sign is positioned.
+  const treeResult = _walkPipeTree(state.pipeLayout);
+  if (treeResult) {
+    state.fn = compileExpression(treeResult.text);
+  }
   rebuildEqualsDisplaySpans();
 }
 
@@ -10107,6 +10508,20 @@ function renderStepRepresentation() {
     }
 
     // ---- No animation: render immediately ----
+    // During drag: render at OLD positions (keep shape) but with new arrow directions
+    if (_eqDragContinuation && _prevRawPositions) {
+      // computeDagPositions already ran (setting flip flags on nodes for the new equalsEdge).
+      // Now overwrite node positions with the old raw positions so the shape doesn't change.
+      for (const [key, oldP] of _prevRawPositions) {
+        if (key === 'y') {
+          positions.yX = oldP.x;
+          positions.yY = oldP.y;
+        } else {
+          const idx = parseInt(key);
+          if (nodes[idx]) { nodes[idx].x = oldP.x; nodes[idx].y = oldP.y; }
+        }
+      }
+    }
     const svg = renderPipeDiagramDag(ops, pipeLayout, showInt, horz, showDbg, showArm, positions);
     el.appendChild(svg);
     // Only save positions when NOT mid-drag — preserve pre-drag positions
@@ -10770,11 +11185,8 @@ function autoSizeInput() {
     m.style.letterSpacing = cs.letterSpacing;
     m.style.fontSize = REF + 'px';
 
-    // Detect "y = " prefix in overlay
+    // Detect "y = " prefix in overlay (now matches input value text)
     const overlayText = ui.exprOverlay ? ui.exprOverlay.textContent : '';
-    const eqIdx = overlayText.indexOf('=');
-    const hasYPfx = !!(overlayText && overlayText.length > 2
-      && overlayText[0] === 'y' && eqIdx > 0);
 
     // Measure the full overlay text ("y = expr" or just "expr") at REF.
     m.textContent = overlayText || el.value || 'x';
@@ -10791,43 +11203,11 @@ function autoSizeInput() {
     el.style.fontSize = clamped + 'px';
     if (ui.exprOverlay) ui.exprOverlay.style.fontSize = clamped + 'px';
 
-    // Caret alignment:
-    // Position the input text at the exact pixel where the overlay's
-    // "expr" portion starts.  Use text-align:left + padding-left for
-    // pixel-perfect control (no browser centering quirks).
-    // Prefer measuring the overlay's actual .ov-prefix element for
-    // pixel-perfect alignment (avoids measurer ↔ overlay drift).
-    if (hasYPfx) {
-      const prefEl = ui.exprOverlay ? ui.exprOverlay.querySelector('.ov-prefix') : null;
-      const controlRect = el.closest('.control--expr');
-      if (prefEl && controlRect) {
-        // getBoundingClientRect forces synchronous reflow at the new font-size
-        const cRect = controlRect.getBoundingClientRect();
-        const pRect = prefEl.getBoundingClientRect();
-        const exprStart = pRect.right - cRect.left;
-        el.style.textAlign = 'left';
-        el.style.boxSizing = 'border-box';
-        el.style.setProperty('padding-left', Math.max(0, exprStart) + 'px', 'important');
-        el.style.setProperty('padding-right', '0', 'important');
-      } else {
-        // Fallback: hidden measurer
-        const prefixStr = overlayText.slice(0, eqIdx + 2);
-        m.style.fontSize = clamped + 'px';
-        m.textContent = overlayText;
-        const fullW = m.offsetWidth;
-        m.textContent = prefixStr;
-        const prefW = m.offsetWidth;
-        const exprStart = (containerW - fullW) / 2 + prefW;
-        el.style.textAlign = 'left';
-        el.style.boxSizing = 'border-box';
-        el.style.setProperty('padding-left', Math.max(0, exprStart) + 'px', 'important');
-        el.style.setProperty('padding-right', '0', 'important');
-      }
-    } else {
-      el.style.textAlign = '';
-      el.style.boxSizing = '';
-      el.style.setProperty('padding-left', '0', 'important');
-    }
+    // "y = " is now part of the input value — no separate prefix offset needed.
+    // Just centre-align as usual.
+    el.style.textAlign = '';
+    el.style.boxSizing = '';
+    el.style.setProperty('padding-left', '0', 'important');
 
     el.style.width = '';
     return;
@@ -10866,7 +11246,8 @@ function autoSizeInput() {
 let _swapInProgress = false;  // guard: prevent liveParse from rebuilding pipeLayout during swap
 function liveParse() {
   if (_swapInProgress) { return; }
-  const expr = ui.exprEl?.value ?? "";
+  const rawInput = ui.exprEl?.value ?? "";
+  const expr = stripYPrefix(rawInput);
   // If the expression hasn't changed and we already have a layout, skip rebuild.
   // This prevents async input events (e.g. Safari programmatic .value set) from
   // nuking a freshly-swapped pipeLayout.
@@ -10925,7 +11306,8 @@ function liveParse() {
 
 function plotFunction() {
   if (_swapInProgress) { return; }
-  const expr = ui.exprEl?.value ?? "";
+  const rawInput = ui.exprEl?.value ?? "";
+  const expr = stripYPrefix(rawInput);
   // Clear any equals rotation state from previous expression
   state.equalsEdge = null;
   state.equalsLhsSpans = null;
@@ -10953,7 +11335,7 @@ function plotFunction() {
     if (state.pipeLayout) {
       const treeResult = _walkPipeTree(state.pipeLayout);
       if (treeResult) {
-        ui.exprEl.value = treeResult.text;
+        setExprInput(treeResult.text);
         state.lastExpr = treeResult.text;
         state.displaySpans = treeResult.spans;
       } else {
@@ -10962,7 +11344,7 @@ function plotFunction() {
     } else if (ops.length > 0) {
       const { text, spans } = buildDisplayExpr(ops);
       state.displaySpans = spans;
-      ui.exprEl.value = text;
+      setExprInput(text);
       state.lastExpr = text;
     } else {
       state.displaySpans = null;
@@ -11188,25 +11570,18 @@ function setup() {
 
     function isPortraitMobile() { return portraitMQ.matches; }
 
-    // Remove the initial centering transform so we can position with left/top
-    // (only when not in portrait-mobile mode)
-    function initPosition() {
-      if (isPortraitMobile()) {
-        // Portrait mobile: let CSS handle positioning
-        win.style.left = '';
-        win.style.top = '';
-        win.style.transform = '';
-        return;
-      }
-      const winRect = win.getBoundingClientRect();
-      win.style.left = winRect.left + 'px';
-      win.style.top = winRect.top + 'px';
-      win.style.transform = 'none';
+    // Keep CSS centering (top:50%; transform:translate(-50%,-50%)) until
+    // the user actually starts dragging, so the accordion stays centred
+    // regardless of when its content finishes rendering.
+    function resetPosition() {
+      win.style.left = '';
+      win.style.top = '';
+      win.style.transform = '';
     }
-    initPosition();
+    resetPosition();
 
-    // Re-init when orientation changes
-    portraitMQ.addEventListener('change', initPosition);
+    // Re-reset when orientation changes
+    portraitMQ.addEventListener('change', resetPosition);
 
     bar.addEventListener('mousedown', (e) => {
       if (e.button !== 0 || isPortraitMobile()) return;
@@ -11214,6 +11589,10 @@ function setup() {
       sx = e.clientX; sy = e.clientY;
       const r = win.getBoundingClientRect();
       ox = r.left; oy = r.top;
+      // Convert CSS centering to absolute positioning for drag
+      win.style.left = r.left + 'px';
+      win.style.top = r.top + 'px';
+      win.style.transform = 'none';
       e.preventDefault();
     });
     document.addEventListener('mousemove', (e) => {
@@ -11236,7 +11615,8 @@ function setup() {
       });
     });
     document.querySelectorAll('.ew-section__options-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
         const sName = btn.dataset.section;
         const optPanel = document.getElementById('ew-options-' + sName);
         if (!optPanel) return;
@@ -11245,6 +11625,28 @@ function setup() {
         btn.classList.toggle('active', !visible);
       });
     });
+  })();
+
+  // ---- Tree options panel: wire visible checkboxes to hidden originals ----
+  (function wireTreeOptions() {
+    const optInt = document.getElementById('opt-show-intermediates');
+    const hiddenInt = document.getElementById('show-intermediates');
+    if (optInt && hiddenInt) {
+      optInt.checked = hiddenInt.checked;
+      optInt.addEventListener('change', () => {
+        hiddenInt.checked = optInt.checked;
+        hiddenInt.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }
+    const optArm = document.getElementById('opt-pipe-arm-labels');
+    const hiddenArm = document.getElementById('pipe-arm-labels');
+    if (optArm && hiddenArm) {
+      optArm.checked = hiddenArm.checked;
+      optArm.addEventListener('change', () => {
+        hiddenArm.checked = optArm.checked;
+        hiddenArm.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }
   })();
 
   // ---- Mobile portrait: tap-to-edit (show LaTeX by default, text input on tap) ----
@@ -11269,8 +11671,8 @@ function setup() {
     wrap.className = 'ew-tap-edit-wrap';
     merged.appendChild(wrap);
 
-    // Move options drawer into merged section
-    if (optionsLatex) merged.appendChild(optionsLatex);
+    // Don't move optionsLatex here — it must stay in the document so the
+    // three-dot handler can find it.  Move it only inside activate().
 
     const exprInput = bodyText.querySelector('.control__input');
     let isEditing = false;
@@ -11341,6 +11743,8 @@ function setup() {
       // Move bodies into wrapper
       wrap.appendChild(bodyLatex);
       wrap.appendChild(bodyText);
+      // Move options drawer into merged section (mobile only)
+      if (optionsLatex) merged.appendChild(optionsLatex);
       bodyText.style.display = 'none';
       bodyLatex.style.display = '';
       isEditing = false;
@@ -11998,11 +12402,24 @@ function setup() {
     latexCopyBtn.addEventListener('click', async () => {
       const raw = getRawLatex();
       if (!raw) return;
+      let ok = false;
       try {
-        await navigator.clipboard.writeText(raw);
-        latexCopyBtn.textContent = '✓';
-        setTimeout(() => { latexCopyBtn.textContent = 'copy'; }, 1200);
-      } catch { /* clipboard denied */ }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(raw);
+          ok = true;
+        }
+      } catch { }
+      if (!ok) {
+        const ta = document.createElement('textarea');
+        ta.value = raw;
+        ta.style.cssText = 'position:fixed;left:-9999px;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { ok = document.execCommand('copy'); } catch { }
+        document.body.removeChild(ta);
+      }
+      latexCopyBtn.textContent = ok ? '✓' : '✗';
+      setTimeout(() => { latexCopyBtn.textContent = 'copy'; }, 1200);
     });
   }
 
@@ -12010,11 +12427,16 @@ function setup() {
   const latexPasteBtn = document.getElementById('latex-paste-btn');
   if (latexPasteBtn) {
     latexPasteBtn.addEventListener('click', async () => {
+      let clip = null;
       try {
-        const clip = await navigator.clipboard.readText();
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          clip = await navigator.clipboard.readText();
+        }
+      } catch { }
+      if (clip) {
         const expr = latexToExpr(clip);
         if (expr && ui.exprEl) {
-          ui.exprEl.value = expr;
+          setExprInput(expr);
           ui.exprEl.dispatchEvent(new Event('input', { bubbles: true }));
           latexPasteBtn.textContent = '✓';
           setTimeout(() => { latexPasteBtn.textContent = 'paste'; }, 1200);
@@ -12022,7 +12444,13 @@ function setup() {
           latexPasteBtn.textContent = '✗';
           setTimeout(() => { latexPasteBtn.textContent = 'paste'; }, 1200);
         }
-      } catch { /* clipboard denied */ }
+      } else if (ui.exprEl) {
+        // Clipboard API unavailable — focus input so user can Ctrl+V
+        ui.exprEl.focus();
+        ui.exprEl.select();
+        latexPasteBtn.textContent = '⌘V';
+        setTimeout(() => { latexPasteBtn.textContent = 'paste'; }, 2000);
+      }
     });
   }
 
@@ -12035,14 +12463,28 @@ function setup() {
       if (state.equalsEdge && state.displaySpans && state.displaySpans.length) {
         val = state.displaySpans.map(s => s.text).join('');
       } else {
-        val = ui.exprEl?.value ? ("y = " + ui.exprEl.value) : "";
+        val = ui.exprEl?.value || "";
       }
       if (!val) return;
+      let ok = false;
       try {
-        await navigator.clipboard.writeText(val);
-        exprCopyBtn.textContent = '✓';
-        setTimeout(() => { exprCopyBtn.textContent = 'copy'; }, 1200);
-      } catch { /* clipboard denied */ }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(val);
+          ok = true;
+        }
+      } catch { }
+      if (!ok) {
+        // Fallback: execCommand
+        const ta = document.createElement('textarea');
+        ta.value = val;
+        ta.style.cssText = 'position:fixed;left:-9999px;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { ok = document.execCommand('copy'); } catch { }
+        document.body.removeChild(ta);
+      }
+      exprCopyBtn.textContent = ok ? '✓' : '✗';
+      setTimeout(() => { exprCopyBtn.textContent = 'copy'; }, 1200);
     });
   }
 
@@ -12050,15 +12492,26 @@ function setup() {
   const exprPasteBtn = document.getElementById('expr-paste-btn');
   if (exprPasteBtn) {
     exprPasteBtn.addEventListener('click', async () => {
+      let clip = null;
       try {
-        const clip = await navigator.clipboard.readText();
-        if (clip && ui.exprEl) {
-          ui.exprEl.value = clip.trim();
-          ui.exprEl.dispatchEvent(new Event('input', { bubbles: true }));
-          exprPasteBtn.textContent = '✓';
-          setTimeout(() => { exprPasteBtn.textContent = 'paste'; }, 1200);
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          clip = await navigator.clipboard.readText();
         }
-      } catch { /* clipboard denied */ }
+      } catch { }
+      if (clip) {
+        // Strip leading "y = " or "y=" so pasting a full equation replaces properly
+        let val = clip.trim().replace(/^y\s*=\s*/i, '');
+        setExprInput(val);
+        ui.exprEl.dispatchEvent(new Event('input', { bubbles: true }));
+        exprPasteBtn.textContent = '✓';
+        setTimeout(() => { exprPasteBtn.textContent = 'paste'; }, 1200);
+      } else if (ui.exprEl) {
+        // Clipboard API unavailable (non-HTTPS) — focus input so user can Ctrl+V
+        ui.exprEl.focus();
+        ui.exprEl.select();
+        exprPasteBtn.textContent = '⌘V';
+        setTimeout(() => { exprPasteBtn.textContent = 'paste'; }, 2000);
+      }
     });
   }
 
@@ -13023,6 +13476,32 @@ function populateVisibilitySection() {
   const wrap = document.createElement('div');
   wrap.className = 'ew-visibility-wrap';
 
+  function updateAllUI() {
+    // Standalone buttons
+    wrap.querySelectorAll('.graph-toggle-btn[data-toggle-key]').forEach(btn => {
+      const key = btn.dataset.toggleKey;
+      if (key === '_hud') {
+        btn.classList.toggle('graph-toggle-btn--on', !!state.hudVisible);
+      } else {
+        btn.classList.toggle('graph-toggle-btn--on', !!state.toggles[key]);
+      }
+    });
+    // Sub-buttons
+    wrap.querySelectorAll('.toggle-group__sub[data-toggle-key]').forEach(btn => {
+      const key = btn.dataset.toggleKey;
+      btn.classList.toggle('toggle-group__sub--on', !!state.toggles[key]);
+    });
+    // Group parents
+    wrap.querySelectorAll('.toggle-group').forEach(groupEl => {
+      const subBtns = groupEl.querySelectorAll('.toggle-group__sub');
+      const keys = Array.from(subBtns).map(b => b.dataset.toggleKey);
+      const allOn = keys.every(k => state.toggles[k]);
+      const anyOn = keys.some(k => state.toggles[k]);
+      groupEl.classList.toggle('graph-toggle-btn--on', allOn);
+      groupEl.classList.toggle('graph-toggle-btn--partial', !allOn && anyOn);
+    });
+  }
+
   toggleDefs.forEach((def) => {
     if (def.type === 'group') {
       const group = document.createElement('div');
@@ -13048,21 +13527,18 @@ function populateVisibilitySection() {
           state.toggles[k] = newVal;
           if (!newVal) state.toggleJustTurnedOff[k] = true;
         });
-        updateToggleGroupUI(group, def);
-      });
-      group.addEventListener('mouseenter', () => { state.hoveredToggle = [...def.keys]; });
-      group.addEventListener('mouseleave', () => {
-        if (Array.isArray(state.hoveredToggle)) state.hoveredToggle = null;
-        def.keys.forEach(k => delete state.toggleJustTurnedOff[k]);
+        updateAllUI();
       });
 
       const subContainer = document.createElement('div');
       subContainer.className = 'toggle-group__subs';
-      def.children.forEach(child => {
+
+      def.children.forEach((child) => {
         const subBtn = document.createElement('button');
         subBtn.className = 'toggle-group__sub' + (state.toggles[child.key] ? ' toggle-group__sub--on' : '');
         subBtn.type = 'button';
         subBtn.dataset.toggleKey = child.key;
+
         if (child.colorKey && userColors[child.colorKey]) {
           const hex = userColors[child.colorKey];
           const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
@@ -13070,23 +13546,17 @@ function populateVisibilitySection() {
           subBtn.style.setProperty('--sub-toggle-bg', `rgba(${r},${g},${b},0.15)`);
           subBtn.style.setProperty('--sub-toggle-bg-light', `rgba(${r},${g},${b},0.12)`);
         }
-        const subSpan = document.createElement('span');
-        subSpan.textContent = child.label;
-        subBtn.appendChild(subSpan);
+
+        subBtn.textContent = child.label;
         subBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           state.toggles[child.key] = !state.toggles[child.key];
           if (!state.toggles[child.key]) state.toggleJustTurnedOff[child.key] = true;
-          subBtn.classList.toggle('toggle-group__sub--on', state.toggles[child.key]);
-          updateToggleGroupUI(group, def);
-        });
-        subBtn.addEventListener('mouseenter', () => { state.hoveredToggle = child.key; });
-        subBtn.addEventListener('mouseleave', () => {
-          if (state.hoveredToggle === child.key) state.hoveredToggle = null;
-          delete state.toggleJustTurnedOff[child.key];
+          updateAllUI();
         });
         subContainer.appendChild(subBtn);
       });
+
       group.appendChild(subContainer);
       wrap.appendChild(group);
     } else {
@@ -13094,18 +13564,11 @@ function populateVisibilitySection() {
       btn.className = 'graph-toggle-btn' + (state.toggles[def.key] ? ' graph-toggle-btn--on' : '');
       btn.type = 'button';
       btn.dataset.toggleKey = def.key;
-      const span = document.createElement('span');
-      span.textContent = def.label;
-      btn.appendChild(span);
+      btn.textContent = def.label;
       btn.addEventListener('click', () => {
         state.toggles[def.key] = !state.toggles[def.key];
-        btn.classList.toggle('graph-toggle-btn--on', state.toggles[def.key]);
         if (!state.toggles[def.key]) state.toggleJustTurnedOff[def.key] = true;
-      });
-      btn.addEventListener('mouseenter', () => { state.hoveredToggle = def.key; });
-      btn.addEventListener('mouseleave', () => {
-        if (state.hoveredToggle === def.key) state.hoveredToggle = null;
-        delete state.toggleJustTurnedOff[def.key];
+        updateAllUI();
       });
       wrap.appendChild(btn);
     }
@@ -13116,10 +13579,8 @@ function populateVisibilitySection() {
     const hudBtn = document.createElement('button');
     hudBtn.className = 'graph-toggle-btn' + (state.hudVisible ? ' graph-toggle-btn--on' : '');
     hudBtn.type = 'button';
-    hudBtn.title = 'Show / hide coordinate info overlay';
-    const span = document.createElement('span');
-    span.textContent = 'HUD';
-    hudBtn.appendChild(span);
+    hudBtn.dataset.toggleKey = '_hud';
+    hudBtn.textContent = 'HUD';
     hudBtn.addEventListener('click', () => {
       state.hudVisible = !state.hudVisible;
       hudBtn.classList.toggle('graph-toggle-btn--on', state.hudVisible);

@@ -103,7 +103,7 @@
           <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
         </svg>
       </button>
-      <span class="expr-window__title">Expression</span>
+      <span class="expr-window__title">Intercalc</span>
       <button class="ew-titlebar-btn" id="settingsGear-ew" aria-label="Settings" title="Settings">
         <svg width="14" height="14" viewBox="0 0 512 512" fill="currentColor">
           <path
@@ -137,7 +137,7 @@
           <div class="expr-group">
             <label class="control control--expr">
               <input id="expr" class="control__input" type="text" inputmode="text" spellcheck="false"
-                value="2*x^2 + 1" />
+                value="y = 2*x^2 + 1" />
             </label>
             <div class="expr-btns" id="expr-btns">
               <button type="button" class="latex-btn" id="expr-copy-btn" title="Copy expression">copy</button>
@@ -262,7 +262,16 @@
         </div>
       </div>
       <div class="ew-section__options" id="ew-options-tree" style="display:none">
-        <!-- Tree options can go here in the future -->
+        <div class="latex-btns">
+          <label class="seg-label" style="display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="opt-show-intermediates" checked />
+            <span>Intermediates</span>
+          </label>
+          <label class="seg-label" style="display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" id="opt-pipe-arm-labels" />
+            <span>Arm labels</span>
+          </label>
+        </div>
       </div>
     </div>
 

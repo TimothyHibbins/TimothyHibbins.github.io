@@ -469,9 +469,8 @@ body.light .section-label {
   position: relative;
 }
 
-/* y= prefix is rendered inside the overlay; input has matching left indent */
+/* y= prefix is part of the editable input value — no extra indent */
 .control--expr .control__input {
-  padding-left: 4ch;
   transition: padding-left 0.15s;
 }
 
@@ -1293,6 +1292,7 @@ body.light .canvas-wrap canvas {
   gap: 6px;
   flex-shrink: 0;
   margin-top: 2px;
+  flex-wrap: wrap;
 }
 
 .latex-btn {
@@ -2656,9 +2656,9 @@ body.light .mobile-toggle-panel {
    ======================================================================== */
 .expr-window {
   position: fixed;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 50%;
+  left: calc(100vw / 3);
+  transform: translate(-50%, -50%);
   z-index: 20;
   width: 460px;
   max-width: calc(100vw - 24px);
@@ -2902,6 +2902,15 @@ body.light .expr-window {
 .ew-section__options {
   padding: 4px 10px 6px;
   border-top: 1px dashed var(--border);
+}
+
+/* ---- Visibility section toggle buttons ---- */
+.ew-visibility-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  align-items: center;
 }
 
 /* ---- Text section ---- */
