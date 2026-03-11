@@ -365,6 +365,8 @@ let setGap = pointSquareSize * 4 + gameGap;
 let setSizePlusGap = setSize + setGap;
 
 let timelineHeight = 150;
+let timelineGameGap = 2;
+let timelineSetGap = 6;
 
 let matchSize = setSizePlusGap * SETS_TO_WIN_MATCH;
 
@@ -5088,6 +5090,8 @@ class TennisSet {
 
           }
 
+
+
           text(pointScoreText[i], 0, 0);
 
           pop();
@@ -5149,7 +5153,7 @@ drawArrow = (x1, y1, x2, y2, size) => {
   rotate(angle);
   // line(0, 0, dist(x1, y1, x2, y2) - size, 0);
   translate(dist(x1, y1, x2, y2) - size, 0);
-  triangle(0, -size / 2, size, 0, 0, size / 2);
+  triangle(0, -size, size, 0, 0, size);
   pop();
 }
 
@@ -5258,8 +5262,7 @@ class ScoresnakeChart {
     let py = axisToPlayer("y");
 
 
-    let setX = 0
-    let setY = 0;
+    let setPos = { x: 0, y: 0 };
 
     let hover = false;
     let m = localMouse();
@@ -5269,17 +5272,16 @@ class ScoresnakeChart {
     let setHoverChange = false;
     let gameHoverChange = false;
 
+    let arrowData = [];  // collected in pass 1, drawn in pass 2 on top of all squares
+
     // draw the rallies and the snake itself
     for (let set of this.matchData.sets) {
-
-      let gameX = 0
-      let gameY = 0;
 
       if (
         mouseInCanvas &&
         !setHoverChange &&
-        m.x < pos.x + setX + this.setOffsets[px][set.setsWon[px]]
-        && m.y < pos.y + setY + this.setOffsets[py][set.setsWon[py]]
+        m.x < pos.x + setPos.x + this.setOffsets[px][set.setsWon[px]]
+        && m.y < pos.y + setPos.y + this.setOffsets[py][set.setsWon[py]]
         && mouseY < height - timelineHeight
       ) {
 
@@ -5296,21 +5298,22 @@ class ScoresnakeChart {
         }
 
         fill(30);
-        rect(pos.x + setX, pos.y + setY,
+        rect(pos.x + setPos.x, pos.y + setPos.y,
           this.setOffsets[px][set.setsWon[px]],
           this.setOffsets[py][set.setsWon[py]]);
 
       }
 
+      let gamePos = { x: 0, y: 0 };
 
       for (let game of set.games) {
 
         if (
           !gameHoverChange &&
-          m.x < pos.x + setX + gameX + this.sets[set.setsWon[1]][set.setsWon[2]].gameOffsets[px][game.gamesWon[px]]
-          && m.x > pos.x + setX + gameX
-          && m.y < pos.y + setY + gameY + this.sets[set.setsWon[1]][set.setsWon[2]].gameOffsets[py][game.gamesWon[py]]
-          && m.y > pos.y + setY + gameY
+          m.x < pos.x + setPos.x + gamePos.x + this.sets[set.setsWon[1]][set.setsWon[2]].gameOffsets[px][game.gamesWon[px]]
+          && m.x > pos.x + setPos.x + gamePos.x
+          && m.y < pos.y + setPos.y + gamePos.y + this.sets[set.setsWon[1]][set.setsWon[2]].gameOffsets[py][game.gamesWon[py]]
+          && m.y > pos.y + setPos.y + gamePos.y
           && mouseY < height - timelineHeight
         ) {
 
@@ -5327,26 +5330,22 @@ class ScoresnakeChart {
           }
 
           fill(60);
-          rect(pos.x + setX + gameX, pos.y + setY + gameY,
+          rect(pos.x + setPos.x + gamePos.x, pos.y + setPos.y + gamePos.y,
             this.sets[set.setsWon[1]][set.setsWon[2]].gameOffsets[px][game.gamesWon[px]],
             this.sets[set.setsWon[1]][set.setsWon[2]].gameOffsets[py][game.gamesWon[py]]);
 
         }
 
-        let pointX;
-        let pointY;
+        let pointPos = { x: 0, y: 0 };
 
-        let s = pointSquareSize;
-
-
+        let pS = pointSquareSize;
 
         for (let point of game.points) {
 
-          pointX = point.pointsWon[px] * pointSquareSize;
-          pointY = point.pointsWon[py] * pointSquareSize;
+          pointPos = { x: point.pointsWon[px] * pS, y: point.pointsWon[py] * pS };
 
 
-          let r = s / 1.5;
+          let r = pS / 1.5;
 
 
           let serveStatus;
@@ -5363,10 +5362,10 @@ class ScoresnakeChart {
           }
 
           if (!hover
-            && m.x < pos.x + setX + gameX + pointX + s
-            && m.x > pos.x + setX + gameX + pointX
-            && m.y < pos.y + setY + gameY + pointY + s
-            && m.y > pos.y + setY + gameY + pointY
+            && m.x < pos.x + setPos.x + gamePos.x + pointPos.x + pS
+            && m.x > pos.x + setPos.x + gamePos.x + pointPos.x
+            && m.y < pos.y + setPos.y + gamePos.y + pointPos.y + pS
+            && m.y > pos.y + setPos.y + gamePos.y + pointPos.y
             && mouseY < height - timelineHeight
           ) {
 
@@ -5383,93 +5382,334 @@ class ScoresnakeChart {
 
           }
 
-          // node
-          let nodeSize = s * 2 / 3;
-
-          stroke(0);
-          strokeWeight(0.25);
-          square(
-            pos.x + setX + gameX + pointX + (s - nodeSize) / 2,
-            pos.y + setY + gameY + pointY + (s - nodeSize) / 2,
-            nodeSize
-          );
-
-          // arrow to next point node
-          // drawing arrow
-
+          // collect square position for deferred drawing
+          let sqX = pos.x + setPos.x + gamePos.x + pointPos.x;
+          let sqY = pos.y + setPos.y + gamePos.y + pointPos.y;
 
           let w = point.winner;
-          let l;
-          if (w == 1) {
-            l = 2;
-          } else {
-            l = 1;
+          let l = w == 1 ? 2 : 1;
+
+          // direction of the arrow: which axis does the winner move along?
+          let dx = (pAxes[w] === "x") ? 1 : 0;
+          let dy = (pAxes[w] === "y") ? 1 : 0;
+
+          let lineOffset = { x: 0, y: 0 };
+          lineOffset[pAxes[w]] = pointPos[pAxes[w]];
+
+          textAlign(CENTER, BOTTOM);
+          textSize(3);
+          fill(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][w]);
+          noStroke();
+
+          let x = pos.x + setPos.x + gamePos.x + lineOffset.x;
+          let y = pos.y + setPos.y + gamePos.y + lineOffset.y;
+
+          push();
+          translate(x, y);
+
+          if (pAxes[w] == "y") {
+            rotate(-TAU / 4);
+          }
+          // rotate(-TAU / 8);
+
+
+          if (game.gamesWon[1] === 6 && game.gamesWon[2] === 6) {
+            text(point.pointsWon[w], 0, 0);
+          } else if (pointScoreText.length > point.pointsWon[w]) {
+            text(pointScoreText[point.pointsWon[w]], 0, 0);
           }
 
-          let nextPointXY = { [w]: s, [l]: 0 };
+
+
+          pop();
+
+          let nextPointXY = { [w]: pS, [l]: 0 };
           // console.log(nextPointXY);
 
-          let fromX = pos.x + setX + gameX + pointX + s / 2;
-          let fromY = pos.y + setY + gameY + pointY + s / 2;
-          let toX = pos.x + setX + gameX + pointX + nextPointXY[axisToPlayer("x")] + s / 2;
-          let toY = pos.y + setY + gameY + pointY + nextPointXY[axisToPlayer("y")] + s / 2;
-
-          // console.log(`Drawing arrow from (${fromX}, ${fromY}) to (${toX}, ${toY})`);
-
-          // drawArrow(fromX, fromY, toX, toY, 3);
+          arrowData.push({
+            sqX, sqY, s: pS, dx, dy,
+            color: pointSquareColorScheme[serveStatus][point.winner],
+            isHover: (point == this.hoverPoint),
+            isSelected: (point == this.selectedPoint)
+          });
 
         }
 
-        pointX += s;
-        pointY += s;
+        // Raw max scores before capping (for threshold staircase)
+        let rawMaxPx = Math.round(pointPos.x / pS) + (game.winner == px ? 1 : 0);
+        let rawMaxPy = Math.round(pointPos.y / pS) + (game.winner == py ? 1 : 0);
 
-        pointX = max(pointX, gameSize);
-        pointY = max(pointY, gameSize);
+        pointPos.x = max(pointPos.x + pS, gameSize);
+        pointPos.y = max(pointPos.y + pS, gameSize);
 
+        // ---- Point grid lines (clipped to reachable region) ----
+        {
+          let gx = pos.x + setPos.x + gamePos.x;
+          let gy = pos.y + setPos.y + gamePos.y;
+          let isTiebreak = (game.gamesWon[1] === 6 && game.gamesWon[2] === 6);
+          let ptw = POINTS_TO_WIN_GAME;
+          if (isTiebreak) {
+            ptw = (set.setsWon[1] === SETS_TO_WIN_MATCH - 1
+              && set.setsWon[2] === SETS_TO_WIN_MATCH - 1) ? 10 : 7;
+          }
 
-        stroke(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][px]);
-        strokeWeight(0.5);
-        line(pos.x + setX + gameX + pointX, pos.y + setY + gameY, pos.x + setX + gameX + pointX, pos.y + setY + gameY + pointY);
+          let maxGridX = Math.round(pointPos.x / pS);
+          let maxGridY = Math.round(pointPos.y / pS);
 
+          // Horizontal grid lines (py score positions)
+          stroke(pointSquareColorScheme[POINT_WON_ON_SERVE][py]);
+          strokeWeight(0.15);
+          for (let j = 1; j < maxGridY; j++) {
+            // Right clip: P2 can't exceed their winning threshold at P1=j
+            let clipX = Math.min(pointPos.x, Math.max(ptw, j + 2) * pS);
+            // Left clip: if P1=j >= ptw, P1 already won unless P2 >= j-1
+            let startX = (j >= ptw) ? (j - 1) * pS : 0;
+            if (startX < clipX) line(gx + startX, gy + j * pS, gx + clipX, gy + j * pS);
+          }
 
-        stroke(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][py]);
-        strokeWeight(0.5);
-        line(pos.x + setX + gameX, pos.y + setY + gameY + pointY, pos.x + setX + gameX + pointX, pos.y + setY + gameY + pointY);
+          // Vertical grid lines (px score positions)
+          stroke(pointSquareColorScheme[POINT_WON_ON_SERVE][px]);
+          strokeWeight(0.15);
+          for (let i = 1; i < maxGridX; i++) {
+            // Bottom clip: P1 can't exceed their winning threshold at P2=i
+            let clipY = Math.min(pointPos.y, Math.max(ptw, i + 2) * pS);
+            // Top clip: if P2=i >= ptw, P2 already won unless P1 >= i-1
+            let startY = (i >= ptw) ? (i - 1) * pS : 0;
+            if (startY < clipY) line(gx + i * pS, gy + startY, gx + i * pS, gy + clipY);
+          }
+          noStroke();
+        }
 
+        // ---- Game-winning threshold staircase (flat + deuce steps) ----
+        {
+          let gx = pos.x + setPos.x + gamePos.x;
+          let gy = pos.y + setPos.y + gamePos.y;
+          let isTiebreak = (game.gamesWon[1] === 6 && game.gamesWon[2] === 6);
+          let ptw = POINTS_TO_WIN_GAME;
+          if (isTiebreak) {
+            ptw = (set.setsWon[1] === SETS_TO_WIN_MATCH - 1
+              && set.setsWon[2] === SETS_TO_WIN_MATCH - 1) ? 10 : 7;
+          }
+          // P1 winning threshold (py-axis) — bottom boundary
+          {
+            stroke(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][py]);
+            strokeWeight(0.5);
+            let threshY = ptw * pS;
+            let curX = 0;
+            let flatEndX = (rawMaxPx >= ptw - 1) ? (ptw - 1) * pS : pointPos.x;
+            line(gx + curX, gy + threshY, gx + flatEndX, gy + threshY);
+            curX = flatEndX;
+            if (rawMaxPx >= ptw - 1) {
+              for (let c = ptw - 1; c <= rawMaxPx; c++) {
+                let newThreshY = (c + 2) * pS;
+                if (newThreshY > pointPos.y) newThreshY = pointPos.y;
+                if (newThreshY > threshY) {
+                  drawingContext.setLineDash([pS * 0.3, pS * 0.3]);
+                  line(gx + curX, gy + threshY, gx + curX, gy + newThreshY);
+                  drawingContext.setLineDash([]);
+                  threshY = newThreshY;
+                }
+                let endX = Math.min((c + 1) * pS, pointPos.x);
+                if (endX > curX) {
+                  line(gx + curX, gy + threshY, gx + endX, gy + threshY);
+                  curX = endX;
+                }
+                if (curX >= pointPos.x || threshY >= pointPos.y) break;
+              }
+            }
+            noStroke();
+          }
+          // P2 winning threshold (px-axis) — right boundary
+          {
+            stroke(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][px]);
+            strokeWeight(0.5);
+            let threshX = ptw * pS;
+            let curY = 0;
+            let flatEndY = (rawMaxPy >= ptw - 1) ? (ptw - 1) * pS : pointPos.y;
+            line(gx + threshX, gy + curY, gx + threshX, gy + flatEndY);
+            curY = flatEndY;
+            if (rawMaxPy >= ptw - 1) {
+              for (let r = ptw - 1; r <= rawMaxPy; r++) {
+                let newThreshX = (r + 2) * pS;
+                if (newThreshX > pointPos.x) newThreshX = pointPos.x;
+                if (newThreshX > threshX) {
+                  drawingContext.setLineDash([pS * 0.3, pS * 0.3]);
+                  line(gx + threshX, gy + curY, gx + newThreshX, gy + curY);
+                  drawingContext.setLineDash([]);
+                  threshX = newThreshX;
+                }
+                let endY = Math.min((r + 1) * pS, pointPos.y);
+                if (endY > curY) {
+                  line(gx + threshX, gy + curY, gx + threshX, gy + endY);
+                  curY = endY;
+                }
+                if (curY >= pointPos.y || threshX >= pointPos.x) break;
+              }
+            }
+            noStroke();
+          }
+        }
 
-        if (game.winner == px) {
+        let gW = game.winner;
+        let gL = gW == 1 ? 2 : 1;
 
-          gameX += this.sets[set.setsWon[1]][set.setsWon[2]].gameOffsets[px][game.gamesWon[px]];
+        gamePos[pAxes[gW]] += this.sets[set.setsWon[1]][set.setsWon[2]].gameOffsets[gW][game.gamesWon[gW]];
 
-          gameX += gameGap;
-        } else {
-          gameY += this.sets[set.setsWon[1]][set.setsWon[2]].gameOffsets[py][game.gamesWon[py]];
+        let lineOffset = { x: 0, y: 0 };
+        // lineOffset[pAxes[gL]] = pointPos[pAxes[gL]];
 
-          gameY += gameGap;
+        textAlign(CENTER, BOTTOM);
+        textSize(12);
+        fill(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][gW]);
+        noStroke();
+
+        let x = pos.x + setPos.x + gamePos.x + lineOffset.x;
+        let y = pos.y + setPos.y + gamePos.y + lineOffset.y;
+
+        push();
+        translate(x, y);
+
+        if (pAxes[gW] == "y") {
+          rotate(-TAU / 4);
+        }
+        // rotate(-TAU / 8);
+
+        text(game.gamesWon[gW] + 1, 0, 0);
+
+        pop();
+
+        gamePos[pAxes[gW]] += gameGap;
+      }
+
+      // ---- Set-winning threshold staircase (within each set) ----
+      {
+        let setBase = { x: pos.x + setPos.x, y: pos.y + setPos.y };
+        let displaySet = this.sets[set.setsWon[1]][set.setsWon[2]];
+        let gtw = GAMES_TO_WIN_SET;
+
+        // Cumulative game positions along each axis
+        let cumGPx = [0], cumGPy = [0];
+        for (let g = 0; g <= gtw; g++) {
+          cumGPx.push(cumGPx[g] + displaySet.gameOffsets[px][g] + gameGap);
+          cumGPy.push(cumGPy[g] + displaySet.gameOffsets[py][g] + gameGap);
+        }
+
+        let maxGPx = set.gamesWon[px];
+        let maxGPy = set.gamesWon[py];
+
+        // P1's set-winning threshold (py-axis): only if py reached gtw-1 games
+        if (maxGPy >= gtw - 1) {
+          stroke(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][py]);
+          strokeWeight(0.75);
+          let flatGEnd = Math.min(gtw - 1, maxGPx + 1);
+          if (flatGEnd > 0) {
+            line(setBase.x, setBase.y + cumGPy[gtw],
+              setBase.x + cumGPx[flatGEnd], setBase.y + cumGPy[gtw]);
+          }
+          if (maxGPx >= gtw - 1) {
+            drawingContext.setLineDash([gameGap, gameGap]);
+            line(setBase.x + cumGPx[gtw - 1], setBase.y + cumGPy[gtw],
+              setBase.x + cumGPx[gtw - 1], setBase.y + cumGPy[gtw + 1]);
+            drawingContext.setLineDash([]);
+            let stepEnd = Math.min(gtw + 1, maxGPx + 1);
+            line(setBase.x + cumGPx[gtw - 1], setBase.y + cumGPy[gtw + 1],
+              setBase.x + cumGPx[stepEnd], setBase.y + cumGPy[gtw + 1]);
+          }
+          noStroke();
+        }
+
+        // P2's set-winning threshold (px-axis): only if px reached gtw-1 games
+        if (maxGPx >= gtw - 1) {
+          stroke(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][px]);
+          strokeWeight(0.75);
+          let flatGEndY = Math.min(gtw - 1, maxGPy + 1);
+          if (flatGEndY > 0) {
+            line(setBase.x + cumGPx[gtw], setBase.y,
+              setBase.x + cumGPx[gtw], setBase.y + cumGPy[flatGEndY]);
+          }
+          if (maxGPy >= gtw - 1) {
+            drawingContext.setLineDash([gameGap, gameGap]);
+            line(setBase.x + cumGPx[gtw], setBase.y + cumGPy[gtw - 1],
+              setBase.x + cumGPx[gtw + 1], setBase.y + cumGPy[gtw - 1]);
+            drawingContext.setLineDash([]);
+            let stepEndR = Math.min(gtw + 1, maxGPy + 1);
+            line(setBase.x + cumGPx[gtw + 1], setBase.y + cumGPy[gtw - 1],
+              setBase.x + cumGPx[gtw + 1], setBase.y + cumGPy[stepEndR]);
+          }
+          noStroke();
         }
       }
 
-      if (set.winner == px) {
-        setX += this.setOffsets[px][set.setsWon[px]];
+      let w = set.winner;
+      let l = w == 1 ? 2 : 1;
 
-        stroke(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][px]);
+      setPos[pAxes[w]] += this.setOffsets[w][set.setsWon[w]];
+
+      stroke(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][w]);
+      strokeWeight(0.5);
+
+
+      let lineOffset = { x: 0, y: 0 };
+      lineOffset[pAxes[l]] = this.setOffsets[l][set.setsWon[l]];
+
+      line(pos.x + setPos.x, pos.y + setPos.y, pos.x + setPos.x + lineOffset.x, pos.y + setPos.y + lineOffset.y);
+
+      textAlign(CENTER, BOTTOM);
+      textSize(25);
+      fill(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][set.winner]);
+      noStroke();
+
+      let x = pos.x + setPos.x;
+      let y = pos.y + setPos.y;
+
+      push();
+      translate(x, y);
+
+      // if (pAxes[w] == "y") {
+      //   rotate(-TAU / 4);
+      // }
+      rotate(-TAU / 8);
+
+      text(set.setsWon[set.winner] + 1, 0, 0);
+
+      pop();
+
+      setPos[pAxes[w]] += setGap;
+
+    }
+
+    // Pass 2: draw fused square+arrow pentagons back-to-front
+    let tip = 1.5; // arrow protrusion beyond the square
+    for (let i = arrowData.length - 1; i >= 0; i--) {
+      let a = arrowData[i];
+      fill(a.color);
+      if (a.isSelected) {
+        stroke(255);
+        strokeWeight(1);
+      } else if (a.isHover) {
+        stroke(255);
         strokeWeight(0.5);
-        line(pos.x + setX, pos.y + setY, pos.x + setX, pos.y + setY + this.setOffsets[py][set.setsWon[py]]);
-
-        setX += setGap;
-
-
-
       } else {
-        setY += this.setOffsets[py][set.setsWon[py]];
-
-        stroke(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][py]);
-        strokeWeight(0.5);
-        line(pos.x + setX, pos.y + setY, pos.x + setX + this.setOffsets[px][set.setsWon[px]], pos.y + setY);
-
-        setY += setGap;
+        stroke(0);
+        strokeWeight(0.25);
       }
-
+      beginShape();
+      if (a.dx > 0) {
+        // arrow points right (+x)
+        vertex(a.sqX, a.sqY);
+        vertex(a.sqX + a.s, a.sqY);
+        vertex(a.sqX + a.s + tip, a.sqY + a.s / 2);
+        vertex(a.sqX + a.s, a.sqY + a.s);
+        vertex(a.sqX, a.sqY + a.s);
+      } else {
+        // arrow points down (+y)
+        vertex(a.sqX, a.sqY);
+        vertex(a.sqX + a.s, a.sqY);
+        vertex(a.sqX + a.s, a.sqY + a.s);
+        vertex(a.sqX + a.s / 2, a.sqY + a.s + tip);
+        vertex(a.sqX, a.sqY + a.s);
+      }
+      endShape(CLOSE);
     }
 
     let matchDimensions = {
@@ -5573,6 +5813,21 @@ class ScoresnakeChart {
 
     let x = 0;
 
+    // Tier heights: point 2/3, game 2/3 of remainder, set the rest
+    // Reserve elevation space so everything fits within timelineHeight
+    let elevAmount = timelineHeight * 0.04;
+    let baseTierSpace = timelineHeight - 3 * elevAmount;
+    let pointTierH = baseTierSpace * (2 / 3);
+    let gameTierH = (baseTierSpace - pointTierH) * (2 / 3);
+    let setTierH = baseTierSpace - pointTierH - gameTierH;
+
+    // Base tier Y positions (bottom-up: set at bottom, point at top)
+    let setTierBottom = height;
+    let setTierTop = height - setTierH;
+    let gameTierBottom = setTierTop;
+    let gameTierTop = gameTierBottom - gameTierH;
+    let pointTierBottom = gameTierTop;
+    let pointTierTop = pointTierBottom - pointTierH;
 
     fill(0);
     rect(0, height - timelineHeight, width, timelineHeight);
@@ -5607,11 +5862,14 @@ class ScoresnakeChart {
     if (!mouseInCanvas) m = { x: -Infinity, y: -Infinity };
 
     let g = 0;
-    let s = 0;
 
-    for (let set of this.matchData.sets) {
+    for (let [s, set] of this.matchData.sets.entries()) {
 
-      if (m.x > this.timeline.setOffsets[s] && m.x < this.timeline.setOffsets[s + 1] && m.y > height - timelineHeight && m.y < height) {
+      let setElev = (set == this.hoverSet) ? elevAmount : 0;
+
+      // Set hover: only in set tier
+      if (m.x > this.timeline.setOffsets[s] && m.x < this.timeline.setOffsets[s + 1]
+        && m.y > setTierTop && m.y < setTierBottom) {
 
         setHoverChange = true;
 
@@ -5633,10 +5891,14 @@ class ScoresnakeChart {
         let gameX = this.timeline.gameOffsets[g];
 
         let pointX = 0;
+        let gameElev = (game == this.hoverGame) ? elevAmount : 0;
 
-        if (m.x > gameX && m.x < this.timeline.gameOffsets[g + 1] && m.y > height - timelineHeight && m.y < height) {
+        // Game hover: only in game tier (also triggers set hover)
+        if (m.x > gameX && m.x < this.timeline.gameOffsets[g + 1] - timelineGameGap
+          && m.y > gameTierTop && m.y < gameTierBottom) {
 
           gameHoverChange = true;
+          setHoverChange = true;
 
           if (this.hoverGame != game) {
             this.hoverGame = game;
@@ -5649,22 +5911,18 @@ class ScoresnakeChart {
 
           }
 
+          // Also set hoverSet for this game's parent set
+          if (this.hoverSet != set) {
+            this.hoverSet = set;
+            let firstPt = set.games[0] && set.games[0].points[0];
+            let idx = firstPt ? this.matchData.allPoints.indexOf(firstPt) : 0;
+            let pitchHint = idx / Math.max(this.matchData.allPoints.length - 1, 1);
+            playSetHoverPing(pitchHint);
+          }
+
         }
 
         for (let point of game.points) {
-
-          let amt = timelineHeight / 3;
-
-          let h = timelineHeight - amt;
-          if (set == this.hoverSet) {
-            h += amt / 3;
-          }
-          if (game == this.hoverGame) {
-            h += amt / 3;
-          }
-          if (point == this.hoverPoint) {
-            h += amt / 3;
-          }
 
           let serveStatus;
           if (point.server == point.winner) {
@@ -5677,12 +5935,34 @@ class ScoresnakeChart {
 
           stroke(0);
           strokeWeight(0.1);
-          rect(gameX + pointX, height - h, point.rally.totalShots, h);
+          let pointElev = (point == this.hoverPoint || point == this.selectedPoint) ? elevAmount : 0;
+          let pY = pointTierTop - setElev - gameElev - pointElev;
+          let pH = pointTierH + pointElev;
+          rect(gameX + pointX, pY, point.rally.totalShots, pH);
           noStroke();
 
-          if (m.x > gameX + pointX && m.x < gameX + pointX + point.rally.totalShots && m.y > height - h && m.y < height) {
+          // Point hover: only in point tier (also triggers game + set hover)
+          if (m.x > gameX + pointX && m.x < gameX + pointX + point.rally.totalShots
+            && m.y > pointTierTop && m.y < pointTierBottom) {
 
             hover = true;
+            gameHoverChange = true;
+            setHoverChange = true;
+
+            if (this.hoverGame != game) {
+              this.hoverGame = game;
+              let firstPt = game.points[0];
+              let idx = firstPt ? this.matchData.allPoints.indexOf(firstPt) : 0;
+              let pitchHint = idx / Math.max(this.matchData.allPoints.length - 1, 1);
+              playGameHoverPing(pitchHint);
+            }
+            if (this.hoverSet != set) {
+              this.hoverSet = set;
+              let firstPt = set.games[0] && set.games[0].points[0];
+              let idx = firstPt ? this.matchData.allPoints.indexOf(firstPt) : 0;
+              let pitchHint = idx / Math.max(this.matchData.allPoints.length - 1, 1);
+              playSetHoverPing(pitchHint);
+            }
 
             if (this.hoverPoint != point) {
               this.hoverPoint = point;
@@ -5699,11 +5979,36 @@ class ScoresnakeChart {
           pointX += point.rally.totalShots;
 
         }
+
+        // Game tier rectangle — drawn after point loop using pointX for correct width
+        let gameServeStatus;
+        if (game.server == game.winner) {
+          gameServeStatus = POINT_WON_ON_SERVE;
+        } else {
+          gameServeStatus = POINT_WON_AGAINST_SERVE;
+        }
+        fill(pointSquareColorScheme[gameServeStatus][game.winner]);
+        stroke(0);
+        strokeWeight(0.1);
+        let gY = gameTierTop - setElev - gameElev;
+        let gH = gameTierH + gameElev;
+        rect(gameX, gY, pointX, gH);
+        noStroke();
+
         g++;
 
       }
 
-      s++;
+      // Set tier rectangle (bottom)
+      let setStart = this.timeline.setOffsets[s];
+      let setEnd = this.timeline.setOffsets[s + 1] - timelineSetGap;
+      fill(pointSquareColorScheme[POINT_WON_AGAINST_SERVE][set.winner]);
+      stroke(0);
+      strokeWeight(0.1);
+      let sY = setTierTop - setElev;
+      let sH = setTierH + setElev;
+      rect(setStart, sY, setEnd - setStart, sH);
+      noStroke();
 
 
     }
@@ -5887,6 +6192,8 @@ class ScoresnakeChart {
             (pAxes[w] == "x")
           ));
 
+          gamePos[pAxes[w]] += gameGap;
+
         } else {
 
           this.connectors.push(new Connector(
@@ -5898,9 +6205,11 @@ class ScoresnakeChart {
             (pAxes[w] == "x")
           ));
 
-          gamePos[pAxes[w]] += pointPos[pAxes[w]];
+          gamePos[pAxes[w]] += gameOffsets[w][game.gamesWon[w]] + gameGap;
 
         }
+
+        timelineOffset += timelineGameGap;
 
       }
 
@@ -5918,15 +6227,17 @@ class ScoresnakeChart {
 
       setOffsets[w][set.setsWon[w]] = max(
         setOffsets[w][set.setsWon[w]],
-        gamePos[pAxes[w]] + gameGap * 6
+        gamePos[pAxes[w]]
       );
 
       setOffsets[l][set.setsWon[l]] = max(
         setOffsets[l][set.setsWon[l]],
-        gamePos[pAxes[l]] + gameGap * 6
+        gamePos[pAxes[l]]
       );
 
       setPos[pAxes[set.winner]] += setOffsets[w][set.setsWon[w]];
+
+      timelineOffset += timelineSetGap - timelineGameGap; // set gap replaces last game gap
 
     }
 
@@ -6273,10 +6584,10 @@ function drawNames() {
   fill(0, 0, 0, 200);
   noStroke();
 
-  let o = 40;
+  // let o = 40;
 
-  triangle(scoresnakeSectionWidth / 2 - o, 0, 0, height / 2 - o, 0, 0);
-  triangle(scoresnakeSectionWidth - scoresnakeSectionWidth / 2 + o, 0, scoresnakeSectionWidth, height - height / 2 - o, scoresnakeSectionWidth, 0);
+  // triangle(scoresnakeSectionWidth / 2 - o, 0, 0, height / 2 - o, 0, 0);
+  // triangle(scoresnakeSectionWidth - scoresnakeSectionWidth / 2 + o, 0, scoresnakeSectionWidth, height - height / 2 - o, scoresnakeSectionWidth, 0);
 
 
   textSize(32);
@@ -6364,7 +6675,11 @@ function mouseClicked() {
   if (!currentScoresnake) return;
 
   if (currentScoresnake.hoverPoint) {
-    currentScoresnake.selectedPoint = currentScoresnake.hoverPoint;
+    if (currentScoresnake.selectedPoint === currentScoresnake.hoverPoint) {
+      currentScoresnake.selectedPoint = null;
+    } else {
+      currentScoresnake.selectedPoint = currentScoresnake.hoverPoint;
+    }
   } else {
     currentScoresnake.selectedPoint = null;
   }
