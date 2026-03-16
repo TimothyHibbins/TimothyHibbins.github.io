@@ -1,35 +1,39 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PerfectColors</title>
-  <link rel="stylesheet" href="style.css">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PerfectColors</title>
+    <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-  <canvas id="main-canvas"></canvas>
-  <div id="toolbar">
-    <button id="gamut-mode-btn" title="Cycle gamut view mode">Gamut: Silhouette</button>
-    <button id="theme-toggle" title="Toggle dark/light mode">☀️</button>
-    <button id="export-btn" title="Export palette">Export</button>
-  </div>
-  <div id="export-modal" class="hidden">
-    <div id="export-content">
-      <h3>Export Palette</h3>
-      <label><strong>Hex</strong></label>
-      <textarea id="export-hex" readonly rows="4"></textarea>
-      <label><strong>OKLCH</strong></label>
-      <textarea id="export-oklch" readonly rows="4"></textarea>
-      <div id="export-buttons">
-        <button id="copy-hex">Copy Hex</button>
-        <button id="copy-oklch">Copy OKLCH</button>
-        <button id="close-export">Close</button>
-      </div>
+    <canvas id="main-canvas"></canvas>
+    <div id="toolbar">
+        <button id="gamut-mode-btn" title="Cycle gamut view mode">Gamut: Silhouette</button>
+        <button id="theme-toggle" title="Toggle dark/light mode">☀️</button>
+        <button id="export-btn" title="Export palette">Export</button>
     </div>
-  </div>
-  <div id="help-hint">
-    <span><kbd>Space</kbd> add color &nbsp; <kbd>Click</kbd> select &nbsp; <kbd>E</kbd> edit selected &nbsp; <kbd>Delete</kbd> remove &nbsp; <kbd>Scroll</kbd> brightness &nbsp; <kbd>Drag</kbd> orbit</span>
-  </div>
-  <script src="sketch.js"></script>
+    <div id="export-modal" class="hidden">
+        <div id="export-content">
+            <h3>Export Palette</h3>
+            <label><strong>Hex</strong></label>
+            <textarea id="export-hex" readonly rows="4"></textarea>
+            <label><strong>OKLCH</strong></label>
+            <textarea id="export-oklch" readonly rows="4"></textarea>
+            <div id="export-buttons">
+                <button id="copy-hex">Copy Hex</button>
+                <button id="copy-oklch">Copy OKLCH</button>
+                <button id="close-export">Close</button>
+            </div>
+        </div>
+    </div>
+    <div id="help-hint">
+        <span><kbd>Space</kbd> add color &nbsp; <kbd>Click</kbd> select &nbsp; <kbd>E</kbd> edit selected &nbsp;
+            <kbd>Delete</kbd> remove &nbsp; <kbd>Scroll</kbd> brightness &nbsp; <kbd>Drag</kbd> orbit</span>
+    </div>
+    <script src="sketch.js"></script>
 </body>
+
 </html>
