@@ -120,8 +120,8 @@ let insertionPoint = null;
 /** Whether a sentence is actively being edited (vs. passive viewing mode). */
 let sentenceActive = true;
 
-/** Index of the currently selected/active word in the current sentence. */
-let activeWordIdx = null;
+/** Set of selected word indices in the current sentence (for replace mode). */
+let selectedWordRange = new Set();
 
 /** Tense popover state: { wordIdx, sentenceIdx, forms, currentIdx, el } or null. */
 let tenseHoverState = null;
@@ -306,7 +306,7 @@ function renderCurrentLine() {
         span.className = 'committed-word';
         span.dataset.idx = String(wi);
         span.textContent = words[wi];
-        if (activeWordIdx === wi) {
+        if (selectedWordRange.has(wi)) {
             span.classList.add('active-word');
             span.classList.add('editing');
         }
@@ -317,10 +317,16 @@ function renderCurrentLine() {
         span.addEventListener('mouseleave', () => onCurrentWordHoverLeave(span));
         span.addEventListener('click', (e) => {
             e.stopPropagation();
-            activeWordIdx = wi;
-            setInsertionPoint(wi + 1);
+            selectedWordRange = new Set([wi]);
+            insertionPoint = wi + 1;
+            buffer = [];
+            rawBuffer = '';
+            rawMode = false;
+            currentMatches = [];
+            selectedCandidate = 0;
+            render();
             // Fetch and show definition for the clicked word
-            showDefinition(words[wi]);
+            showDefinition(words[wi], pos[wi]);
         });
         // Verb tense hover: wheel handler
         if (pos[wi] === 'VERB' || pos[wi] === 'AUX') {
@@ -333,6 +339,9 @@ function renderCurrentLine() {
         return span;
     };
 
+    // While typing a replacement, hide selected words so buffer appears in their place
+    const isTypingReplacement = selectedWordRange.size > 0 && (buffer.length > 0 || rawBuffer.length > 0);
+
     if (clauses && clauses.length > 1) {
         // ── Prior clauses: just text, no trees ──────────────
         for (let ci = 0; ci < clauses.length - 1; ci++) {
@@ -344,7 +353,8 @@ function renderCurrentLine() {
             textLine.className = 'prior-clause-text';
             for (let j = 0; j < clause.wordIndices.length; j++) {
                 const wi = clause.wordIndices[j];
-                if (j > 0) textLine.appendChild(document.createTextNode(' '));
+                if (isTypingReplacement && selectedWordRange.has(wi)) continue;
+                if (textLine.childNodes.length > 0) textLine.appendChild(document.createTextNode(' '));
                 textLine.appendChild(makeWordSpan(wi));
             }
 
@@ -356,6 +366,7 @@ function renderCurrentLine() {
         const activeCl = clauses[clauses.length - 1];
         for (let j = 0; j < activeCl.wordIndices.length; j++) {
             const wi = activeCl.wordIndices[j];
+            if (isTypingReplacement && selectedWordRange.has(wi)) continue;
             const targetEl = (wi < ip) ? committedEl : committedAfterEl;
             if (targetEl.childNodes.length > 0) {
                 targetEl.appendChild(document.createTextNode(' '));
@@ -365,6 +376,7 @@ function renderCurrentLine() {
     } else {
         // ── Single clause: split at insertion point ─────────
         for (let i = 0; i < words.length; i++) {
+            if (isTypingReplacement && selectedWordRange.has(i)) continue;
             const targetEl = (i < ip) ? committedEl : committedAfterEl;
             if (targetEl.childNodes.length > 0) {
                 targetEl.appendChild(document.createTextNode(' '));
@@ -1075,12 +1087,21 @@ async function fetchDefinition(word) {
     }
 }
 
-/** Show definition panel for the given word. */
-async function showDefinition(word) {
+/** Map our POS tags to dictionary API partOfSpeech strings. */
+const POS_TO_DICT_POS = {
+    NOUN: 'noun', VERB: 'verb', ADJ: 'adjective', ADV: 'adverb',
+    PRON: 'pronoun', PREP: 'preposition', CONJ: 'conjunction',
+    DET: 'determiner', INTJ: 'interjection', NUM: 'numeral',
+    AUX: 'verb', PART: 'particle',
+};
+
+/** Show definition panel for the given word, filtered by detected POS. */
+async function showDefinition(word, detectedPOS) {
     if (!word || !definitionPanelEl) return;
     const lc = word.toLowerCase().replace(/[.,!?:;]+$/, '');
-    if (lc === definitionWord) return; // already showing
-    definitionWord = lc;
+    const cacheKey = lc + '|' + (detectedPOS || '');
+    if (cacheKey === definitionWord) return; // already showing
+    definitionWord = cacheKey;
 
     // Show loading state
     definitionPanelEl.innerHTML = '<span class="def-loading">Looking up \u201c' + lc + '\u201d\u2026</span>';
@@ -1089,21 +1110,29 @@ async function showDefinition(word) {
     const def = await fetchDefinition(lc);
 
     // Check we're still showing the same word
-    if (definitionWord !== lc) return;
+    if (definitionWord !== cacheKey) return;
 
     if (!def || def.meanings.length === 0) {
         definitionPanelEl.innerHTML = '<span class="def-loading">No definition found.</span>';
         setTimeout(() => {
-            if (definitionWord === lc) hideDefinitionPanel();
+            if (definitionWord === cacheKey) hideDefinitionPanel();
         }, 1500);
         return;
+    }
+
+    // Filter meanings by detected POS if available
+    const dictPOS = detectedPOS ? POS_TO_DICT_POS[detectedPOS] : null;
+    let meanings = def.meanings;
+    if (dictPOS) {
+        const filtered = meanings.filter(m => m.pos.toLowerCase() === dictPOS);
+        if (filtered.length > 0) meanings = filtered;
     }
 
     let html = '<span class="def-word">' + def.word + '</span>';
     if (def.phonetic) html += '<span class="def-phonetic">' + def.phonetic + '</span>';
 
     let num = 0;
-    for (const m of def.meanings) {
+    for (const m of meanings) {
         html += '<span class="def-pos">' + m.pos + '</span>';
         for (const d of m.definitions) {
             num++;
@@ -1374,6 +1403,11 @@ function positionBars() {
                 }
                 closeTensePopover();
             });
+            // Click → select covered words
+            svg.addEventListener('click', (e) => {
+                e.stopPropagation();
+                selectWords(covered);
+            });
             // VP bracket: wheel cycles VP tense
             if (bar.label === 'VP') {
                 svg.addEventListener('wheel', (e) => {
@@ -1507,17 +1541,29 @@ function commitWord(matchIndex, suffix) {
         rawBuffer = '';
         currentMatches = [];
         selectedCandidate = 0;
+        selectedWordRange = new Set();
+        insertionPoint = null;
         expandedTreePaths = new Set(['']);
         return;
     }
 
-    // If editing an active word (clicked on it), replace it
-    if (activeWordIdx !== null && activeWordIdx < currentSentenceWords.length) {
-        const oldWord = currentSentenceWords[activeWordIdx];
-        const trailingPunct = oldWord.match(/[.,!?:;]+$/);
-        currentSentenceWords[activeWordIdx] = word + (trailingPunct ? trailingPunct[0] : '');
-        currentSentencePOS[activeWordIdx] = newPOS;
-        activeWordIdx = null;
+    // If words are selected, replace the entire selection
+    if (selectedWordRange.size > 0) {
+        const indices = [...selectedWordRange].sort((a, b) => a - b);
+        const firstIdx = indices[0];
+        const lastIdx = indices[indices.length - 1];
+        // Preserve trailing punctuation from the last selected word
+        const lastWord = currentSentenceWords[lastIdx];
+        const trailingPunct = lastWord ? lastWord.match(/[.,!?:;]+$/) : null;
+        // Remove all selected words (descending to preserve indices)
+        for (let k = indices.length - 1; k >= 0; k--) {
+            currentSentenceWords.splice(indices[k], 1);
+            currentSentencePOS.splice(indices[k], 1);
+        }
+        // Insert the new word at the first selected position
+        currentSentenceWords.splice(firstIdx, 0, word + (trailingPunct ? trailingPunct[0] : ''));
+        currentSentencePOS.splice(firstIdx, 0, newPOS);
+        selectedWordRange = new Set();
         insertionPoint = null;
         buffer = [];
         rawMode = false;
@@ -1548,10 +1594,34 @@ function commitWord(matchIndex, suffix) {
     render();
 }
 
-function commitRaw() {
+function commitRaw(suffix) {
     if (rawBuffer.length === 0) return;
-    const word = capitalizeIfNeeded(rawBuffer);
+    let word = capitalizeIfNeeded(rawBuffer);
+    if (suffix) word += suffix;
     const newPOS = tagWord(rawBuffer);
+
+    // If words are selected, replace the entire selection
+    if (selectedWordRange.size > 0) {
+        const indices = [...selectedWordRange].sort((a, b) => a - b);
+        const firstIdx = indices[0];
+        const lastIdx = indices[indices.length - 1];
+        const lastWord = currentSentenceWords[lastIdx];
+        const trailingPunct = lastWord ? lastWord.match(/[.,!?:;]+$/) : null;
+        for (let k = indices.length - 1; k >= 0; k--) {
+            currentSentenceWords.splice(indices[k], 1);
+            currentSentencePOS.splice(indices[k], 1);
+        }
+        currentSentenceWords.splice(firstIdx, 0, word + (trailingPunct ? trailingPunct[0] : ''));
+        currentSentencePOS.splice(firstIdx, 0, newPOS);
+        selectedWordRange = new Set();
+        insertionPoint = null;
+        rawBuffer = '';
+        rawMode = false;
+        expandedTreePaths = new Set(['']);
+        hideDefinitionPanel();
+        render();
+        return;
+    }
 
     const ip = (insertionPoint !== null && insertionPoint <= currentSentenceWords.length)
         ? insertionPoint : currentSentenceWords.length;
@@ -1572,7 +1642,6 @@ function commitRaw() {
  * If there's an uncommitted word, commit it first.
  */
 function endSentence(punct) {
-    punct = punct || '.';
     // Commit any pending word first
     if (rawMode && rawBuffer.length > 0) {
         commitRaw();
@@ -1581,7 +1650,13 @@ function endSentence(punct) {
     }
 
     if (currentSentenceWords.length > 0) {
-        currentSentenceWords[currentSentenceWords.length - 1] += punct;
+        // Add default punctuation only if no trailing punct already exists
+        const lastWord = currentSentenceWords[currentSentenceWords.length - 1];
+        if (punct) {
+            currentSentenceWords[currentSentenceWords.length - 1] = lastWord.replace(/[.,!?]+$/, '') + punct;
+        } else if (!/[.!?]$/.test(lastWord)) {
+            currentSentenceWords[currentSentenceWords.length - 1] = lastWord + '.';
+        }
         completedSentences.splice(activeSentenceSlot, 0, {
             words: [...currentSentenceWords],
             pos: [...currentSentencePOS],
@@ -1719,7 +1794,7 @@ function reenterSentence(sentenceIdx, wordIdx) {
     currentSentenceWords = words;
     currentSentencePOS = pos;
     insertionPoint = wordIdx + 1;
-    activeWordIdx = wordIdx;
+    selectedWordRange = new Set([wordIdx]);
     sentenceActive = true;
 
     // Reset state
@@ -1740,12 +1815,27 @@ function reenterSentence(sentenceIdx, wordIdx) {
  */
 function setInsertionPoint(idx) {
     insertionPoint = idx;
-    activeWordIdx = idx > 0 ? idx - 1 : null;
+    selectedWordRange = idx > 0 ? new Set([idx - 1]) : new Set();
     buffer = [];
     rawBuffer = '';
     rawMode = false;
     currentMatches = [];
     selectedCandidate = 0;
+    render();
+}
+
+/** Select a range of word indices in the current sentence. */
+function selectWords(indices) {
+    selectedWordRange = new Set(indices);
+    buffer = [];
+    rawBuffer = '';
+    rawMode = false;
+    currentMatches = [];
+    selectedCandidate = 0;
+    if (indices.length > 0) {
+        const sorted = [...indices].sort((a, b) => a - b);
+        insertionPoint = sorted[sorted.length - 1] + 1;
+    }
     render();
 }
 
@@ -1773,7 +1863,7 @@ function deactivateSentence() {
     currentMatches = [];
     selectedCandidate = 0;
     insertionPoint = null;
-    activeWordIdx = null;
+    selectedWordRange = new Set();
     expandedTreePaths = new Set(['']);
     closeTensePopover();
     hideDefinitionPanel();
@@ -1820,12 +1910,12 @@ function onKeyDown(e) {
         if (!sentenceActive) return; // already inactive
         if (tenseHoverState) {
             closeTensePopover();
-        } else if (buffer.length > 0 || insertionPoint !== null || activeWordIdx !== null) {
+        } else if (buffer.length > 0 || insertionPoint !== null || selectedWordRange.size > 0) {
             buffer = [];
             currentMatches = [];
             selectedCandidate = 0;
             insertionPoint = null;
-            activeWordIdx = null;
+            selectedWordRange = new Set();
             hideDefinitionPanel();
             render();
         } else {
@@ -1868,6 +1958,14 @@ function onKeyDown(e) {
     if (rawMode) {
         if (e.key === ' ') {
             e.preventDefault();
+            // If last word has sentence-ending punctuation and no pending raw, end sentence
+            if (rawBuffer.length === 0 && currentSentenceWords.length > 0) {
+                const lastW = currentSentenceWords[currentSentenceWords.length - 1];
+                if (/[.!?]$/.test(lastW)) {
+                    endSentence();
+                    return;
+                }
+            }
             commitRaw();
         } else if (e.key === 'Backspace') {
             e.preventDefault();
@@ -1877,41 +1975,29 @@ function onKeyDown(e) {
                 undoLastWord();
             }
             render();
-        } else if (e.key === '.') {
-            e.preventDefault();
-            endSentence('.');
-        } else if (e.key === '?' || e.key === '/') {
-            e.preventDefault();
-            endSentence('?');
-        } else if (e.key === '!') {
-            e.preventDefault();
-            endSentence('!');
         } else if (e.key === 'Enter') {
             e.preventDefault();
             endSentence('.');
+        } else if ('.?!/!'.includes(e.key)) {
+            e.preventDefault();
+            const punct = e.key === '/' ? '?' : e.key;
+            if (rawBuffer.length > 0) {
+                commitRaw(punct);
+            } else if (currentSentenceWords.length > 0) {
+                // Append punctuation to last word
+                const last = currentSentenceWords[currentSentenceWords.length - 1];
+                currentSentenceWords[currentSentenceWords.length - 1] = last.replace(/[.,!?]+$/, '') + punct;
+                render();
+            }
         } else if (e.key === ',') {
             e.preventDefault();
             if (rawBuffer.length > 0) {
-                const word = capitalizeIfNeeded(rawBuffer);
-                const rawIP = (insertionPoint !== null && insertionPoint <= currentSentenceWords.length)
-                    ? insertionPoint : currentSentenceWords.length;
-                currentSentenceWords.splice(rawIP, 0, word + ',');
-                currentSentencePOS.splice(rawIP, 0, tagWord(rawBuffer));
-                if (insertionPoint !== null) insertionPoint++;
-                rawBuffer = '';
-                render();
+                commitRaw(',');
             }
         } else if (':;—–'.includes(e.key)) {
             e.preventDefault();
             if (rawBuffer.length > 0) {
-                const word = capitalizeIfNeeded(rawBuffer);
-                const rawIP = (insertionPoint !== null && insertionPoint <= currentSentenceWords.length)
-                    ? insertionPoint : currentSentenceWords.length;
-                currentSentenceWords.splice(rawIP, 0, word + e.key);
-                currentSentencePOS.splice(rawIP, 0, tagWord(rawBuffer));
-                if (insertionPoint !== null) insertionPoint++;
-                rawBuffer = '';
-                render();
+                commitRaw(e.key);
             }
         } else if (e.key === "'") {
             e.preventDefault();
@@ -1929,6 +2015,14 @@ function onKeyDown(e) {
     switch (e.key) {
         case ' ':
             e.preventDefault();
+            // If last word has sentence-ending punctuation, pressing space ends the sentence
+            if (currentSentenceWords.length > 0 && buffer.length === 0) {
+                const lastW = currentSentenceWords[currentSentenceWords.length - 1];
+                if (/[.!?]$/.test(lastW)) {
+                    endSentence();
+                    break;
+                }
+            }
             commitWord(selectedCandidate);
             break;
 
@@ -1957,19 +2051,22 @@ function onKeyDown(e) {
             break;
 
         case '.':
-            e.preventDefault();
-            endSentence('.');
-            break;
-
         case '?':
         case '/':
-            e.preventDefault();
-            endSentence('?');
-            break;
-
         case '!':
             e.preventDefault();
-            endSentence('!');
+            {
+                const punct = (e.key === '/' ? '?' : e.key);
+                // Commit any pending word with the punctuation as suffix
+                if (buffer.length > 0 && currentMatches.length > 0) {
+                    commitWord(selectedCandidate, punct);
+                } else if (currentSentenceWords.length > 0) {
+                    // Append/replace trailing punctuation on last word
+                    const last = currentSentenceWords[currentSentenceWords.length - 1];
+                    currentSentenceWords[currentSentenceWords.length - 1] = last.replace(/[.,!?]+$/, '') + punct;
+                    render();
+                }
+            }
             break;
 
         case 'Backspace':
@@ -1998,7 +2095,7 @@ function onKeyDown(e) {
 
         case 'Enter':
             e.preventDefault();
-            endSentence('.');
+            endSentence();
             break;
 
         default:
@@ -2041,6 +2138,72 @@ export function init() {
     document.addEventListener('keyup', onKeyUp);
     window.addEventListener('resize', () => { adjustVerticalPosition(); requestAnimationFrame(() => positionBars()); });
     posToggleEl.addEventListener('click', togglePOSColorMode);
+
+    // ── Whole-word drag selection ─────────────────────────────────────
+    let wordSelectActive = false;
+    let wordSelectAnchorIdx = -1;
+    let wordSelectSentenceIdx = -1;
+
+    function getWordFromEvent(e) {
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        if (!el) return null;
+        const wordSpan = el.closest('.committed-word, .word');
+        if (!wordSpan) return null;
+        const idx = parseInt(wordSpan.dataset.idx ?? wordSpan.dataset.word);
+        const si = wordSpan.dataset.sentence !== undefined ? parseInt(wordSpan.dataset.sentence) : -1;
+        return { idx, si, el: wordSpan };
+    }
+
+    function clearWordSelection() {
+        for (const el of document.querySelectorAll('.word-selected')) el.classList.remove('word-selected');
+    }
+
+    function selectWordRange(si, fromIdx, toIdx) {
+        clearWordSelection();
+        const minI = Math.min(fromIdx, toIdx);
+        const maxI = Math.max(fromIdx, toIdx);
+        const selector = si >= 0
+            ? `.word[data-sentence="${si}"]`
+            : '.committed-word';
+        for (const el of document.querySelectorAll(selector)) {
+            const i = parseInt(el.dataset.idx ?? el.dataset.word);
+            if (i >= minI && i <= maxI) el.classList.add('word-selected');
+        }
+    }
+
+    document.addEventListener('mousedown', (e) => {
+        const info = getWordFromEvent(e);
+        if (!info) return;
+        // Prevent default text selection
+        e.preventDefault();
+        wordSelectActive = true;
+        wordSelectAnchorIdx = info.idx;
+        wordSelectSentenceIdx = info.si;
+        clearWordSelection();
+        info.el.classList.add('word-selected');
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!wordSelectActive) return;
+        const info = getWordFromEvent(e);
+        if (!info || info.si !== wordSelectSentenceIdx) return;
+        selectWordRange(info.si, wordSelectAnchorIdx, info.idx);
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (wordSelectActive && wordSelectSentenceIdx === -1) {
+            // Collect selected word indices from the current sentence
+            const indices = [];
+            for (const el of document.querySelectorAll('.committed-word.word-selected')) {
+                indices.push(parseInt(el.dataset.idx));
+            }
+            if (indices.length > 0) {
+                indices.sort((a, b) => a - b);
+                selectWords(indices);
+            }
+        }
+        wordSelectActive = false;
+    });
 
     // Align toggle — left-align is default
     if (alignToggleEl) {

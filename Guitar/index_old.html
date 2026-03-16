@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Guitar</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-type="module">
+const { useState, useRef, useCallback, useEffect } = React;
+
+/* ─── Music ─────────────────────────────────────────────────── */
+const NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+// 7-note palette; sharps share their natural's color
+const NOTE_COLORS = {
+  'C':  {l:0.830, c:0.0320, h:164.4},
+  'C#': {l:0.830, c:0.0320, h:164.4},
+  'D':  {l:0.670, c:0.1672, h:51.0},
+  'D#': {l:0.670, c:0.1672, h:51.0},
+  'E':  {l:0.790, c:0.1572, h:81.6},
+  'F':  {l:0.830, c:0.1207, h:132.9},
+  'F#': {l:0.830, c:0.1207, h:132.9},
+  'G':  {l:0.330, c:0.0103, h:351.2},
+  'G#': {l:0.330, c:0.0103, h:351.2},
+  'A':  {l:0.590, c:0.0036, h:19.3},
+  'A#': {l:0.590, c:0.0036, h:19.3},
+  'B':  {l:0.630, c:0.2117, h:27.8},
+};
+
+const STRINGS = [
+  {id:0,note:'E',oct:4},
+  {id:1,note:'B',oct:3},
+  {id:2,note:'G',oct:3},
+  {id:3,note:'D',oct:3},
+  {id:4,note:'A',oct:2},
+  {id:5,note:'E',oct:2},
+];
+const FRETS = [0,1,2,3,4,5,6];
+const NUM_FINGERS = 4;
+
+function atFret(str, fret) {
+  const base = (str.oct + 1) * 12 + NOTES.indexOf(str.note);
+  const m = base + fret;
+  return { name: NOTES[m % 12], oct: Math.floor(m / 12) - 1, midi: m };
+}
+
+/* ─── Colour ─────────────────────────────────────────────────── */
+function noteColor(name, a = 1) {
+  const nc = NOTE_COLORS[name] || NOTE_COLORS['C'];
+  return a < 1
+    ? `oklch(${nc.l} ${nc.c} ${nc.h} / ${a})`
+    : `oklch(${nc.l} ${nc.c} ${nc.h})`;
+}
+function noteGlow(name) {
+  const nc = NOTE_COLORS[name] || NOTE_COLORS['C'];
+  const l = Math.min(0.90, Math.max(0.60, nc.l + 0.18));
+  const ch = Math.max(nc.c, 0.06);
+  return `oklch(${l} ${ch} ${nc.h})`;
+}
+
+/* which note is active on a string given finger placements */
+function getActiveNote(str, fingers) {
+  let maxFret = -1;
+  for (const f of fingers) {
+    if (f.strId === str.id && f.fret !== null && f.fret > maxFret) maxFret = f.fret;
+  }
+  return maxFret >= 0 ? atFret(str, maxFret) : atFret(str, 0);
+}
+
+/* ─── Audio ──────────────────────────────────────────────────── */
+let AC, MG;
+function ensureAudio() {
+  if (!AC) {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    MG = AC.createGain(); MG.gain.value = 0.52; MG.connect(AC.destination);
+  }
+  if (AC.state === 'suspended') AC.resume();
+}
+
+function pluck(midi) {
+  ensureAudio();
+  const f = 440 * Math.pow(2, (midi - 69) / 12);
+  const t = AC.currentTime;
+  const env = AC.createGain();
+  env.gain.setValueAtTime(0, t);
+  env.gain.linearRampToValueAtTime(0.42, t + 0.007);
+  env.gain.exponentialRampToValueAtTime(0.001, t + 2.4);
+  const flt = AC.createBiquadFilter();
+  flt.type = 'lowpass';
+  flt.frequency.setValueAtTime(f * 15, t);
+  flt.frequency.exponentialRampToValueAtTime(f * 1.9, t + 0.38);
+  flt.Q.value = 1.4;
+  flt.connect(env); env.connect(MG);
+  [[1, 0.55, 'sawtooth'], [2, 0.20, 'triangle'], [0.5, 0.07, 'sine']].forEach(([harm, gain, type]) => {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type; o.frequency.value = f * harm;
+    g.gain.value = gain; o.connect(g); g.connect(flt);
+    o.start(t); o.stop(t + 2.4);
+  });
+}
+
+/* ─── CSS ────────────────────────────────────────────────────── */
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&family=Share+Tech+Mono&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  background: #ffffff;
+}
+body {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+}
+
+.guitar {
+  width: 100vw; height: 100dvh;
+  display: flex; flex-direction: column;
+  overflow: visible;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  background: #ffffff;
+  font-family: 'Rajdhani', sans-serif;
+  position: relative;
+}
+
+/* ── Header row ── */
+.hdr {
+  display: flex; align-items: center;
+  height: 36px; flex-shrink: 0;
+  border-bottom: 2px solid #d0c8b0;
+  background: #f4f2ee;
+}
+.hdr .fret-num {
+  flex: 1; text-align: center;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 14px; font-weight: 700;
+  color: #8a7a50;
+}
+.hdr .fret-num.open { color: #6a5a30; font-size: 14px; width: 36px; flex: none; }
+.hdr .strum-col {
+  width: 26%; flex-shrink: 0; text-align: center;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px; letter-spacing: 4px; color: #9098b0;
+}
+.fDot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #b0a070; margin: 2px auto 0;
+}
+
+/* ── Fretboard wrap (centers content) ── */
+.fretboard-wrap {
+  flex: 1; display: flex; flex-direction: column;
+  justify-content: center;
+  overflow: visible;
+}
+
+/* ── Fretboard inner (3D transform) ── */
+.fretboard-inner {
+  display: flex; flex-direction: column;
+}
+
+/* ── Perspective controls ── */
+.corner-handle {
+  position: fixed;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 3px solid;
+  cursor: grab;
+  z-index: 2000;
+  transform: translate(-50%, -50%);
+  touch-action: none;
+  transition: box-shadow 0.15s;
+}
+.corner-handle:hover, .corner-handle.dragging {
+  box-shadow: 0 0 12px 4px rgba(0,0,0,0.2);
+  transform: translate(-50%, -50%) scale(1.2);
+}
+.corner-label {
+  position: fixed;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 10px;
+  color: #888;
+  pointer-events: none;
+  z-index: 2000;
+  transform: translate(-50%, 18px);
+}
+.corner-reset {
+  position: fixed; bottom: 12px; right: 12px;
+  z-index: 2000;
+  padding: 6px 14px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 11px;
+  border: 1px solid #bbb; border-radius: 6px;
+  background: rgba(255,255,255,0.9); cursor: pointer;
+  color: #555;
+}
+
+/* ── Strings area ── */
+.strings-area {
+  display: flex; flex-direction: column;
+  position: relative; overflow: visible;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.string-row {
+  height: clamp(45px, 10dvh, 75px); display: flex; align-items: center;
+  position: relative; overflow: visible;
+}
+
+/* SVG string overlay */
+.string-svg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none; z-index: 2;
+  overflow: visible;
+  transition: filter 0.15s;
+}
+
+/* fret cell */
+.fret-cell {
+  flex: 1; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; z-index: 2;
+  cursor: pointer;
+}
+.fret-cell:hover .cell-bg {
+  height: 8px;
+}
+.fret-cell:hover .cell-note {
+  font-size: 28px;
+}
+
+/* open string label cell (narrow, just left of nut) */
+.fret-cell.nut {
+  flex: none;
+  width: 36px;
+  justify-content: flex-end;
+  padding-right: 6px;
+}
+.fret-cell.nut .cell-note {
+  position: relative;
+  top: auto; left: auto;
+  transform: none;
+  font-size: 13px;
+  -webkit-text-stroke: 0;
+}
+
+/* nut bar - right edge of open cell */
+.fret-cell.nut::after {
+  content: ''; position: absolute; right: -2px; top: 0; bottom: 0;
+  width: 5px; border-radius: 2px;
+  background: linear-gradient(90deg, #a8a8b0, #e8e8f0, #d0d0d8, #e8e8f0, #a8a8b0);
+  box-shadow: 0 0 4px rgba(200,200,220,0.6);
+  pointer-events: none; z-index: 6;
+}
+
+/* fret wires - shiny silver, full height */
+.fret-cell:not(.nut):not(:last-of-type)::after {
+  content: ''; position: absolute; right: -1px; top: 0; bottom: 0;
+  width: 2.5px;
+  background: linear-gradient(90deg, #a8a8b0, #e0e0e8, #c0c0c8, #e8e8f0, #a8a8b0);
+  box-shadow: 0 0 3px rgba(200,200,220,0.5);
+  pointer-events: none; z-index: 6;
+}
+
+/* fretboard-level colored line (below string) */
+.cell-bg {
+  position: absolute;
+  left: 4px; right: 4px;
+  top: 70%; bottom: auto;
+  height: 3px;
+  border-radius: 2px;
+  z-index: 0;
+  transition: height 0.12s, filter 0.15s;
+}
+
+/* note label */
+.cell-note {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 18px; font-weight: 700;
+  z-index: 5; position: absolute;
+  top: 70%; left: 50%;
+  transform: translate(-50%, 6px);
+  display: flex; align-items: center; justify-content: center;
+  -webkit-text-stroke: 1px white;
+  paint-order: stroke fill;
+  pointer-events: none;
+  line-height: 1;
+  transition: font-size 0.12s;
+}
+.cell-note.active {
+  font-size: 42px;
+}
+
+/* strum zone */
+.strum-col {
+  width: 26%; height: 100%; flex-shrink: 0;
+  position: relative; z-index: 2;
+}
+
+/* strum overlay (captures swipe events) */
+.strum-overlay {
+  position: absolute; right: 0; top: 0; bottom: 0;
+  width: 26%; z-index: 5;
+  cursor: crosshair;
+}
+.strum-hint {
+  position: absolute; bottom: 10px; left: 0; right: 0;
+  text-align: center; font-size: 9px; letter-spacing: 3px;
+    color: #9098b0; text-transform: uppercase; pointer-events: none;
+  font-family: 'Rajdhani', sans-serif;
+}
+.pick {
+  position: absolute; left: 50%;
+  width: 22px; height: 30px;
+  transform: translate(-50%, -50%);
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+  background: linear-gradient(135deg, #f0d848, #c09010);
+  filter: drop-shadow(0 0 8px rgba(240,200,50,0.9));
+  pointer-events: none; z-index: 10; opacity: 0;
+  transition: opacity 0.1s;
+}
+.pick.active { opacity: 0.9; }
+
+/* ── Finger dock ── */
+.finger-dock {
+  height: 80px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; gap: 22px;
+  border-bottom: 2px solid #d0c8c0;
+  background: #f4f2ee;
+}
+
+/* ── Finger circles ── */
+.finger {
+  width: 62px; height: 62px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 22px; font-weight: 700;
+  color: rgba(0,0,0,0.85);
+  background: rgba(0,0,0,0.06);
+  border: 3px solid rgba(0,0,0,0.25);
+  cursor: grab;
+  touch-action: none;
+  z-index: 4;
+  -webkit-text-stroke: 1px white;
+  paint-order: stroke fill;
+  transition: box-shadow 0.15s;
+}
+.finger.placed {
+  position: absolute;
+  top: 70%; left: 50%;
+  transform: translate(-50%, -100%);
+  z-index: 7;
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(255,255,255,0.8);
+  box-shadow: 0 0 10px 3px rgba(0,0,0,0.1);
+}
+.finger.floating {
+  position: fixed;
+  z-index: 200;
+  transform: translate(-50%, -50%) scale(1.15);
+  pointer-events: none;
+  background: rgba(255,255,255,0.6);
+  border-color: rgba(0,0,0,0.3);
+  box-shadow: 0 0 20px 6px rgba(0,0,0,0.15);
+}
+
+/* ── Vibration note float ── */
+.vib-note {
+  position: absolute; right: 8px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px; font-weight: 700;
+  animation: floatUp 0.55s ease-out forwards;
+  pointer-events: none; z-index: 8;
+  top: 50%; transform: translateY(-50%);
+}
+
+@keyframes vibe {
+  0%   { opacity: 0.7 }
+  8%   { opacity: 1 }
+  20%  { opacity: 0.85 }
+  35%  { opacity: 1 }
+  55%  { opacity: 0.82 }
+  75%  { opacity: 0.95 }
+  100% { opacity: 0.7 }
+}
+
+@keyframes floatUp {
+  0%   { opacity: 1; transform: translateY(-50%); }
+  60%  { opacity: 1; transform: translateY(-50%) translateX(8px); }
+  100% { opacity: 0; transform: translateY(-50%) translateX(18px); }
+}
+`;
+
+/* ─── Component ──────────────────────────────────────────────── */
+function Guitar() {
+  /* block native scroll/pull-to-refresh */
+  useEffect(() => {
+    const stop = e => e.preventDefault();
+    document.addEventListener('touchstart',  stop, { passive: false });
+    document.addEventListener('touchmove',   stop, { passive: false });
+    document.addEventListener('touchend',    stop, { passive: false });
+    document.addEventListener('touchcancel', stop, { passive: false });
+    return () => {
+      document.removeEventListener('touchstart',  stop);
+      document.removeEventListener('touchmove',   stop);
+      document.removeEventListener('touchend',    stop);
+      document.removeEventListener('touchcancel', stop);
+    };
+  }, []);
+
+  /* ── State ── */
+  const [fingers, setFingers] = useState(
+    () => Array.from({length: NUM_FINGERS}, (_, i) => ({id: i, strId: null, fret: null}))
+  );
+  const [draggingIds, setDraggingIds] = useState(new Set());
+  const [vibing, setVibing] = useState(new Set());
+  const [rowWidth, setRowWidth] = useState(window.innerWidth);
+
+  /* ── Corner-based perspective ── */
+  const fretWrapRef = useRef(null);
+  const fretInnerElRef = useRef(null);
+  const getInnerNaturalCorners = useCallback(() => {
+    const wrap = fretWrapRef.current;
+    const inner = fretInnerElRef.current;
+    if (!wrap || !inner) {
+      const w = window.innerWidth, h = window.innerHeight;
+      return [{x:0,y:0},{x:w,y:0},{x:w,y:h},{x:0,y:h}];
+    }
+    const wr = wrap.getBoundingClientRect();
+    // offsetWidth/Height are NOT affected by CSS transforms
+    const iw = inner.offsetWidth;
+    const ih = inner.offsetHeight;
+    // inner is centered vertically in wrap via flexbox
+    const natLeft = wr.left;
+    const natTop = wr.top + (wr.height - ih) / 2;
+    return [
+      {x: natLeft, y: natTop},             // TL
+      {x: natLeft + iw, y: natTop},        // TR
+      {x: natLeft + iw, y: natTop + ih},   // BR
+      {x: natLeft, y: natTop + ih},        // BL
+    ];
+  }, []);
+  const [corners, setCorners] = useState(() => [
+    {x: 0, y: 0}, {x: window.innerWidth, y: 0},
+    {x: window.innerWidth, y: window.innerHeight}, {x: 0, y: window.innerHeight},
+  ]);
+  const [dragCornerIdx, setDragCornerIdx] = useState(null);
+  const cornerColors = ['#e74c3c', '#2ecc71', '#3498db', '#f39c12'];
+  const hoveredCellRef = useRef(null);
+
+  /* Snap corners to actual fretboard-inner rect on mount + resize */
+  useEffect(() => {
+    const sync = () => {
+      setRowWidth(window.innerWidth);
+      requestAnimationFrame(() => setCorners(getInnerNaturalCorners()));
+    };
+    sync();
+    window.addEventListener('resize', sync);
+    return () => window.removeEventListener('resize', sync);
+  }, []);
+
+  /* keyboard finger placement: hover a fret cell + press 1-5 */
+  useEffect(() => {
+    const onKey = (e) => {
+      const num = parseInt(e.key);
+      if (num >= 1 && num <= NUM_FINGERS && hoveredCellRef.current) {
+        const { strId, fret } = hoveredCellRef.current;
+        const fingerId = num - 1;
+        setFingers(prev => {
+          const next = prev.map(f => ({...f}));
+          // Toggle off if same finger already here
+          if (next[fingerId].strId === strId && next[fingerId].fret === fret) {
+            next[fingerId].strId = null; next[fingerId].fret = null;
+            return next;
+          }
+          // Clear any finger already on this cell
+          for (const f of next) {
+            if (f.strId === strId && f.fret === fret) { f.strId = null; f.fret = null; }
+          }
+          next[fingerId].strId = strId;
+          next[fingerId].fret = fret;
+          return next;
+        });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const fingersRef = useRef(fingers);
+  useEffect(() => { fingersRef.current = fingers; }, [fingers]);
+
+  /* refs for drag mechanics */
+  const guitarRef = useRef(null);
+  const dragMapRef = useRef(new Map());   // pointerId → fingerId
+  const fingerElRefs = useRef([]);        // fingerId → DOM element
+  const dragInitRef = useRef({});         // fingerId → {x,y}
+
+  /* refs for strum */
+  const strumRef = useRef(null);
+  const pickRef  = useRef(null);
+  const ssRef    = useRef({ on: false, lastY: 0, dir: null, done: new Set(), pid: null });
+
+  /* ── Vibrate ── */
+  const vibrate = useCallback((sid) => {
+    setVibing(v => { const n = new Set(v); n.add(sid); return n; });
+    setTimeout(() => setVibing(v => { const n = new Set(v); n.delete(sid); return n; }), 480);
+  }, []);
+
+  /* ── Strum a string ── */
+  const strumStr = useCallback((sid) => {
+    const str = STRINGS.find(s => s.id === sid);
+    if (!str) return;
+    const n = getActiveNote(str, fingersRef.current);
+    pluck(n.midi);
+    vibrate(sid);
+  }, [vibrate]);
+
+  /* ── Finger dragging ── */
+  const onFingerDown = useCallback((e, fingerId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try { guitarRef.current.setPointerCapture(e.pointerId); } catch(_) {}
+    dragMapRef.current.set(e.pointerId, fingerId);
+    dragInitRef.current[fingerId] = { x: e.clientX, y: e.clientY };
+
+    setDraggingIds(prev => { const n = new Set(prev); n.add(fingerId); return n; });
+    setFingers(prev => prev.map(f => f.id === fingerId ? {...f, strId: null, fret: null} : f));
+  }, []);
+
+  const onPointerMove = useCallback((e) => {
+    /* finger drag */
+    const fingerId = dragMapRef.current.get(e.pointerId);
+    if (fingerId !== undefined) {
+      e.preventDefault();
+      const el = fingerElRefs.current[fingerId];
+      if (el) {
+        el.style.left = e.clientX + 'px';
+        el.style.top = e.clientY + 'px';
+      }
+      return;
+    }
+  }, []);
+
+  const onPointerUp = useCallback((e) => {
+    /* finger drop */
+    const fingerId = dragMapRef.current.get(e.pointerId);
+    if (fingerId !== undefined) {
+      dragMapRef.current.delete(e.pointerId);
+      delete dragInitRef.current[fingerId];
+
+      /* hit-test fret cells */
+      const cells = document.querySelectorAll('.fret-cell');
+      let best = null, bestDist = Infinity;
+      const threshold = 50;
+      cells.forEach(cell => {
+        const r = cell.getBoundingClientRect();
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const d = Math.hypot(e.clientX - cx, e.clientY - cy);
+        if (d < bestDist && d < threshold) {
+          bestDist = d;
+          best = { strId: +cell.dataset.str, fret: +cell.dataset.fret };
+        }
+      });
+
+      setDraggingIds(prev => { const n = new Set(prev); n.delete(fingerId); return n; });
+      if (best) {
+        setFingers(prev => {
+          const next = prev.map(f => ({...f}));
+          /* remove any other finger already on this cell */
+          for (const f of next) {
+            if (f.id !== fingerId && f.strId === best.strId && f.fret === best.fret) {
+              f.strId = null; f.fret = null;
+            }
+          }
+          next[fingerId].strId = best.strId;
+          next[fingerId].fret = best.fret;
+          return next;
+        });
+      } else {
+        setFingers(prev => prev.map(f => f.id === fingerId ? {...f, strId: null, fret: null} : f));
+      }
+      return;
+    }
+  }, []);
+
+  /* ── Strum zone ── */
+  const syPx = (i, h) => (i + 0.5) * (h / 6);
+
+  const onStrumDown = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch(_) {}
+    const rect = strumRef.current.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    ssRef.current = { on: true, lastY: y, dir: null, done: new Set(), pid: e.pointerId };
+    if (pickRef.current) { pickRef.current.style.top = y + 'px'; pickRef.current.classList.add('active'); }
+    STRINGS.forEach((s, i) => {
+      if (Math.abs(y - syPx(i, rect.height)) < 28) {
+        ssRef.current.done.add(s.id);
+        strumStr(s.id);
+      }
+    });
+  }, [strumStr]);
+
+  const onStrumMove = useCallback((e) => {
+    const ss = ssRef.current;
+    if (!ss.on || e.pointerId !== ss.pid) return;
+    e.preventDefault();
+    const rect = strumRef.current.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    if (pickRef.current) pickRef.current.style.top = y + 'px';
+    const dy = y - ss.lastY;
+    if (Math.abs(dy) < 1.5) return;
+    const dir = dy > 0 ? 'd' : 'u';
+    if (ss.dir && dir !== ss.dir) ss.done = new Set();
+    ss.dir = dir;
+    const lo = Math.min(y, ss.lastY) - 6, hi = Math.max(y, ss.lastY) + 6;
+    STRINGS.forEach((s, i) => {
+      const sy = syPx(i, rect.height);
+      if (sy >= lo && sy <= hi && !ss.done.has(s.id)) {
+        ss.done.add(s.id);
+        strumStr(s.id);
+      }
+    });
+    ss.lastY = y;
+  }, [strumStr]);
+
+  const onStrumUp = useCallback(() => {
+    ssRef.current.on = false;
+    if (pickRef.current) pickRef.current.classList.remove('active');
+  }, []);
+
+  /* ── Derived data ── */
+  const OPEN_W = 36;
+  const STRUM_PCT = 26;
+  const openPct = (OPEN_W / rowWidth) * 100;
+  const fretTotalPct = 100 - openPct - STRUM_PCT;
+  const cellPct = fretTotalPct / 6; // 6 fret cells (1-6)
+  const STR_Y = 40;
+  const BENT_Y = 70;
+  const nutXPct = openPct; // nut sits at right edge of open cell
+  const placedFingers = fingers.filter(f => f.strId !== null && !draggingIds.has(f.id));
+  const dockedFingers = fingers.filter(f => f.strId === null && !draggingIds.has(f.id));
+  const floatingFingers = fingers.filter(f => draggingIds.has(f.id));
+
+  return (
+    <>
+      <style>{CSS}</style>
+      <div className="guitar" ref={guitarRef}
+           onPointerMove={onPointerMove}
+           onPointerUp={onPointerUp}
+           onPointerCancel={onPointerUp}
+           onContextMenu={e => e.preventDefault()}>
+
+        {/* ── Finger dock ── */}
+        <div className="finger-dock">
+          {dockedFingers.map(f => (
+            <div key={f.id} className="finger"
+                 onPointerDown={e => onFingerDown(e, f.id)}>
+              {f.id + 1}
+            </div>
+          ))}
+          {dockedFingers.length === NUM_FINGERS && (
+            <span style={{
+                          fontFamily: "'Rajdhani', sans-serif",
+              fontSize: 10, letterSpacing: 2, color: '#9098a8',
+              marginLeft: 12,
+            }}>DRAG · HOVER + KEY</span>
+          )}
+        </div>
+
+        {/* ── Fretboard (centered) ── */}
+        <div className="fretboard-wrap" ref={fretWrapRef}>
+        <div className="fretboard-inner" ref={fretInnerElRef} style={{
+          transformOrigin: '0 0',
+          transform: computeTransformCSS(fretWrapRef, fretInnerElRef, corners),
+        }}>
+
+        {/* ── Header ── */}
+        <div className="hdr">
+          {FRETS.map(f => (
+            <div key={f} className={`fret-num${f === 0 ? ' open' : ''}`}>
+              {f === 0 ? '' : f}
+              {(f === 3 || f === 5) && <div className="fDot" />}
+            </div>
+          ))}
+          <div className="strum-col">STRUM</div>
+        </div>
+
+        {/* ── String rows ── */}
+        <div className="strings-area">
+          {STRINGS.map((str, si) => {
+            const activeN = getActiveNote(str, fingers);
+            const thickness = 9;
+            const strCol = noteColor(activeN.name);
+            const glowCol = noteGlow(activeN.name);
+            const isVib = vibing.has(str.id);
+
+            // Find highest pressed fret for this string
+            let pressedFret = -1;
+            for (const fg of placedFingers) {
+              if (fg.strId === str.id && fg.fret !== null && fg.fret > pressedFret) pressedFret = fg.fret;
+            }
+            const bendXPct = pressedFret >= 0 ? openPct + (pressedFret - 1 + 0.5) * cellPct : null;
+
+            return (
+              <div key={str.id} className="string-row">
+                {/* SVG string with V-bend */}
+                <svg className="string-svg" style={{
+                  filter: isVib
+                    ? `drop-shadow(0 0 10px ${glowCol}) drop-shadow(0 0 22px ${noteColor(activeN.name, 0.5)})`
+                    : 'none',
+                }}>
+                  {bendXPct === null ? (
+                    <line x1={`${nutXPct}%`} y1={`${STR_Y}%`} x2="100%" y2={`${STR_Y}%`}
+                          stroke={strCol} strokeWidth={thickness}
+                          strokeLinecap="round" opacity={1} />
+                  ) : (
+                    <>
+                      {/* Dead segment: nut → finger (low opacity) */}
+                      <line x1={`${nutXPct}%`} y1={`${STR_Y}%`} x2={`${bendXPct}%`} y2={`${BENT_Y}%`}
+                            stroke={strCol} strokeWidth={thickness}
+                            strokeLinecap="round" opacity={0.35} />
+                      {/* Vibrating segment: finger → bridge (full) */}
+                      <line x1={`${bendXPct}%`} y1={`${BENT_Y}%`} x2="100%" y2={`${STR_Y}%`}
+                            stroke={strCol} strokeWidth={thickness}
+                            strokeLinecap="round" opacity={1} />
+                    </>
+                  )}
+                </svg>
+
+                {/* string label */}
+
+                {/* fret cells */}
+                {FRETS.map(f => {
+                  const n = atFret(str, f);
+                  const fingerHere = placedFingers.find(fg => fg.strId === str.id && fg.fret === f);
+                  return (
+                    <div key={f} className={`fret-cell${f === 0 ? ' nut' : ''}`}
+                         data-str={str.id} data-fret={f}
+                         onMouseEnter={() => { hoveredCellRef.current = {strId: str.id, fret: f}; }}
+                         onMouseLeave={() => { hoveredCellRef.current = null; }}>
+                      {f > 0 && <div className="cell-bg" style={{
+                        background: noteColor(n.name),
+                      }} />}
+                      <span className={`cell-note${n.name === activeN.name ? ' active' : ''}`}
+                            style={{ color: noteColor(n.name) }}>{f === 0 ? `${n.name}${n.oct}` : n.name}</span>
+                      {fingerHere && (
+                        <div className="finger placed"
+                             style={{ background: noteColor(n.name, 0.7), borderColor: noteColor(n.name) }}
+                             onPointerDown={e => onFingerDown(e, fingerHere.id)}>
+                          {fingerHere.id + 1}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* strum zone spacer + vib note */}
+                <div className="strum-col" style={{ position: 'relative' }}>
+                  {isVib && (
+                    <span className="vib-note" key={Date.now() + str.id} style={{
+                      color: glowCol,
+                      textShadow: `0 0 12px ${glowCol}, 0 0 24px ${noteColor(activeN.name, 0.6)}`,
+                    }}>
+                      {activeN.name}{activeN.oct}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* strum touch overlay */}
+          <div className="strum-overlay"
+               ref={strumRef}
+               onPointerDown={onStrumDown}
+               onPointerMove={onStrumMove}
+               onPointerUp={onStrumUp}
+               onPointerCancel={onStrumUp}>
+            <div ref={pickRef} className="pick" style={{ top: 0 }} />
+            <div className="strum-hint">↕ swipe to strum</div>
+          </div>
+        </div>
+        </div>{/* end fretboard-inner */}
+        </div>{/* end fretboard-wrap */}
+
+        {/* ── Floating fingers (during drag) ── */}
+        {floatingFingers.map(f => (
+          <div key={`float-${f.id}`}
+               className="finger floating"
+               ref={el => {
+                 if (el) {
+                   fingerElRefs.current[f.id] = el;
+                   const init = dragInitRef.current[f.id];
+                   if (init) {
+                     el.style.left = init.x + 'px';
+                     el.style.top = init.y + 'px';
+                   }
+                 }
+               }}>
+            {f.id + 1}
+          </div>
+        ))}
+      </div>
+
+      {/* ── Corner handles ── */}
+      {corners.map((c, i) => (
+        <div key={`corner-${i}`}
+             className={`corner-handle${dragCornerIdx === i ? ' dragging' : ''}`}
+             style={{
+               left: c.x, top: c.y,
+               borderColor: cornerColors[i],
+               background: dragCornerIdx === i ? cornerColors[i] : 'rgba(255,255,255,0.85)',
+             }}
+             onPointerDown={e => {
+               e.preventDefault(); e.stopPropagation();
+               try { e.target.setPointerCapture(e.pointerId); } catch(_) {}
+               setDragCornerIdx(i);
+             }}
+             onPointerMove={e => {
+               if (dragCornerIdx !== i) return;
+               e.preventDefault();
+               setCorners(prev => prev.map((cc, j) =>
+                 j === i ? {x: e.clientX, y: e.clientY} : cc
+               ));
+             }}
+             onPointerUp={() => setDragCornerIdx(null)}
+             onPointerCancel={() => setDragCornerIdx(null)}
+        />
+      ))}
+      {corners.map((c, i) => (
+        <div key={`clbl-${i}`} className="corner-label"
+             style={{ left: c.x, top: c.y, color: cornerColors[i] }}>
+          {['TL','TR','BR','BL'][i]}
+        </div>
+      ))}
+      <button className="corner-reset" onClick={() => setCorners(getInnerNaturalCorners())}>
+        Reset corners
+      </button>
+    </>
+  );
+}
+
+/* ─── Homography math ─── */
+function squareToQuad(p) {
+  // Maps unit square (0,0)(1,0)(1,1)(0,1) → quad p[0..3]
+  const dx1 = p[1].x - p[2].x, dx2 = p[3].x - p[2].x;
+  const dx3 = p[0].x - p[1].x + p[2].x - p[3].x;
+  const dy1 = p[1].y - p[2].y, dy2 = p[3].y - p[2].y;
+  const dy3 = p[0].y - p[1].y + p[2].y - p[3].y;
+  const det = dx1 * dy2 - dx2 * dy1;
+  if (Math.abs(det) < 1e-10) return [[1,0,0],[0,1,0],[0,0,1]];
+  const g = (dx3 * dy2 - dx2 * dy3) / det;
+  const h = (dx1 * dy3 - dx3 * dy1) / det;
+  return [
+    [p[1].x - p[0].x + g * p[1].x, p[3].x - p[0].x + h * p[3].x, p[0].x],
+    [p[1].y - p[0].y + g * p[1].y, p[3].y - p[0].y + h * p[3].y, p[0].y],
+    [g, h, 1],
+  ];
+}
+
+function mat3Inv(m) {
+  const [[a,b,c],[d,e,f],[g,h,i]] = m;
+  const det = a*(e*i-f*h) - b*(d*i-f*g) + c*(d*h-e*g);
+  if (Math.abs(det) < 1e-10) return [[1,0,0],[0,1,0],[0,0,1]];
+  const inv = 1/det;
+  return [
+    [(e*i-f*h)*inv, (c*h-b*i)*inv, (b*f-c*e)*inv],
+    [(f*g-d*i)*inv, (a*i-c*g)*inv, (c*d-a*f)*inv],
+    [(d*h-e*g)*inv, (b*g-a*h)*inv, (a*e-b*d)*inv],
+  ];
+}
+
+function mat3Mul(A, B) {
+  const r = [[0,0,0],[0,0,0],[0,0,0]];
+  for (let i = 0; i < 3; i++)
+    for (let j = 0; j < 3; j++)
+      for (let k = 0; k < 3; k++)
+        r[i][j] += A[i][k] * B[k][j];
+  return r;
+}
+
+function computeTransformCSS(wrapRef, innerRef, corners) {
+  if (!wrapRef.current || !innerRef.current) return 'none';
+  const wrap = wrapRef.current;
+  const inner = innerRef.current;
+  // Wrap rect is stable (no transform on it)
+  const wr = wrap.getBoundingClientRect();
+  // Inner's natural size via offsetWidth/Height (unaffected by CSS transform)
+  const W = inner.offsetWidth;
+  const Ht = inner.offsetHeight;
+  if (W < 1 || Ht < 1) return 'none';
+  // Inner's natural screen position (centered vertically in wrap)
+  const natLeft = wr.left;
+  const natTop = wr.top + (wr.height - Ht) / 2;
+  // Source: inner's local coordinate space
+  const src = [{x:0,y:0},{x:W,y:0},{x:W,y:Ht},{x:0,y:Ht}];
+  // Destination: corners relative to inner's natural top-left
+  const dst = corners.map(c => ({x: c.x - natLeft, y: c.y - natTop}));
+  // Homography: src → dst = squareToQuad(dst) * inverse(squareToQuad(src))
+  const Hs = squareToQuad(src);
+  const Hd = squareToQuad(dst);
+  const Hm = mat3Mul(Hd, mat3Inv(Hs));
+  // CSS matrix3d (column-major, embed 3x3 into 4x4)
+  const [[a,b,c],[d,e,f],[g,h,ii]] = Hm;
+  return `matrix3d(${a},${d},0,${g}, ${b},${e},0,${h}, 0,0,1,0, ${c},${f},0,${ii})`;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Guitar />);
+  </script>
+</body>
+</html>

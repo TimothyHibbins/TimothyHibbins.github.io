@@ -236,6 +236,7 @@ tag(POS.VERB,
     'wonder', 'wondered', 'wondering', 'wonders',
     'matter', 'mattered', 'mattering', 'matters',
     'manage', 'managed', 'managing', 'manages',
+    'test', 'tested', 'testing', 'tests',
 );
 
 // Common adjectives

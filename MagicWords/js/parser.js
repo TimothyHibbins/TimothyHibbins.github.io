@@ -93,6 +93,17 @@ function disambiguate(nodes) {
             }
         }
 
+        // NOUN → VERB after infinitive "to" ("to test", "to run")
+        if (
+            node.label === 'NOUN' && prev &&
+            is(prev, 'PART') && prev.word && /^to$/i.test(prev.word)
+        ) {
+            const possibleTags = tagWordAll(node.word ? node.word.toLowerCase() : '');
+            if (possibleTags.includes('VERB')) {
+                node.label = 'VERB';
+            }
+        }
+
         // VERB → NOUN after DET/ADJ ("the slings", "a building")
         // (only if not already retagged to ADJ above)
         if (

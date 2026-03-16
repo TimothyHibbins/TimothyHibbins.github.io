@@ -97,6 +97,8 @@ html {
 }
 
 body {
+    -webkit-user-select: none;
+    user-select: none;
     background: var(--bg);
     color: var(--text);
     font-family: var(--serif);
@@ -639,6 +641,14 @@ body {
     background: var(--accent-glow);
     outline: 1.5px dashed var(--accent);
     outline-offset: 1px;
+    border-radius: 3px;
+}
+
+/* ── Whole-word drag selection ────────────────────────────────────────── */
+
+.word-selected,
+.committed-word.word-selected {
+    background: color-mix(in srgb, var(--accent) 25%, transparent);
     border-radius: 3px;
 }
 
