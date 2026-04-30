@@ -914,8 +914,11 @@
             return INTERVAL_HEX[((interval % 12) + 12) % 12] || 0x222222;
         }
         function noteHex3D(noteName) {
+            var noteIdx = NOTES.indexOf(noteName);
+            if (noteIdx >= 0 && _hgPCColor && _hgPCColor[noteIdx]) {
+                return hslToHex(_hgPCColor[noteIdx]);
+            }
             if (useIntervalColors && typeof harmonyTonic !== 'undefined') {
-                const noteIdx = NOTES.indexOf(noteName);
                 const tonicIdx = NOTES.indexOf(harmonyTonic);
                 return intervalToHex(noteIdx - tonicIdx);
             }
@@ -2391,6 +2394,17 @@
             return nc.l;
         }
 
+        // ── Global tension color maps (updated by updateVisuals) ──
+        var _hgPCColor = {};   // pc → CSS color string
+        var _hgPCOutline = {}; // pc → '#fff' or '#000'
+        // Convert CSS hsl() string to hex number for Three.js
+        function hslToHex(hslStr) {
+            _oklchCtx.fillStyle = hslStr;
+            _oklchCtx.fillRect(0, 0, 1, 1);
+            var d = _oklchCtx.getImageData(0, 0, 1, 1).data;
+            return (d[0] << 16) | (d[1] << 8) | d[2];
+        }
+
         // Perceptually uniform pitch-class color (OKLCH)
         // Only colors notes in the current scale — 7 maximally distinct hues.
         // Tonic (degree 0) = red (hue 25). Degrees spaced ~51° apart.
@@ -2432,17 +2446,16 @@
         function applyHarmonicHTMLStyle(el, noteName, fontSize) {
             var noteIdx = NOTES.indexOf(noteName);
             var pi = noteIdx >= 0 ? noteIdx : 0;
-            var fillColor = spiralPCColor(pi);
-            var h3Color = spiralPCColor((pi + 7) % 12);
-            var h5Color = spiralPCColor((pi + 4) % 12);
-            el.style.color = '#000';
-            el.style.webkitTextStroke = '0';
+            var fillColor = (_hgPCColor && _hgPCColor[pi]) || spiralPCColor(pi);
+            var outline = (_hgPCOutline && _hgPCOutline[pi]) || '#000';
+            el.style.color = fillColor;
+            el.style.webkitTextStroke = '1px ' + outline;
             el.style.textShadow = 'none';
-            el.style.backgroundColor = fillColor;
-            el.style.border = '1.5px solid ' + h3Color;
-            el.style.boxShadow = '0 0 0 2.5px ' + h5Color;
-            el.style.borderRadius = '999px';
-            el.style.padding = '0.05em 0.35em';
+            el.style.backgroundColor = '';
+            el.style.border = 'none';
+            el.style.boxShadow = 'none';
+            el.style.borderRadius = '';
+            el.style.padding = '0';
             el.style.lineHeight = '1.1';
         }
 
@@ -3297,9 +3310,9 @@
                 svg.appendChild(llbl);
                 layerLabelEls.push(llbl);
             }
-            // Segment pool: up to MAX_CHORD_ARCS chords × 3 layers
+            // Segment pool: 1 shared outline + 3 colored lines per chord
             var MAX_CHORD_ARCS = 16;
-            var MAX_SEGS = MAX_CHORD_ARCS * 3;
+            var MAX_SEGS = MAX_CHORD_ARCS * 4;
             var chordSegs = []; // flat pool of path elements
             for (var si = 0; si < MAX_SEGS; si++) {
                 var seg = document.createElementNS(svgNS, 'path');
@@ -3471,6 +3484,88 @@
                     for (var vi = 0; vi < MAX_VL_ARROWS; vi++) vlArrows[vi].setAttribute('display', 'none');
                 }
 
+                // ── Tension color model (single source of truth for both modes) ──
+                var dissB = 0.7;
+                function diss(d) {
+                    d = Math.abs(d);
+                    if (d <= 0) return 0;
+                    return (d / dissB) * Math.exp(1 - d / dissB);
+                }
+                var harmonics = [1, 2, 3, 4, 5, 6];
+                var log2cache = [0, 0];
+                for (var lci = 1; lci <= 6; lci++) log2cache[lci] = Math.log2(lci);
+                var noteTension = [];
+                var tensionMin = Infinity, tensionMax = -Infinity;
+                for (var tci = 0; tci < 12; tci++) {
+                    var total = 0;
+                    for (var ni2 = 0; ni2 < harmonics.length; ni2++) {
+                        var nH = harmonics[ni2];
+                        var nW = 1 / nH;
+                        for (var mi2 = 0; mi2 < harmonics.length; mi2++) {
+                            var mH = harmonics[mi2];
+                            var mW = 1 / mH;
+                            var interval = tci + 12 * (log2cache[nH] - log2cache[mH]);
+                            total += nW * mW * diss(interval);
+                        }
+                    }
+                    noteTension.push(total);
+                    if (total < tensionMin) tensionMin = total;
+                    if (total > tensionMax) tensionMax = total;
+                }
+                var tensionRange = tensionMax - tensionMin;
+                var noteT = [];
+                for (var tci2 = 0; tci2 < 12; tci2++) {
+                    noteT.push(tensionRange > 0 ? (noteTension[tci2] - tensionMin) / tensionRange : 0);
+                }
+                var palStops = [
+                    { t: 0.0, h: 270, s: 55, l: 30 },
+                    { t: 0.15, h: 230, s: 65, l: 38 },
+                    { t: 0.3, h: 190, s: 70, l: 40 },
+                    { t: 0.45, h: 150, s: 60, l: 42 },
+                    { t: 0.6, h: 90, s: 55, l: 40 },
+                    { t: 0.75, h: 45, s: 85, l: 48 },
+                    { t: 0.9, h: 15, s: 80, l: 48 },
+                    { t: 1.0, h: 350, s: 70, l: 42 }
+                ];
+                function tensionColor(t) {
+                    if (t <= 0) return 'hsl(' + palStops[0].h + ',' + palStops[0].s + '%,' + palStops[0].l + '%)';
+                    if (t >= 1) { var last = palStops[palStops.length - 1]; return 'hsl(' + last.h + ',' + last.s + '%,' + last.l + '%)'; }
+                    for (var pi = 0; pi < palStops.length - 1; pi++) {
+                        if (t >= palStops[pi].t && t <= palStops[pi + 1].t) {
+                            var f = (t - palStops[pi].t) / (palStops[pi + 1].t - palStops[pi].t);
+                            var h = palStops[pi].h + f * (palStops[pi + 1].h - palStops[pi].h);
+                            var s2 = palStops[pi].s + f * (palStops[pi + 1].s - palStops[pi].s);
+                            var l = palStops[pi].l + f * (palStops[pi + 1].l - palStops[pi].l);
+                            return 'hsl(' + Math.round(h) + ',' + Math.round(s2) + '%,' + Math.round(l) + '%)';
+                        }
+                    }
+                    return '#888';
+                }
+                function tensionLightness(t) {
+                    if (t <= 0) return palStops[0].l;
+                    if (t >= 1) return palStops[palStops.length - 1].l;
+                    for (var pi = 0; pi < palStops.length - 1; pi++) {
+                        if (t >= palStops[pi].t && t <= palStops[pi + 1].t) {
+                            var f = (t - palStops[pi].t) / (palStops[pi + 1].t - palStops[pi].t);
+                            return palStops[pi].l + f * (palStops[pi + 1].l - palStops[pi].l);
+                        }
+                    }
+                    return 50;
+                }
+                var noteColors = [];
+                for (var ci3 = 0; ci3 < 12; ci3++) noteColors.push(tensionColor(noteT[ci3]));
+                var pcColor = {};
+                for (var ci4 = 0; ci4 < 12; ci4++) pcColor[(vTonic + ci4) % 12] = noteColors[ci4];
+                // Smart outline: white for dark fills, black for light fills
+                var pcOutline = {};
+                for (var ci5 = 0; ci5 < 12; ci5++) {
+                    var pc5 = (vTonic + ci5) % 12;
+                    pcOutline[pc5] = tensionLightness(noteT[ci5]) < 50 ? '#fff' : '#000';
+                }
+                // Expose globally for note labels and chord cards
+                _hgPCColor = pcColor;
+                _hgPCOutline = pcOutline;
+
                 if (showSpiral) {
                     // ── Draw inward Archimedean spiral (perceptually uniform colors) ──
                     for (var si = 0; si < spiralSegCount; si++) {
@@ -3503,7 +3598,8 @@
                         var tRelPC = ((tNotePC - vTonic) % 12 + 12) % 12;
                         var tInScale = vScaleSet.has(tRelPC);
                         var isRoot = (tRelPC === 0);
-                        var tColor = spiralPCColor(tNotePC);
+                        var tColor = pcColor[tNotePC] || spiralPCColor(tNotePC);
+                        var tOutline = pcOutline[tNotePC] || '#fff';
                         // Ticks go inward only (toward center) so they don't collide with labels
                         var tLen = isRoot ? 12 : (tInScale ? 8 : 3);
                         tickLines[ti].setAttribute('x1', (cx + tR * tCos).toFixed(2));
@@ -3513,50 +3609,36 @@
                         tickLines[ti].setAttribute('stroke', tColor);
                         tickLines[ti].setAttribute('stroke-width', isRoot ? '2.5' : (tInScale ? '2' : '0.7'));
                         tickLines[ti].setAttribute('opacity', '1');
-                        // Labels: black text on note-color oval, h3 inner outline, h5 outer outline
+                        // Labels: text on note-color oval with smart outline
                         var showLabel = tInScale || isRoot;
                         if (showLabel) {
                             var tLblR = tR;
                             var tLblX = (cx + tLblR * tCos).toFixed(2);
                             var tLblY = (cy + tLblR * tSin).toFixed(2);
                             var tNoteName = NOTES[tNotePC];
-                            var tH3Idx = (tNotePC + 7) % 12;
-                            var tH5Idx = (tNotePC + 4) % 12;
-                            var tH3Color = spiralPCColor(tH3Idx);
-                            var tH5Color = spiralPCColor(tH5Idx);
                             var tFontSize = isRoot ? '18' : '13';
                             var tOct = Math.floor(tMidi / 12) - 1;
                             var tDispName = displayName(tNoteName);
-                            // Compute oval size from note name (subscript octave is smaller)
                             var tFS = parseFloat(tFontSize);
                             var tRx = (tDispName.length + 0.5) * tFS * 0.32 + 4;
                             var tRy = tFS * 0.62;
-                            var h5sw = isRoot ? 2.5 : 2;
-                            var h3sw = isRoot ? 2 : 1.5;
-                            // Outer ellipse: h5 outline
-                            tickLabelH5[ti].setAttribute('cx', tLblX);
-                            tickLabelH5[ti].setAttribute('cy', tLblY);
-                            tickLabelH5[ti].setAttribute('rx', (tRx + h3sw + h5sw * 0.5).toFixed(1));
-                            tickLabelH5[ti].setAttribute('ry', (tRy + h3sw + h5sw * 0.5).toFixed(1));
-                            tickLabelH5[ti].setAttribute('fill', 'none');
-                            tickLabelH5[ti].setAttribute('stroke', tH5Color);
-                            tickLabelH5[ti].setAttribute('stroke-width', h5sw.toFixed(1));
-                            tickLabelH5[ti].setAttribute('display', '');
-                            // Inner ellipse: h3 outline + note color fill
+                            // No outer h5 ellipse
+                            tickLabelH5[ti].setAttribute('display', 'none');
+                            // Single ellipse: note color fill + smart outline
                             tickLabelsBg[ti].setAttribute('cx', tLblX);
                             tickLabelsBg[ti].setAttribute('cy', tLblY);
                             tickLabelsBg[ti].setAttribute('rx', tRx.toFixed(1));
                             tickLabelsBg[ti].setAttribute('ry', tRy.toFixed(1));
                             tickLabelsBg[ti].setAttribute('fill', tColor);
-                            tickLabelsBg[ti].setAttribute('stroke', tH3Color);
-                            tickLabelsBg[ti].setAttribute('stroke-width', h3sw.toFixed(1));
+                            tickLabelsBg[ti].setAttribute('stroke', tOutline);
+                            tickLabelsBg[ti].setAttribute('stroke-width', isRoot ? '2' : '1.5');
                             tickLabelsBg[ti].setAttribute('display', '');
-                            // Black text with subscript octave
+                            // Text: smart contrast color
                             tickLabels[ti].setAttribute('x', tLblX);
                             tickLabels[ti].setAttribute('y', tLblY);
                             tickLabels[ti].setAttribute('dy', '0.35em');
                             tickLabels[ti].setAttribute('font-size', tFontSize);
-                            tickLabels[ti].setAttribute('fill', '#000');
+                            tickLabels[ti].setAttribute('fill', tOutline);
                             tickLabels[ti].setAttribute('stroke', 'none');
                             tickLabels[ti].setAttribute('display', '');
                             // Build tspan for name + subscript octave
@@ -3576,105 +3658,11 @@
                         }
                     }
 
-                    // ── Harmonic labels ("3×C", "5×E", etc.) ──
-                    var hli = 0;
+                    // Harmonic labels abandoned — just hide all
                     for (var phi = 0; phi < HARM_LABEL_COUNT; phi++) {
                         harmLabelPool[phi].setAttribute('display', 'none');
                         harmLabelBgPool[phi].setAttribute('display', 'none');
                         harmLabelH5Pool[phi].setAttribute('display', 'none');
-                    }
-                    // Collect note label positions so harmonic labels avoid them
-                    var occupiedPositions = [];
-                    for (var oti = 0; oti < tickCount; oti++) {
-                        if (tickLabels[oti].getAttribute('display') !== 'none') {
-                            occupiedPositions.push({
-                                x: parseFloat(tickLabels[oti].getAttribute('x')),
-                                y: parseFloat(tickLabels[oti].getAttribute('y'))
-                            });
-                        }
-                    }
-                    for (var ti2 = 0; ti2 < tickCount; ti2++) {
-                        var baseMidi = spiralMidiLo + ti2;
-                        if (baseMidi > 50) continue; // only show harmonics for notes up to D3
-                        var baseFreq = 440 * Math.pow(2, (baseMidi - 69) / 12);
-                        var baseNotePC = baseMidi % 12;
-                        var baseRelPC = ((baseNotePC - vTonic) % 12 + 12) % 12;
-                        if (!vScaleSet.has(baseRelPC)) continue;
-                        for (var hn = 2; hn <= maxHarmLabel; hn++) {
-                            var harmFreq = baseFreq * hn;
-                            var harmMidi = 69 + 12 * Math.log2(harmFreq / 440);
-                            if (harmMidi < spiralMidiLo || harmMidi > spiralMidiHi) continue;
-                            if (hli >= HARM_LABEL_COUNT) break;
-                            var hTheta = spiralThetaForMidi(harmMidi);
-                            var hR = spiralR(hTheta);
-                            var hAng = -Math.PI / 2 + hTheta + spiralRotOffset;
-                            var hCos = Math.cos(hAng), hSin = Math.sin(hAng);
-                            // Try outside, then inside, skip if both overlap
-                            var hLblR = hR + 20;
-                            var hx = cx + hLblR * hCos, hy = cy + hLblR * hSin;
-                            var overlaps = false;
-                            for (var pi = 0; pi < occupiedPositions.length; pi++) {
-                                var dx = hx - occupiedPositions[pi].x;
-                                var dy = hy - occupiedPositions[pi].y;
-                                if (dx * dx + dy * dy < 400) { overlaps = true; break; }
-                            }
-                            if (overlaps) {
-                                hLblR = hR - 20;
-                                hx = cx + hLblR * hCos;
-                                hy = cy + hLblR * hSin;
-                                overlaps = false;
-                                for (var pi2 = 0; pi2 < occupiedPositions.length; pi2++) {
-                                    var dx2 = hx - occupiedPositions[pi2].x;
-                                    var dy2 = hy - occupiedPositions[pi2].y;
-                                    if (dx2 * dx2 + dy2 * dy2 < 400) { overlaps = true; break; }
-                                }
-                            }
-                            if (overlaps) continue; // skip this label entirely
-                            occupiedPositions.push({ x: hx, y: hy });
-                            // Colors: same as fundamental note label
-                            var hFillColor = spiralPCColor(baseNotePC);
-                            var hH3Idx = (baseNotePC + 7) % 12;
-                            var hH5Idx = (baseNotePC + 4) % 12;
-                            var hH3Color = spiralPCColor(hH3Idx);
-                            var hH5Color = spiralPCColor(hH5Idx);
-                            var hText = hn + '×' + displayName(NOTES[baseNotePC]);
-                            // Outer ellipse: h5 outline
-                            var hH5El = harmLabelH5Pool[hli];
-                            var hFS = 11;
-                            var hRx = hText.length * hFS * 0.3 + 3;
-                            var hRy = hFS * 0.55;
-                            var hh5sw = 1.5;
-                            var hh3sw = 1.5;
-                            hH5El.setAttribute('cx', hx.toFixed(2));
-                            hH5El.setAttribute('cy', hy.toFixed(2));
-                            hH5El.setAttribute('rx', (hRx + hh3sw + hh5sw * 0.5).toFixed(1));
-                            hH5El.setAttribute('ry', (hRy + hh3sw + hh5sw * 0.5).toFixed(1));
-                            hH5El.setAttribute('fill', 'none');
-                            hH5El.setAttribute('stroke', hH5Color);
-                            hH5El.setAttribute('stroke-width', '1.5');
-                            hH5El.setAttribute('display', '');
-                            // Inner ellipse: h3 outline + note color fill
-                            var hBg = harmLabelBgPool[hli];
-                            hBg.setAttribute('cx', hx.toFixed(2));
-                            hBg.setAttribute('cy', hy.toFixed(2));
-                            hBg.setAttribute('rx', hRx.toFixed(1));
-                            hBg.setAttribute('ry', hRy.toFixed(1));
-                            hBg.setAttribute('fill', hFillColor);
-                            hBg.setAttribute('stroke', hH3Color);
-                            hBg.setAttribute('stroke-width', '1.5');
-                            hBg.setAttribute('display', '');
-                            // Black text on oval
-                            var hEl = harmLabelPool[hli];
-                            hEl.setAttribute('x', hx.toFixed(2));
-                            hEl.setAttribute('y', hy.toFixed(2));
-                            hEl.setAttribute('dy', '0.35em');
-                            hEl.setAttribute('font-size', '11');
-                            hEl.setAttribute('fill', '#000');
-                            hEl.setAttribute('stroke', 'none');
-                            hEl.setAttribute('display', '');
-                            hEl.textContent = hText;
-                            hli++;
-                        }
                     }
 
                 } // end if (showSpiral)
@@ -3685,80 +3673,6 @@
                     function circAngle(pc) {
                         return -Math.PI / 2 + ((pc - vTonic + 12) % 12) * stepAng;
                     }
-
-                    // Dissonance curve: peaks near ~0.7 semitones, sharp falloff
-                    var dissB = 0.7;
-                    function diss(d) {
-                        d = Math.abs(d);
-                        if (d <= 0) return 0;
-                        return (d / dissB) * Math.exp(1 - d / dissB);
-                    }
-
-                    // Harmonics 1–6 for both note and tonic
-                    var harmonics = [1, 2, 3, 4, 5, 6];
-                    var log2cache = [0, 0];
-                    for (var lci = 1; lci <= 6; lci++) log2cache[lci] = Math.log2(lci);
-
-                    // Compute tension for each of 12 semitone offsets
-                    var noteTension = [];
-                    var tensionMin = Infinity, tensionMax = -Infinity;
-                    for (var ti = 0; ti < 12; ti++) {
-                        var s = ti;
-                        var total = 0;
-                        for (var ni2 = 0; ni2 < harmonics.length; ni2++) {
-                            var nH = harmonics[ni2];
-                            var nW = 1 / nH;
-                            for (var mi2 = 0; mi2 < harmonics.length; mi2++) {
-                                var mH = harmonics[mi2];
-                                var mW = 1 / mH;
-                                var interval = s + 12 * (log2cache[nH] - log2cache[mH]);
-                                total += nW * mW * diss(interval);
-                            }
-                        }
-                        noteTension.push(total);
-                        if (total < tensionMin) tensionMin = total;
-                        if (total > tensionMax) tensionMax = total;
-                    }
-                    // Normalize to 0–1
-                    var tensionRange = tensionMax - tensionMin;
-                    var noteT = [];
-                    for (var ti2 = 0; ti2 < 12; ti2++) {
-                        noteT.push(tensionRange > 0 ? (noteTension[ti2] - tensionMin) / tensionRange : 0);
-                    }
-
-                    // Wide-range sequential palette: deep indigo → blue → teal → green → gold → red
-                    // More hue stops + lightness variation for better distinction
-                    var palStops = [
-                        { t: 0.0, h: 270, s: 55, l: 30 },  // deep indigo
-                        { t: 0.15, h: 230, s: 65, l: 38 },  // blue
-                        { t: 0.3, h: 190, s: 70, l: 40 },  // teal
-                        { t: 0.45, h: 150, s: 60, l: 42 },  // green
-                        { t: 0.6, h: 90, s: 55, l: 40 },  // lime
-                        { t: 0.75, h: 45, s: 85, l: 48 },  // gold
-                        { t: 0.9, h: 15, s: 80, l: 48 },  // orange
-                        { t: 1.0, h: 350, s: 70, l: 42 }   // crimson
-                    ];
-                    function tensionColor(t) {
-                        if (t <= 0) return 'hsl(' + palStops[0].h + ',' + palStops[0].s + '%,' + palStops[0].l + '%)';
-                        if (t >= 1) { var last = palStops[palStops.length - 1]; return 'hsl(' + last.h + ',' + last.s + '%,' + last.l + '%)'; }
-                        for (var pi = 0; pi < palStops.length - 1; pi++) {
-                            if (t >= palStops[pi].t && t <= palStops[pi + 1].t) {
-                                var f = (t - palStops[pi].t) / (palStops[pi + 1].t - palStops[pi].t);
-                                var h = palStops[pi].h + f * (palStops[pi + 1].h - palStops[pi].h);
-                                var s2 = palStops[pi].s + f * (palStops[pi + 1].s - palStops[pi].s);
-                                var l = palStops[pi].l + f * (palStops[pi + 1].l - palStops[pi].l);
-                                return 'hsl(' + Math.round(h) + ',' + Math.round(s2) + '%,' + Math.round(l) + '%)';
-                            }
-                        }
-                        return '#888';
-                    }
-
-                    // Build color array for each semitone offset (indexed by offset from tonic)
-                    var noteColors = [];
-                    for (var ci3 = 0; ci3 < 12; ci3++) noteColors.push(tensionColor(noteT[ci3]));
-                    // Also build a map by pitch class for easy lookup
-                    var pcColor = {};
-                    for (var ci4 = 0; ci4 < 12; ci4++) pcColor[(vTonic + ci4) % 12] = noteColors[ci4];
 
                     // Hide dissonance wedges — white background
                     for (var wi = 0; wi < NUM_DISS_WEDGES; wi++) dissWedges[wi].setAttribute('display', 'none');
@@ -3964,46 +3878,47 @@
                             voices.push({ pc: vpc, layer: vi2, ang: vang });
                         }
 
-                        // Draw annular segments on each layer
-                        var segHalfAng = stepAng * 0.4;
-                        for (var vi3 = 0; vi3 < voices.length && segIdx < MAX_SEGS; vi3++) {
+                        // Draw thick radial lines from center to each note on its layer
+                        // First: shared outline (single path combining all lines for this chord)
+                        var outlineD = '';
+                        for (var vi3 = 0; vi3 < voices.length; vi3++) {
                             var v = voices[vi3];
                             var lr = layerR[v.layer];
-                            var rInner = lr - layerThick;
-                            var rOuter = lr + layerThick;
-                            var a1 = v.ang - segHalfAng;
-                            var a2 = v.ang + segHalfAng;
-                            var ox1 = cx + rOuter * Math.cos(a1), oy1 = cy + rOuter * Math.sin(a1);
-                            var ox2 = cx + rOuter * Math.cos(a2), oy2 = cy + rOuter * Math.sin(a2);
-                            var ix1 = cx + rInner * Math.cos(a1), iy1 = cy + rInner * Math.sin(a1);
-                            var ix2 = cx + rInner * Math.cos(a2), iy2 = cy + rInner * Math.sin(a2);
-                            var segD = 'M ' + ox1.toFixed(2) + ' ' + oy1.toFixed(2) +
-                                ' A ' + rOuter + ' ' + rOuter + ' 0 0 1 ' + ox2.toFixed(2) + ' ' + oy2.toFixed(2) +
-                                ' L ' + ix2.toFixed(2) + ' ' + iy2.toFixed(2) +
-                                ' A ' + rInner + ' ' + rInner + ' 0 0 0 ' + ix1.toFixed(2) + ' ' + iy1.toFixed(2) +
-                                ' Z';
-                            chordSegs[segIdx].setAttribute('d', segD);
-                            chordSegs[segIdx].setAttribute('fill', pcColor[v.pc]);
-                            chordSegs[segIdx].setAttribute('stroke', '#fff');
-                            chordSegs[segIdx].setAttribute('stroke-width', '1');
+                            var endX = cx + lr * Math.cos(v.ang);
+                            var endY = cy + lr * Math.sin(v.ang);
+                            outlineD += 'M ' + cx.toFixed(2) + ' ' + cy.toFixed(2) +
+                                ' L ' + endX.toFixed(2) + ' ' + endY.toFixed(2) + ' ';
+                        }
+                        if (outlineD && segIdx < MAX_SEGS) {
+                            chordSegs[segIdx].setAttribute('d', outlineD);
+                            chordSegs[segIdx].setAttribute('fill', 'none');
+                            chordSegs[segIdx].setAttribute('stroke', 'rgba(0,0,0,0.8)');
+                            chordSegs[segIdx].setAttribute('stroke-width', '11');
+                            chordSegs[segIdx].setAttribute('stroke-linecap', 'round');
+                            chordSegs[segIdx].setAttribute('stroke-linejoin', 'round');
+                            chordSegs[segIdx].setAttribute('opacity', '1');
+                            chordSegs[segIdx].setAttribute('display', '');
+                            segIdx++;
+                        }
+                        // Second: individual colored lines on top
+                        for (var vi4 = 0; vi4 < voices.length && segIdx < MAX_SEGS; vi4++) {
+                            var v2 = voices[vi4];
+                            var lr2 = layerR[v2.layer];
+                            var endX2 = cx + lr2 * Math.cos(v2.ang);
+                            var endY2 = cy + lr2 * Math.sin(v2.ang);
+                            var lineD2 = 'M ' + cx.toFixed(2) + ' ' + cy.toFixed(2) +
+                                ' L ' + endX2.toFixed(2) + ' ' + endY2.toFixed(2);
+                            chordSegs[segIdx].setAttribute('d', lineD2);
+                            chordSegs[segIdx].setAttribute('fill', 'none');
+                            chordSegs[segIdx].setAttribute('stroke', pcColor[v2.pc]);
+                            chordSegs[segIdx].setAttribute('stroke-width', '7');
+                            chordSegs[segIdx].setAttribute('stroke-linecap', 'round');
                             chordSegs[segIdx].setAttribute('opacity', '0.85');
                             chordSegs[segIdx].setAttribute('display', '');
                             segIdx++;
                         }
 
-                        // Draw filled arc connectors between layers (root→third, third→fifth)
-                        for (var ci = 0; ci < voices.length - 1 && connIdx < MAX_CONNECTORS; ci++) {
-                            var vFrom = voices[ci];
-                            var vTo = voices[ci + 1];
-                            var connR1 = layerR[vFrom.layer] - layerThick; // inner edge of outer layer
-                            var connR2 = layerR[vTo.layer] + layerThick;   // outer edge of inner layer
-                            var connD = arcBandPath(connR1, vFrom.ang, connR2, vTo.ang, 5);
-                            chordConnectors[connIdx].setAttribute('d', connD);
-                            chordConnectors[connIdx].setAttribute('fill', pcColor[vFrom.pc]);
-                            chordConnectors[connIdx].setAttribute('opacity', '0.4');
-                            chordConnectors[connIdx].setAttribute('display', '');
-                            connIdx++;
-                        }
+                        // Arc connectors removed — radial lines inherently connect at center
 
                         // Draw chord name near the root segment
                         var nameAng = voices[0].ang;
@@ -4593,10 +4508,6 @@
             // Click label to remove chord
             label.addEventListener('click', function () {
                 sequences[activeSequenceIdx].chords.splice(chordIdx, 1);
-                if (sequences[activeSequenceIdx].chords.length === 0 ||
-                    !sequences[activeSequenceIdx].chords.some(function (c) { return c === null; })) {
-                    sequences[activeSequenceIdx].chords.push(null);
-                }
                 rerenderSequence(activeSequenceIdx);
                 buildHarmonyGrid();
             });
@@ -5273,19 +5184,7 @@
             if (!chord) return;
 
             var seq = sequences[activeSequenceIdx];
-            // Find last null slot
-            var insertIdx = -1;
-            for (var i = seq.chords.length - 1; i >= 0; i--) {
-                if (seq.chords[i] === null) { insertIdx = i; break; }
-            }
-            if (insertIdx < 0) {
-                insertIdx = seq.chords.length;
-                seq.chords.push(null);
-            }
-            seq.chords[insertIdx] = { chord: chord, typeIdx: typeIdx };
-            if (!seq.chords.some(function (c) { return c === null; })) {
-                seq.chords.push(null);
-            }
+            seq.chords.push({ chord: chord, typeIdx: typeIdx });
             rerenderSequence(activeSequenceIdx);
             buildHarmonyGrid();
         }
@@ -5421,7 +5320,7 @@
         }
 
         // Multi-sequence state: each item is { chord, typeIdx } or null (picker slot)
-        let sequences = [{ name: 'Sequence 1', chords: [null] }];
+        let sequences = [{ name: 'Sequence 1', chords: [] }];
         let activeSequenceIdx = 0;
 
         function getTypesForRoot(root) {
@@ -5995,6 +5894,108 @@
                     card.appendChild(label);
                     card._rootLabelInfos.push({ rootName, el: label, cx: sx, cy: sy, hitRadius: fontSize * 0.6 });
                 });
+
+                // Draw sequence arrows between consecutive roots on the picker
+                (function drawSequenceArrows() {
+                    const seq = sequences[seqIdx];
+                    if (!seq || seq.chords.length < 2) return;
+                    // Build lookup: rootName → {cx, cy} from rootLabelInfos
+                    const rootPos = {};
+                    for (const li of card._rootLabelInfos) {
+                        if (!rootPos[li.rootName]) rootPos[li.rootName] = { cx: li.cx, cy: li.cy };
+                    }
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.style.position = 'absolute';
+                    svg.style.left = '0';
+                    svg.style.top = '0';
+                    svg.style.width = '100%';
+                    svg.style.height = '100%';
+                    svg.style.pointerEvents = 'none';
+                    svg.style.overflow = 'visible';
+                    svg.classList.add('picker-sequence-arrows');
+                    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                    svg.appendChild(defs);
+                    const markerCache = {};
+                    function getMarker(color) {
+                        if (markerCache[color]) return markerCache[color];
+                        const id = 'seq-arrow-' + seqIdx + '-' + Object.keys(markerCache).length;
+                        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                        marker.setAttribute('id', id);
+                        marker.setAttribute('markerWidth', '7');
+                        marker.setAttribute('markerHeight', '5');
+                        marker.setAttribute('refX', '6');
+                        marker.setAttribute('refY', '2.5');
+                        marker.setAttribute('orient', 'auto');
+                        const arrowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                        arrowPath.setAttribute('d', 'M0,0 L7,2.5 L0,5 Z');
+                        arrowPath.setAttribute('fill', color);
+                        marker.appendChild(arrowPath);
+                        defs.appendChild(marker);
+                        markerCache[color] = id;
+                        return id;
+                    }
+                    // Pre-scan edges to detect pairs that share the same two endpoints (in either direction)
+                    const edges = [];
+                    for (let i = 0; i < seq.chords.length - 1; i++) {
+                        const c1 = seq.chords[i], c2 = seq.chords[i + 1];
+                        if (!c1 || !c2) continue;
+                        const m1 = c1.chord.name.match(/^([A-G]#?)/);
+                        const m2 = c2.chord.name.match(/^([A-G]#?)/);
+                        if (!m1 || !m2) continue;
+                        edges.push({ r1: m1[1], r2: m2[1] });
+                    }
+                    // Count how many times each unordered pair appears
+                    const pairCount = {};
+                    const pairSeen = {};
+                    for (const e of edges) {
+                        const key = [e.r1, e.r2].sort().join('-');
+                        pairCount[key] = (pairCount[key] || 0) + 1;
+                        pairSeen[key] = 0;
+                    }
+                    // Draw arrows
+                    for (const e of edges) {
+                        const p1 = rootPos[e.r1], p2 = rootPos[e.r2];
+                        if (!p1 || !p2) continue;
+                        const dx = p2.cx - p1.cx, dy = p2.cy - p1.cy;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < 5) continue;
+                        const shrink = 14;
+                        const ux = dx / dist, uy = dy / dist;
+                        const x1 = p1.cx + ux * shrink, y1 = p1.cy + uy * shrink;
+                        const x2 = p2.cx - ux * shrink, y2 = p2.cy - uy * shrink;
+                        // Get color from originating note
+                        const pc = NOTES.indexOf(e.r1);
+                        const color = (pc >= 0) ? spiralPCColor(pc) : 'rgba(0,0,0,0.8)';
+                        const markerId = getMarker(color);
+                        // Determine curve direction for parallel pairs
+                        const key = [e.r1, e.r2].sort().join('-');
+                        let curvature = 0;
+                        if (pairCount[key] > 1) {
+                            const idx = pairSeen[key]++;
+                            // First edge curves one way, second curves the other
+                            const sign = (e.r1 === [e.r1, e.r2].sort()[0]) ? 1 : -1;
+                            curvature = sign * (0.3 + idx * 0.15);
+                        }
+                        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                        if (curvature === 0) {
+                            path.setAttribute('d', `M${x1},${y1} L${x2},${y2}`);
+                        } else {
+                            // Perpendicular offset for control point
+                            const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+                            const nx = -uy, ny = ux; // perpendicular
+                            const cp = curvature * dist;
+                            const cx = mx + nx * cp, cy = my + ny * cp;
+                            path.setAttribute('d', `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`);
+                        }
+                        path.setAttribute('stroke', color);
+                        path.setAttribute('stroke-width', '3.5');
+                        path.setAttribute('fill', 'none');
+                        path.setAttribute('stroke-linecap', 'round');
+                        path.setAttribute('marker-end', 'url(#' + markerId + ')');
+                        svg.appendChild(path);
+                    }
+                    if (svg.children.length > 1) card.appendChild(svg);
+                })();
             });
 
             // Helper: activate a root on the picker
@@ -6016,11 +6017,17 @@
                 for (const li of card._rootLabelInfos) {
                     li.el.style.opacity = '0';
                 }
+                // Hide sequence arrows during preview
+                const arrowSvg = card.querySelector('.picker-sequence-arrows');
+                if (arrowSvg) arrowSvg.style.opacity = '0';
             }
             function deactivatePickerRoot() {
                 card._previewRoot = null;
                 if (card._clearPreview) card._clearPreview();
                 for (const li of card._rootLabelInfos) { li.el.style.opacity = '1'; }
+                // Show sequence arrows again
+                const arrowSvg2 = card.querySelector('.picker-sequence-arrows');
+                if (arrowSvg2) arrowSvg2.style.opacity = '1';
             }
             // Find root label under point (polygon-space coords)
             function rootAtPoint(px, py) {
@@ -6086,10 +6093,8 @@
                     let picked = types.find(t => t.typeIdx === globalTi);
                     if (!picked) picked = types[0];
                     if (!picked) return;
-                    sequences[seqIdx].chords[chordIdx] = { chord: picked.chord, typeIdx: picked.typeIdx };
-                    if (chordIdx === sequences[seqIdx].chords.length - 1) {
-                        sequences[seqIdx].chords.push(null);
-                    }
+                    // Append chord to end of sequence (picker stays permanent)
+                    sequences[seqIdx].chords.push({ chord: picked.chord, typeIdx: picked.typeIdx });
                     rerenderSequence(seqIdx);
                     buildHarmonyGrid();
                 }
@@ -6150,7 +6155,7 @@
                 const container = card.closest('.sequence-chords');
                 const seqEl = card.closest('.sequence');
                 const si = seqEl ? parseInt(seqEl.dataset.seqIdx, 10) : -1;
-                const ci = container ? [...container.children].indexOf(card.closest('.chord-card-wrapper') || card) : -1;
+                const ci = container ? [...container.children].indexOf(card.closest('.chord-card-wrapper') || card) - 1 : -1; // -1 to skip permanent picker at child 0
                 e.dataTransfer.setData('text/plain', si + ':' + ci);
             });
             card.addEventListener('dragend', () => {
@@ -6212,9 +6217,6 @@
                 },
                 click(e) {
                     sequences[seqIdx].chords.splice(chordIdx, 1);
-                    if (sequences[seqIdx].chords.length === 0 || !sequences[seqIdx].chords.some(c => c === null)) {
-                        sequences[seqIdx].chords.push(null);
-                    }
                     rerenderSequence(seqIdx);
                     buildHarmonyGrid();
                 }
@@ -6391,9 +6393,6 @@
                     label.addEventListener('click', (e) => {
                         e.stopPropagation();
                         sequences[seqIdx].chords.splice(chordIdx, 1);
-                        if (sequences[seqIdx].chords.length === 0 || !sequences[seqIdx].chords.some(c => c === null)) {
-                            sequences[seqIdx].chords.push(null);
-                        }
                         rerenderSequence(seqIdx);
                         buildHarmonyGrid();
                     });
@@ -6669,13 +6668,7 @@
         function addChordToSequence(chord, seqIdx) {
             const seq = sequences[seqIdx];
             if (!seq) return;
-            // Insert before the last null (picker slot)
-            const lastNull = seq.chords.lastIndexOf(null);
-            if (lastNull >= 0) {
-                seq.chords.splice(lastNull, 0, { chord, typeIdx: 0 });
-            } else {
-                seq.chords.push({ chord, typeIdx: 0 });
-            }
+            seq.chords.push({ chord, typeIdx: 0 });
             rerenderSequence(seqIdx);
         }
 
@@ -6693,7 +6686,7 @@
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
                 clearAllDropIndicators();
-                const cards = [...chordsEl.querySelectorAll('.chord-card:not(.dragging)')];
+                const cards = [...chordsEl.querySelectorAll('.chord-card:not(.dragging):not(.picker-card)')];
                 if (cards.length === 0) {
                     chordsEl.classList.add('drag-over');
                     return;
@@ -6732,7 +6725,7 @@
                 const [movedChord] = sequences[srcSeqIdx].chords.splice(srcChordIdx, 1);
 
                 // Find insertion index in target sequence
-                const cards = [...chordsEl.querySelectorAll('.chord-card:not(.dragging)')];
+                const cards = [...chordsEl.querySelectorAll('.chord-card:not(.dragging):not(.picker-card)')];
                 let insertIdx = sequences[seqIdx].chords.length;
                 for (let i = 0; i < cards.length; i++) {
                     const rect = cards[i].getBoundingClientRect();
@@ -6786,11 +6779,14 @@
 
             const chordsEl = document.createElement('div');
             chordsEl.className = 'sequence-chords';
+
+            // Always render ONE permanent picker first
+            const pickerCard = renderPickerCard(seqIdx, -1);
+            chordsEl.appendChild(pickerCard);
+
+            // Then render only actual chord cards (skip nulls)
             seq.chords.forEach((item, idx) => {
-                if (item === null) {
-                    const pickerCard = renderPickerCard(seqIdx, idx);
-                    chordsEl.appendChild(pickerCard);
-                } else {
+                if (item !== null) {
                     const card = renderChordCard(item.chord, seqIdx, idx);
                     chordsEl.appendChild(card);
                 }
@@ -6876,7 +6872,7 @@
         buildHarmonyGrid();
 
         addSequenceBtn.addEventListener('click', () => {
-            sequences.push({ name: `Sequence ${sequences.length + 1}`, chords: [null] });
+            sequences.push({ name: `Sequence ${sequences.length + 1}`, chords: [] });
             activeSequenceIdx = sequences.length - 1;
             rerenderAllSequences();
             buildHarmonyGrid();
@@ -6896,7 +6892,7 @@
                     const container = card.closest('.sequence-chords');
                     if (!seqEl || !container) return;
                     const si = parseInt(seqEl.dataset.seqIdx, 10);
-                    const ci = [...container.children].indexOf(card.closest('.chord-card-wrapper') || card);
+                    const ci = [...container.children].indexOf(card.closest('.chord-card-wrapper') || card) - 1; // -1 to skip permanent picker at child 0
                     if (!toRemove.has(si)) toRemove.set(si, []);
                     toRemove.get(si).push(ci);
                     if (card._renderer) card._renderer.dispose();
@@ -6906,10 +6902,7 @@
                     for (const ci of indices.sort((a, b) => b - a)) {
                         sequences[si].chords.splice(ci, 1);
                     }
-                    // Ensure at least one picker slot remains
-                    if (!sequences[si].chords.some(c => c === null)) {
-                        sequences[si].chords.push(null);
-                    }
+
                 }
                 rerenderAllSequences();
                 buildHarmonyGrid();

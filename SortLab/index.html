@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <title>SortLab - Sorting Algorithm Visualizer</title>
+</head>
+
+<body>
+    <div class="page-corner-brand">
+        <h1>SortLab</h1>
+        <p class="subtitle">Visualize and compare sorting algorithms</p>
+    </div>
+
+    <div class="container">
+        <div class="global-controls">
+            <div class="control-strip">
+                <button id="compact-view-toggle" class="toggle-btn is-active" type="button" aria-pressed="true">
+                    Fit Height + Hide Numbers
+                </button>
+            </div>
+
+            <div class="list-stack">
+                <div class="list-row">
+                    <div class="list-row-label">
+                        <span class="row-title">Ordered</span>
+                        <span id="ordered-list-label" class="list-label"></span>
+                    </div>
+                    <div id="ordered-list" class="list-preview"></div>
+                    <div class="row-actions ordered-actions">
+                        <label class="inline-control" for="global-list-length">Length</label>
+                        <input type="number" id="global-list-length" min="5" max="100" value="10">
+                        <button id="sequence-btn" type="button">Complete Sequence</button>
+                        <button id="random-distribution-btn" type="button">Random Distribution</button>
+                    </div>
+                </div>
+
+                <div class="list-row">
+                    <div class="list-row-label">
+                        <span class="row-title">Shuffled</span>
+                        <span class="list-label">Drag</span>
+                    </div>
+                    <div id="shuffled-list" class="list-preview interactive-list"></div>
+                    <div class="row-actions shuffled-actions">
+                        <button id="shuffle-btn" type="button">Shuffle</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <section id="simulators" class="simulators-grid">
+            <button id="add-simulator-btn" class="add-simulator-card" type="button">Add Sort Simulator</button>
+        </section>
+    </div>
+
+    <script src="algorithms.js"></script>
+    <script src="main.js"></script>
+</body>
+
+</html>

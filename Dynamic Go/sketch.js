@@ -594,7 +594,7 @@ class BoardDisplay {
             const [dx, dy] = dirVecs[dir];
             const nx = x + dx, ny = y + dy;
             if (this.game.inBounds(nx, ny) && this.game.board[nx][ny] !== EMPTY
-                && this.game.board[nx][ny] !== c) {
+              && this.game.board[nx][ny] !== c) {
               armColors[dir] = BLOCKED_BRIDGE;
             } else {
               armColors[dir] = null;
@@ -655,7 +655,7 @@ class BoardDisplay {
           const [dx, dy] = dirVecs[dir];
           const nx = x + dx, ny = y + dy;
           if (sim.inBounds(nx, ny) && sim.board[nx][ny] !== EMPTY
-              && simInfo.colors.has(sim.board[nx][ny])) {
+            && simInfo.colors.has(sim.board[nx][ny])) {
             const stoneLight = colorFor(sim.board[nx][ny]).light;
             armColors[dir] = stoneLight.map(v => Math.round(lerp(255, v, pulse)));
           } else {
@@ -836,15 +836,15 @@ class BoardDisplay {
             rect(px - ms, py - ms, px + ms, py + ms);
 
             // Bridges to same-color neighbors
-            for (const [ddx, ddy] of [[1,0],[0,1],[-1,0],[0,-1]]) {
+            for (const [ddx, ddy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
               const ndx = dx + ddx, ndy = dy + ddy;
               if (abs(ndx) > viewR || abs(ndy) > viewR) continue;
               const nbx = bx + ddx, nby = by + ddy;
               if (!g.inBounds(nbx, nby)) continue;
               if (g.board[nbx][nby] !== g.board[bx][by]) continue;
-              if (ddx === 1)  rect(px + ms, py - ms, px + miniCell - ms, py + ms);
+              if (ddx === 1) rect(px + ms, py - ms, px + miniCell - ms, py + ms);
               if (ddx === -1) rect(px - miniCell + ms, py - ms, px - ms, py + ms);
-              if (ddy === 1)  rect(px - ms, py + ms, px + ms, py + miniCell - ms);
+              if (ddy === 1) rect(px - ms, py + ms, px + ms, py + miniCell - ms);
               if (ddy === -1) rect(px - ms, py - miniCell + ms, px + ms, py - ms);
             }
 
@@ -890,7 +890,7 @@ class BoardDisplay {
     const g = this.game;
     if (!this._tlTotal || this._tlTotal <= 1) return false;
     const { _tlBarX: barX, _tlBarY: barY, _tlThumbSize: ts,
-            _tlStepW: stepW, _tlScrollX: scrollX, _tlVisibleW: visW, _tlTotal: total } = this;
+      _tlStepW: stepW, _tlScrollX: scrollX, _tlVisibleW: visW, _tlTotal: total } = this;
 
     if (my >= barY - 10 && my <= barY + ts + 5 && mx >= barX && mx <= barX + visW) {
       for (let i = 1; i < total; i++) {
