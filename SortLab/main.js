@@ -1,5 +1,6 @@
+const TRACKED_TEXT_SHADOW = '-1px 0 0 #000, 1px 0 0 #000, 0 -1px 0 #000, 0 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000';
+
 const GREYSCALE_STOPS = [
-    [32, 33, 36],
     [78, 82, 87],
     [128, 132, 138],
     [184, 188, 194],
@@ -93,6 +94,10 @@ function getGreyscaleRgb(value, maxValue) {
     return interpolateRgb(GREYSCALE_STOPS, t);
 }
 
+function getRoleAccentColor(role) {
+    return TRACK_ROLE_COLORS[role] || TRACK_ROLE_COLORS.compare;
+}
+
 function getTextRgb(baseRgb) {
     const luminance = 0.2126 * baseRgb[0] + 0.7152 * baseRgb[1] + 0.0722 * baseRgb[2];
     const delta = luminance > 145 ? -28 : 32;
@@ -104,27 +109,143 @@ function getTextRgb(baseRgb) {
     ];
 }
 
+const ALGO_CODE_LINES = {
+    bubble: [
+        { t: 'arr[' }, { t: 'j', r: 'left' }, { t: '] > arr[' },
+        { t: 'j+1', r: 'right' }, { t: ']' }
+    ],
+    selection: [
+        { t: 'arr[' }, { t: 'j', r: 'scan' }, { t: '] < arr[' },
+        { t: 'minIdx', r: 'min' }, { t: ']' }
+    ],
+    insertion: [
+        { t: 'arr[' }, { t: 'j', r: 'left' }, { t: '] > ' }, { t: 'key', r: 'right' }
+    ],
+    merge: [
+        { t: 'left[' }, { t: 'l', r: 'left' }, { t: '] ≤ right[' },
+        { t: 'r', r: 'right' }, { t: ']' }
+    ],
+    quick: [
+        { t: 'arr[' }, { t: 'left', r: 'left' }, { t: '] vs arr[' },
+        { t: 'right', r: 'right' }, { t: '] p=' }, { t: 'pivot', r: 'pivot' }
+    ]
+};
+
+function getPredictionCodeSegments(roles) {
+    if (roles.has('origin') && roles.has('predicted')) {
+        return [
+            { t: 'arr[' }, { t: 'scan', r: 'scan' }, { t: ']==' },
+            { t: 'origin', r: 'origin' }, { t: '?→[' },
+            { t: 'predicted', r: 'predicted' }, { t: ']' }
+        ];
+    }
+    if (roles.has('origin') && roles.has('next')) {
+        return [
+            { t: 'shift ' }, { t: 'origin', r: 'origin' }, { t: '→' }, { t: 'next', r: 'next' }
+        ];
+    }
+    if (roles.has('scan') && (roles.has('min') || roles.has('max'))) {
+        return [
+            { t: 'arr[' }, { t: 'i', r: 'scan' }, { t: '] vs ' },
+            { t: 'min', r: 'min' }, { t: '…' }, { t: 'max', r: 'max' }
+        ];
+    }
+    if (roles.has('min') || roles.has('max')) {
+        return [
+            { t: '[0] ' }, { t: 'min', r: 'min' },
+            { t: '↔[n-1] ' }, { t: 'max', r: 'max' }
+        ];
+    }
+    if (roles.has('origin')) {
+        return [{ t: 'check ' }, { t: 'origin', r: 'origin' }];
+    }
+    return [{ t: 'compare…' }];
+}
+
+function buildCodeLineHTML(algorithmName, trackedIndices) {
+    const roles = new Set(trackedIndices.map((t) => t.role));
+    const roleColorMap = new Map();
+    trackedIndices.forEach(({ role }) => {
+        if (!roleColorMap.has(role)) {
+            roleColorMap.set(role, rgbToString(getRoleAccentColor(role)));
+        }
+    });
+    const segments = algorithmName === 'prediction'
+        ? getPredictionCodeSegments(roles)
+        : (ALGO_CODE_LINES[algorithmName] || [{ t: algorithmName }]);
+    return segments.map((seg) => {
+        if (seg.r && roleColorMap.has(seg.r)) {
+            const color = roleColorMap.get(seg.r);
+            return `<span style="color:${color};font-weight:bold;text-shadow:${TRACKED_TEXT_SHADOW}">${seg.t}</span>`;
+        }
+        return seg.t;
+    }).join('');
+}
+
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+const JS_TOKEN_REGEX = /\/\/.*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\b(?:const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|new|class|extends|try|catch|throw|true|false|null|undefined)\b|\b\d+(?:\.\d+)?\b/g;
+
+function highlightJsLine(line) {
+    let output = '';
+    let cursor = 0;
+    let match;
+
+    while ((match = JS_TOKEN_REGEX.exec(line)) !== null) {
+        const token = match[0];
+        const index = match.index;
+        output += escapeHtml(line.slice(cursor, index));
+
+        let cls = 'code-token';
+        if (token.startsWith('//')) {
+            cls += ' code-token-comment';
+        } else if (token.startsWith('"') || token.startsWith('\'') || token.startsWith('`')) {
+            cls += ' code-token-string';
+        } else if (/^\d/.test(token)) {
+            cls += ' code-token-number';
+        } else {
+            cls += ' code-token-keyword';
+        }
+
+        output += `<span class="${cls}">${escapeHtml(token)}</span>`;
+        cursor = index + token.length;
+    }
+
+    output += escapeHtml(line.slice(cursor));
+    return output;
+}
+
+function renderHighlightedCodeHtml(code) {
+    const lines = String(code || '').replace(/\r\n/g, '\n').split('\n');
+    const digits = Math.max(2, String(lines.length).length);
+    return lines.map((line, index) => {
+        const htmlLine = line.length > 0 ? highlightJsLine(line) : '&nbsp;';
+        return `<div class="code-line"><span class="code-line-number" style="min-width:${digits}ch">${index + 1}</span><span class="code-line-text">${htmlLine}</span></div>`;
+    }).join('');
+}
+
 function getCellPalette(value, maxValue, roles = []) {
     const baseRgb = getGreyscaleRgb(value, maxValue);
-    let fillRgb = [...baseRgb];
-
-    roles.forEach((role) => {
-        const overlayRgb = TRACK_ROLE_COLORS[role] || TRACK_ROLE_COLORS.compare;
-        fillRgb = mixRgb(fillRgb, overlayRgb, 0.34);
-    });
+    const primaryRole = roles.length > 0 ? roles[0] : null;
+    const accentRgb = primaryRole ? getRoleAccentColor(primaryRole) : null;
 
     return {
-        background: rgbToString(fillRgb),
-        text: rgbToString(getTextRgb(fillRgb))
+        background: rgbToString(baseRgb),
+        text: accentRgb ? rgbToString(accentRgb) : rgbToString(getTextRgb(baseRgb))
     };
 }
 
 function getLegendPalette(role) {
-    const overlayRgb = TRACK_ROLE_COLORS[role] || TRACK_ROLE_COLORS.compare;
-    const fillRgb = mixRgb([248, 250, 252], overlayRgb, 0.68);
+    const baseRgb = interpolateRgb(GREYSCALE_STOPS, 0.65);
+    const accentRgb = getRoleAccentColor(role);
     return {
-        background: rgbToString(fillRgb),
-        text: rgbToString(getTextRgb(fillRgb))
+        background: rgbToString(baseRgb),
+        text: rgbToString(accentRgb)
     };
 }
 
@@ -133,6 +254,8 @@ class SortSimulator {
         this.index = index;
         this.onRemove = onRemove;
         this.onAlgorithmChange = onAlgorithmChange;
+        this.hideNonHighlighted = false;
+        this.showCodeColumn = true;
         this.root = this.createMarkup();
         this.cacheElements();
         this.setupEventListeners();
@@ -159,6 +282,7 @@ class SortSimulator {
                         <input class="trace-range-input trace-range-end" type="number" min="0" placeholder="to" aria-label="Copy trace to row">
                     </div>
                     <button class="copy-trace-btn" type="button">Copy Trace</button>
+                    <button class="hide-unhighlighted-btn toggle-btn" type="button" aria-pressed="false">Focus</button>
                 </div>
                 <button class="remove-btn" type="button">Remove</button>
             </div>
@@ -188,6 +312,7 @@ class SortSimulator {
         this.traceRangeStart = this.root.querySelector('.trace-range-start');
         this.traceRangeEnd = this.root.querySelector('.trace-range-end');
         this.copyTraceBtn = this.root.querySelector('.copy-trace-btn');
+        this.hideUnhighlightedBtn = this.root.querySelector('.hide-unhighlighted-btn');
         this.removeBtn = this.root.querySelector('.remove-btn');
         this.legendBar = this.root.querySelector('.legend-bar');
         this.visualizationArea = this.root.querySelector('.visualization-area');
@@ -201,6 +326,7 @@ class SortSimulator {
     setupEventListeners() {
         this.algorithmSelect.addEventListener('change', () => this.onAlgorithmChange());
         this.copyTraceBtn.addEventListener('click', () => this.copyTrace());
+        this.hideUnhighlightedBtn.addEventListener('click', () => this.toggleHideNonHighlighted());
         this.removeBtn.addEventListener('click', () => this.onRemove(this));
     }
 
@@ -317,14 +443,20 @@ class SortSimulator {
     renderGrid(steps, colorMaxValue) {
         this.gridContainer.innerHTML = '';
         const hasOpColumns = steps.some((step) => step.statsSnapshot !== undefined);
+        const renderCodeToggle = hasOpColumns;
+        const renderCodeColumn = hasOpColumns && this.showCodeColumn;
+        const isQuickFocusMode = this.hideNonHighlighted && this.algorithmSelect.value === 'quick';
+        const quickSeenByStep = isQuickFocusMode ? this.buildQuickSeenByStep(steps) : null;
         const hasAuxLane = steps.some((step) => Array.isArray(step.auxValues));
         const hasCarryLane = steps.some((step) => step.carryValue !== undefined);
         const hasVariableLane = steps.some((step) => step.minValue !== undefined || step.maxValue !== undefined);
 
         let template = `repeat(${steps[0].values.length}, minmax(0, 1fr))`;
 
-        if (hasOpColumns) {
-            template = 'minmax(40px, 40px) minmax(40px, 40px) minmax(44px, 44px) minmax(40px, 40px) 10px ' + template;
+        if (renderCodeToggle) {
+            template = renderCodeColumn
+                ? 'minmax(28px, 28px) minmax(160px, 260px) 10px ' + template
+                : 'minmax(28px, 28px) 10px ' + template;
         }
 
         if (hasAuxLane) {
@@ -343,13 +475,25 @@ class SortSimulator {
         headerRow.className = 'grid-row header-row';
         headerRow.style.gridTemplateColumns = template;
 
-        if (hasOpColumns) {
-            ['Row', 'Cmp', 'Chk', 'Swp'].forEach((label) => {
+        if (renderCodeToggle) {
+            const toggleCell = document.createElement('div');
+            toggleCell.className = 'item op-item header-item code-toggle-cell';
+            const toggleBtn = document.createElement('button');
+            toggleBtn.type = 'button';
+            toggleBtn.className = 'code-col-toggle';
+            toggleBtn.textContent = this.showCodeColumn ? '◀' : '▶';
+            toggleBtn.title = this.showCodeColumn ? 'Hide code column' : 'Show code column';
+            toggleBtn.setAttribute('aria-label', toggleBtn.title);
+            toggleBtn.addEventListener('click', () => this.toggleCodeColumn());
+            toggleCell.appendChild(toggleBtn);
+            headerRow.appendChild(toggleCell);
+
+            if (renderCodeColumn) {
                 const headerCell = document.createElement('div');
-                headerCell.className = 'item op-item header-item';
-                headerCell.textContent = label;
+                headerCell.className = 'item op-item header-item code-line-cell';
+                headerCell.textContent = 'Code';
                 headerRow.appendChild(headerCell);
-            });
+            }
 
             const divider = document.createElement('div');
             divider.className = 'lane-divider';
@@ -431,15 +575,17 @@ class SortSimulator {
                 rolesByLane[laneKey].get(index).push(role);
             });
 
-            if (hasOpColumns) {
-                const stats = step.statsSnapshot || { comparisons: 0, indexChecks: 0, swaps: 0 };
-                const opValues = [stepIndex, stats.comparisons, stats.indexChecks, stats.swaps];
-                opValues.forEach((value) => {
-                    const opCell = document.createElement('div');
-                    opCell.className = 'item op-item';
-                    opCell.textContent = String(value);
-                    row.appendChild(opCell);
-                });
+            if (renderCodeToggle) {
+                const toggleCell = document.createElement('div');
+                toggleCell.className = 'item op-item code-toggle-cell';
+                row.appendChild(toggleCell);
+
+                if (renderCodeColumn) {
+                    const codeCell = document.createElement('div');
+                    codeCell.className = 'item op-item code-line-cell';
+                    codeCell.innerHTML = buildCodeLineHTML(this.algorithmSelect.value, step.trackedIndices || []);
+                    row.appendChild(codeCell);
+                }
 
                 const divider = document.createElement('div');
                 divider.className = 'lane-divider';
@@ -458,11 +604,20 @@ class SortSimulator {
                     const palette = getCellPalette(value, colorMaxValue, roles);
                     item.style.backgroundColor = palette.background;
                     item.style.color = palette.text;
+                    item.style.setProperty('--cell-text', palette.text);
                     item.textContent = value;
-                }
-
-                if (roles.length > 0) {
-                    item.classList.add('tracked-cell');
+                    if (roles.length > 0) {
+                        item.style.fontWeight = 'bold';
+                        item.style.textShadow = TRACKED_TEXT_SHADOW;
+                        item.classList.add('tracked-cell');
+                    } else if (this.hideNonHighlighted && !isWritten) {
+                        const isSeenInQuickPass = isQuickFocusMode
+                            ? Boolean(quickSeenByStep[stepIndex] && quickSeenByStep[stepIndex].has(index))
+                            : false;
+                        if (!isQuickFocusMode || !isSeenInQuickPass) {
+                            item.classList.add('focus-hidden');
+                        }
+                    }
                 }
 
                 if (isWritten) {
@@ -493,9 +648,14 @@ class SortSimulator {
                         const palette = getCellPalette(value, colorMaxValue, roles);
                         item.style.backgroundColor = palette.background;
                         item.style.color = palette.text;
+                        item.style.setProperty('--cell-text', palette.text);
                         item.textContent = value;
                         if (roles.length > 0) {
+                            item.style.fontWeight = 'bold';
+                            item.style.textShadow = TRACKED_TEXT_SHADOW;
                             item.classList.add('tracked-cell');
+                        } else if (this.hideNonHighlighted) {
+                            item.classList.add('focus-hidden');
                         }
                     }
 
@@ -520,9 +680,14 @@ class SortSimulator {
                     const palette = getCellPalette(carryValue, colorMaxValue, roles);
                     carryItem.style.backgroundColor = palette.background;
                     carryItem.style.color = palette.text;
+                    carryItem.style.setProperty('--cell-text', palette.text);
                     carryItem.textContent = carryValue;
                     if (roles.length > 0) {
+                        carryItem.style.fontWeight = 'bold';
+                        carryItem.style.textShadow = TRACKED_TEXT_SHADOW;
                         carryItem.classList.add('tracked-cell');
+                    } else if (this.hideNonHighlighted) {
+                        carryItem.classList.add('focus-hidden');
                     }
                 }
 
@@ -547,9 +712,14 @@ class SortSimulator {
                         const palette = getCellPalette(variableValue, colorMaxValue, roles);
                         variableItem.style.backgroundColor = palette.background;
                         variableItem.style.color = palette.text;
+                        variableItem.style.setProperty('--cell-text', palette.text);
                         variableItem.textContent = variableValue;
                         if (roles.length > 0) {
+                            variableItem.style.fontWeight = 'bold';
+                            variableItem.style.textShadow = TRACKED_TEXT_SHADOW;
                             variableItem.classList.add('tracked-cell');
+                        } else if (this.hideNonHighlighted) {
+                            variableItem.classList.add('focus-hidden');
                         }
                     }
 
@@ -558,6 +728,29 @@ class SortSimulator {
             }
 
             this.gridContainer.appendChild(row);
+        });
+    }
+
+    buildQuickSeenByStep(steps) {
+        let currentPivotIndex = null;
+        let seenInPass = new Set();
+
+        return steps.map((step) => {
+            const trackedMain = (step.trackedIndices || []).filter((entry) => {
+                return entry && Number.isInteger(entry.index) && (entry.lane === undefined || entry.lane === 'main');
+            });
+
+            const pivotEntry = trackedMain.find((entry) => entry.role === 'pivot');
+            if (pivotEntry && pivotEntry.index !== currentPivotIndex) {
+                currentPivotIndex = pivotEntry.index;
+                seenInPass = new Set();
+            }
+
+            trackedMain.forEach((entry) => {
+                seenInPass.add(entry.index);
+            });
+
+            return new Set(seenInPass);
         });
     }
 
@@ -581,7 +774,7 @@ class SortSimulator {
 
         this.lastRun = null;
         this.renderStats({ comparisons: 0, indexChecks: 0, swaps: 0 });
-        this.codeOutput.textContent = Algorithms[algorithmName].code;
+        this.renderAlgorithmCode(algorithmName);
     }
 
     renderLegend(steps) {
@@ -648,7 +841,20 @@ class SortSimulator {
             previousComparisons = comparisons;
         });
 
+        const finalStep = steps[steps.length - 1];
+        if (displaySteps[displaySteps.length - 1] !== finalStep) {
+            displaySteps.push(finalStep);
+        }
+
         return displaySteps;
+    }
+
+    toggleCodeColumn() {
+        this.showCodeColumn = !this.showCodeColumn;
+        if (this.lastRun) {
+            const displaySteps = this.getComparisonDisplaySteps(this.lastRun.steps);
+            this.renderGrid(displaySteps, this.lastRun.colorMaxValue);
+        }
     }
 
     renderFromList(list, colorMaxValue) {
@@ -673,13 +879,29 @@ class SortSimulator {
             algorithmName,
             inputList: [...list],
             steps,
-            stats
+            stats,
+            colorMaxValue
         };
         const displaySteps = this.getComparisonDisplaySteps(steps);
         this.renderLegend(displaySteps);
         this.renderGrid(displaySteps, colorMaxValue);
         this.renderStats(stats);
-        this.codeOutput.textContent = Algorithms[algorithmName].code;
+        this.renderAlgorithmCode(algorithmName);
+    }
+
+    renderAlgorithmCode(algorithmName) {
+        const code = Algorithms[algorithmName] ? Algorithms[algorithmName].code : '';
+        this.codeOutput.innerHTML = renderHighlightedCodeHtml(code);
+    }
+
+    toggleHideNonHighlighted() {
+        this.hideNonHighlighted = !this.hideNonHighlighted;
+        this.hideUnhighlightedBtn.classList.toggle('is-active', this.hideNonHighlighted);
+        this.hideUnhighlightedBtn.setAttribute('aria-pressed', String(this.hideNonHighlighted));
+        if (this.lastRun) {
+            const displaySteps = this.getComparisonDisplaySteps(this.lastRun.steps);
+            this.renderGrid(displaySteps, this.lastRun.colorMaxValue);
+        }
     }
 
     renderStats(stats) {
@@ -706,6 +928,8 @@ class SortLabApp {
         this.sequenceBtn = document.getElementById('sequence-btn');
         this.randomDistributionBtn = document.getElementById('random-distribution-btn');
         this.shuffleBtn = document.getElementById('shuffle-btn');
+        this.copyShuffledBtn = document.getElementById('copy-shuffled-btn');
+        this.pasteShuffledBtn = document.getElementById('paste-shuffled-btn');
         this.orderedListLabel = document.getElementById('ordered-list-label');
         this.orderedListContainer = document.getElementById('ordered-list');
         this.shuffledListContainer = document.getElementById('shuffled-list');
@@ -723,6 +947,8 @@ class SortLabApp {
         this.sequenceBtn.addEventListener('click', () => this.regenerateLists('sequence'));
         this.randomDistributionBtn.addEventListener('click', () => this.regenerateLists('linear-random'));
         this.shuffleBtn.addEventListener('click', () => this.shuffleCurrentList());
+        this.copyShuffledBtn.addEventListener('click', () => this.copyShuffledList());
+        this.pasteShuffledBtn.addEventListener('click', () => this.pasteShuffledList());
         window.addEventListener('resize', () => this.applyVisualizationScaling());
 
         this.updateCompactViewUi();
@@ -821,6 +1047,58 @@ class SortLabApp {
             [this.shuffledList[i], this.shuffledList[j]] = [this.shuffledList[j], this.shuffledList[i]];
         }
 
+        this.renderListPanels();
+        this.renderAllSimulators();
+    }
+
+    async copyShuffledList() {
+        const text = this.shuffledList.join(',');
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                return;
+            }
+        } catch (error) {
+            // Fall through to legacy copy path.
+        }
+
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.setAttribute('readonly', 'readonly');
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        textArea.style.pointerEvents = 'none';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        textArea.setSelectionRange(0, textArea.value.length);
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+    }
+
+    pasteShuffledList() {
+        const raw = window.prompt('Paste shuffled list (comma or space separated numbers):', this.shuffledList.join(','));
+        if (raw === null) {
+            return;
+        }
+
+        const values = raw
+            .split(/[\s,]+/)
+            .map((part) => part.trim())
+            .filter((part) => part.length > 0)
+            .map((part) => Number.parseInt(part, 10));
+
+        if (values.length < 5 || values.some((value) => Number.isNaN(value))) {
+            window.alert('Enter at least 5 valid integers.');
+            return;
+        }
+
+        this.shuffledList = values;
+        this.orderedList = [...values].sort((a, b) => a - b);
+        this.listMode = 'pasted';
+        this.globalListLengthInput.value = String(values.length);
+        this.orderedListLabel.textContent = 'From pasted sequence';
         this.renderListPanels();
         this.renderAllSimulators();
     }
@@ -946,14 +1224,6 @@ class SortLabApp {
             return;
         }
 
-        if (!this.compactVisualsEnabled) {
-            this.simulators.forEach((simulator) => {
-                simulator.gridContainer.style.transform = '';
-                simulator.visualizationArea.style.height = '';
-            });
-            return;
-        }
-
         const tallestGridHeight = this.simulators.reduce((maxHeight, simulator) => {
             return Math.max(maxHeight, simulator.gridContainer.scrollHeight);
         }, 0);
@@ -962,14 +1232,22 @@ class SortLabApp {
             return;
         }
 
+        if (!this.compactVisualsEnabled) {
+            this.simulators.forEach((simulator) => {
+                simulator.gridContainer.style.transform = '';
+                simulator.visualizationArea.style.height = `${tallestGridHeight}px`;
+            });
+            return;
+        }
+
         const top = this.simulatorsContainer.getBoundingClientRect().top;
         const availableHeight = Math.max(180, window.innerHeight - top - 24);
         const scale = Math.min(1, availableHeight / tallestGridHeight);
 
+        const scaledHeight = Math.max(1, tallestGridHeight * scale);
         this.simulators.forEach((simulator) => {
-            const rawHeight = simulator.gridContainer.scrollHeight;
             simulator.gridContainer.style.transform = `scaleY(${scale})`;
-            simulator.visualizationArea.style.height = `${Math.max(1, rawHeight * scale)}px`;
+            simulator.visualizationArea.style.height = `${scaledHeight}px`;
         });
     }
 }

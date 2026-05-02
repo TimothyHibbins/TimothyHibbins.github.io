@@ -4,11 +4,25 @@
     box-sizing: border-box;
 }
 
+@font-face {
+    font-family: 'JetBrains Mono';
+    src: url('../Favicons/JetBrains_Mono/JetBrainsMono-VariableFont_wght.ttf') format('truetype');
+    font-weight: 100 800;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
+    src: url('../Favicons/JetBrains_Mono/JetBrainsMono-Italic-VariableFont_wght.ttf') format('truetype');
+    font-weight: 100 800;
+    font-style: italic;
+}
+
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background: linear-gradient(135deg, #0d1b2a 0%, #1b263b 100%);
     min-height: 100vh;
-    padding: 0 20px 20px;
+    padding: 0 0 20px;
 }
 
 .page-corner-brand {
@@ -20,11 +34,9 @@ body {
 }
 
 .container {
-    max-width: 1200px;
-    margin: 0 auto;
     background: white;
-    border-radius: 12px;
-    padding: 18px;
+    border-radius: 0;
+    padding: 18px 24px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
@@ -377,6 +389,7 @@ button:disabled {
     padding: 0;
     border-radius: 4px;
     transform-origin: top left;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
 }
 
 .run-error {
@@ -406,6 +419,7 @@ button:disabled {
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
     border-radius: 0;
     font-size: 14px;
     color: #f3f4f6;
@@ -413,6 +427,8 @@ button:disabled {
     box-shadow: none;
     transition: all 0.1s;
     border: 0;
+    border-right: 1px solid rgba(0, 0, 0, 0.08);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .item.written-index {
@@ -425,6 +441,36 @@ button:disabled {
     color: #111827;
     font-size: 11px;
     font-weight: 700;
+}
+
+.code-line-cell {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 11px;
+    text-align: left;
+    padding: 0 6px;
+    overflow: hidden;
+    white-space: nowrap;
+    justify-content: flex-start;
+}
+
+.code-col-toggle {
+    width: 20px;
+    height: 18px;
+    padding: 0;
+    font-size: 10px;
+    line-height: 18px;
+    background: #475569;
+    color: #f8fafc;
+    border-radius: 4px;
+}
+
+.code-col-toggle:hover {
+    background: #334155;
+}
+
+.code-toggle-cell {
+    justify-content: center;
+    padding: 0;
 }
 
 .header-row .header-item {
@@ -459,8 +505,29 @@ button:disabled {
     z-index: 1;
 }
 
+.item.focus-hidden {
+    background-color: #000 !important;
+    color: transparent !important;
+}
+
+.item.focus-hidden::before {
+    display: none !important;
+}
+
 .compact-visuals-enabled .item:not(.op-item):not(.header-item) {
     color: transparent !important;
+    text-shadow: none !important;
+}
+
+.compact-visuals-enabled .item:not(.op-item):not(.header-item):not(.focus-hidden)::before {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: var(--cell-text, #999);
+    box-shadow: 0 0 0 1px #000;
+    pointer-events: none;
 }
 
 .toggle-btn {
@@ -493,17 +560,53 @@ button:disabled {
     color: #333;
 }
 
-pre {
+.code-output {
     background: #282c34;
     color: #abb2bf;
     padding: 10px;
     border-radius: 6px;
     overflow-x: auto;
-    font-family: 'Courier New', monospace;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
     font-size: 13px;
     line-height: 1.5;
-    max-height: 280px;
+    height: 560px;
     overflow-y: auto;
+    white-space: normal;
+}
+
+.code-line {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 10px;
+}
+
+.code-line-number {
+    color: #6b7280;
+    text-align: right;
+    user-select: none;
+    border-right: 1px solid #4b5563;
+    padding-right: 8px;
+}
+
+.code-line-text {
+    white-space: pre;
+    color: #d1d5db;
+}
+
+.code-token-keyword {
+    color: #c678dd;
+}
+
+.code-token-string {
+    color: #98c379;
+}
+
+.code-token-number {
+    color: #e5c07b;
+}
+
+.code-token-comment {
+    color: #5c6370;
 }
 
 .remove-btn {
@@ -544,5 +647,9 @@ pre {
     .item {
         height: 20px;
         font-size: 12px;
+    }
+
+    .code-output {
+        height: 360px;
     }
 }
