@@ -712,14 +712,10 @@ button:disabled {
 
 .packed-word-seg-text-overlay {
     background: transparent !important;
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    left: 0;
-    right: 0;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: visible;
     white-space: nowrap;
     z-index: 1;
     pointer-events: none;

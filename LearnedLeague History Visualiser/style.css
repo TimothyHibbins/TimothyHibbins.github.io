@@ -1,0 +1,650 @@
+/* ── Reset / base ────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
+    margin: 0;
+    background: #f8f8f6;
+    color: #1a1a1a;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+header {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    padding: 0.8rem 2rem;
+    border-bottom: 1px solid #ddd;
+    background: #fff;
+    flex-wrap: wrap;
+}
+
+header h1 {
+    margin: 0 0 0.2rem;
+    font-size: 1.5rem;
+}
+
+header p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #555;
+}
+
+header a {
+    color: #293A55;
+}
+
+/* ── Main layout ─────────────────────────────────────────────────────────── */
+main {
+    padding: 1.8rem 2rem;
+    max-width: 1800px;
+}
+
+/* ── Upload section ──────────────────────────────────────────────────────── */
+#upload-section {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+}
+
+.upload-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.upload-group label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #333;
+}
+
+input[type="file"] {
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+#load-btn {
+    padding: 0.5rem 1.6rem;
+    background: #293A55;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    align-self: flex-end;
+}
+
+#load-btn:hover {
+    background: #1a2740;
+}
+
+#load-btn:active {
+    background: #111d2e;
+}
+
+.status {
+    width: 100%;
+    margin: 0;
+    font-size: 0.82rem;
+    color: #555;
+}
+
+.status.error {
+    color: #c00;
+}
+
+.status.ok {
+    color: #2a7a3b;
+}
+
+.upload-hint {
+    font-size: 0.75rem;
+    color: #888;
+}
+
+/* ── Chart section ───────────────────────────────────────────────────────── */
+#chart-section {}
+
+#chart-section.hidden {
+    display: none;
+}
+
+#player-name {
+    margin: 0 0 1rem;
+    font-size: 1.25rem;
+}
+
+/* Outer wrapper: y-axis label column + scrollable chart */
+#chart-outer {
+    display: flex;
+    align-items: flex-start;
+}
+
+/* ── Y-axis ──────────────────────────────────────────────────────────────── */
+#y-axis-svg {
+    display: block;
+}
+
+.y-axis-label {
+    font-size: 9px;
+    fill: #999;
+    font-family: inherit;
+}
+
+.y-tick {
+    stroke: #ccc;
+    stroke-width: 1;
+}
+
+/* ── Scrollable chart container ──────────────────────────────────────────── */
+#y-axis-wrapper {
+    flex-shrink: 0;
+}
+
+#chart-container {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    overflow-x: auto;
+    min-width: 0;
+    flex: 1;
+    overflow-y: visible;
+    padding-bottom: 0.5rem;
+    /* Custom scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: #bbb #f0f0ee;
+}
+
+#chart-container::-webkit-scrollbar {
+    height: 6px;
+}
+
+#chart-container::-webkit-scrollbar-track {
+    background: #f0f0ee;
+}
+
+#chart-container::-webkit-scrollbar-thumb {
+    background: #bbb;
+    border-radius: 3px;
+}
+
+/* ── Individual subject group ────────────────────────────────────────────── */
+.subject-group {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0 3px;
+    border-right: 1px solid #e0e0dc;
+}
+
+.subject-group:last-child {
+    border-right: none;
+}
+
+.subject-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #666;
+    text-align: center;
+    padding-bottom: 5px;
+    white-space: nowrap;
+}
+
+.subject-chart {
+    display: block;
+}
+
+/* ── SVG elements ────────────────────────────────────────────────────────── */
+.bar-bg {
+    fill: #f5f5f3;
+}
+
+.grid-line {
+    stroke: #e0e0dc;
+    stroke-width: 0.5;
+    stroke-dasharray: 2, 2;
+}
+
+.x-axis {
+    stroke: #aaa;
+    stroke-width: 1;
+}
+
+.season-divider {
+    stroke: #bbb;
+    stroke-width: 1;
+    stroke-dasharray: 3, 2;
+}
+
+.season-label {
+    font-size: 7px;
+    fill: #aaa;
+    font-family: inherit;
+}
+
+.bar-correct {
+    fill: #2ea44f;
+    opacity: 0.8;
+    transition: opacity 0.1s;
+}
+
+.bar-correct:hover {
+    opacity: 1;
+}
+
+.bar-wrong {
+    fill: #d73a3a;
+    opacity: 0.8;
+    transition: opacity 0.1s;
+}
+
+.bar-wrong:hover {
+    opacity: 1;
+}
+
+/* ── Legend ──────────────────────────────────────────────────────────────── */
+#chart-legend {
+    display: flex;
+    gap: 2rem;
+    margin-top: 1.2rem;
+    font-size: 0.8rem;
+    color: #555;
+}
+
+.legend-swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    vertical-align: middle;
+    margin-right: 5px;
+}
+
+.legend-correct .legend-swatch {
+    background: #2ea44f;
+}
+
+.legend-wrong .legend-swatch {
+    background: #d73a3a;
+}
+
+/* ── Tooltip ─────────────────────────────────────────────────────────────── */
+#tooltip {
+    position: fixed;
+    z-index: 9999;
+    background: #1a1a1a;
+    color: #f0f0f0;
+    padding: 9px 13px;
+    border-radius: 7px;
+    font-size: 0.78rem;
+    max-width: 560px;
+    line-height: 1.5;
+    pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+#tooltip.hidden {
+    display: none;
+}
+
+.tip-title {
+    margin-bottom: 3px;
+}
+
+.tip-meta {
+    font-weight: normal;
+    opacity: 0.65;
+    font-size: 0.72rem;
+}
+
+.tip-correct {
+    color: #5ad87a;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.tip-wrong {
+    color: #ff8080;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.tip-text {
+    font-style: italic;
+    opacity: 0.85;
+    font-size: 1.48rem;
+    line-height: 1.4;
+    max-width: 340px;
+}
+
+.tip-answer {
+    margin-top: 5px;
+    font-weight: 600;
+    color: #e8d87a;
+    font-size: 0.76rem;
+}
+
+/* ── Subject tray (Answers view drag-to-show) ───────────────────────────── */
+#subject-tray {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 6px 12px;
+    padding: 8px 12px;
+    margin: 6px 0 4px;
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 0.78rem;
+}
+
+#subject-tray.hidden {
+    display: none;
+}
+
+.tray-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+    flex: 1 1 100%;
+}
+
+.tray-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #777;
+    white-space: nowrap;
+    margin-right: 2px;
+}
+
+.tray-zone {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    min-height: 26px;
+    min-width: 40px;
+    padding: 3px 4px;
+    border-radius: 4px;
+    border: 1.5px dashed transparent;
+    transition: border-color 0.15s, background 0.15s;
+    flex: 1 1 auto;
+}
+
+.tray-zone.drag-over {
+    border-color: #aaa;
+    background: #ebebeb;
+}
+
+.tray-zone--inactive {
+    border-style: dashed;
+    border-color: #ddd;
+}
+
+.tray-chip {
+    padding: 2px 8px;
+    border-radius: 12px;
+    border: 1.5px solid #bbb;
+    background: #fff;
+    cursor: grab;
+    user-select: none;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    transition: opacity 0.12s, box-shadow 0.12s;
+}
+
+.tray-chip:active {
+    cursor: grabbing;
+}
+
+.tray-chip--active {
+    font-weight: 600;
+}
+
+.tray-chip--inactive {
+    color: #aaa;
+    border-color: #ddd;
+    background: #fafafa;
+    cursor: pointer;
+}
+
+.tray-chip.tray-dragging {
+    opacity: 0.4;
+}
+
+/* ── Flip-axis button (only shown in Timeline / Subject Seasons) ──────────── */
+.flip-btn {
+    margin-left: 10px;
+    opacity: 0.7;
+    font-size: 0.78rem;
+}
+
+.flip-btn:hover {
+    opacity: 1;
+}
+
+/* ── Answers view ────────────────────────────────────────────────────────── */
+.answers-list {
+    padding: 4px 0 24px;
+    max-width: 960px;
+}
+
+.al-group {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #777;
+    padding: 16px 6px 4px;
+    border-bottom: 1px solid #2a2a2a;
+    margin-bottom: 2px;
+}
+
+.al-group:first-child {
+    padding-top: 4px;
+}
+
+.al-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+.al-item:hover {
+    background: #1e1e1e;
+}
+
+/* The SVG dot — same visuals as the chart views */
+.al-svg-dot {
+    flex-shrink: 0;
+    overflow: visible;
+}
+
+/* Answer = the label next to the dot */
+.al-answer {
+    font-weight: 600;
+    font-size: 0.82rem;
+    flex-shrink: 0;
+    min-width: 120px;
+    max-width: 240px;
+}
+
+.al-correct .al-answer {
+    color: #e8d87a;
+}
+
+/* gold  — got it right */
+.al-wrong .al-answer {
+    color: #cc8888;
+}
+
+/* muted red — got it wrong */
+
+/* Secondary info: Q-num · subject · question text */
+.al-meta {
+    color: #666;
+    font-size: 0.7rem;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Answer label chips (Answers view) ──────────────────────────────────── */
+.ans-text {
+    font-family: inherit;
+    font-weight: 600;
+    pointer-events: none;
+}
+
+.ans-leader {
+    stroke: #444;
+    stroke-width: 1;
+    stroke-dasharray: 2 2;
+    pointer-events: none;
+}
+
+.legend-hint {
+    color: #aaa;
+    font-style: italic;
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.chart-empty {
+    color: #888;
+    font-style: italic;
+    font-size: 0.9rem;
+    padding: 1rem 0;
+}
+
+/* ── View toggle ─────────────────────────────────────────────────────────── */
+#view-toggle {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    overflow: hidden;
+    width: fit-content;
+}
+
+.view-btn {
+    padding: 0.35rem 1rem;
+    border: none;
+    border-right: 1px solid #ccc;
+    background: #fff;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: #555;
+    line-height: 1.4;
+    transition: background 0.1s;
+}
+
+.view-btn:last-child {
+    border-right: none;
+}
+
+.view-btn.active {
+    background: #293A55;
+    color: #fff;
+}
+
+.view-btn:not(.active):hover {
+    background: #f0f0ee;
+}
+
+/* ── Timeline SVG elements ───────────────────────────────────────────────── */
+.timeline-chart {
+    display: block;
+}
+
+.sbs-chart {
+    display: block;
+}
+
+.tl-dot {
+    opacity: 0.82;
+}
+
+.tl-dot:hover {
+    opacity: 1;
+}
+
+.md-tick {
+    stroke: #bbb;
+    stroke-width: 1;
+}
+
+.md-label {
+    font-size: 6px;
+    fill: #aaa;
+    font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
+}
+
+/* ── Color legend (timeline mode) ────────────────────────────────────────── */
+.legend-subtitle {
+    margin: 0 0 0.5rem;
+    font-size: 0.78rem;
+    color: #888;
+    font-style: italic;
+}
+
+.color-legend-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 0.35rem 1rem;
+}
+
+.color-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.color-legend-item--interactive {
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 0.15rem 0.3rem;
+    margin: -0.15rem -0.3rem;
+    transition: background 0.1s;
+}
+
+.color-legend-item--interactive:hover {
+    background: rgba(0, 0, 0, 0.07);
+}
+
+.color-name {
+    font-size: 0.78rem;
+    color: #333;
+}
+
+/* ── Subject-by-season mode labels ──────────────────────────────────────── */
+.sbs-season-label {
+    font-size: 7.5px;
+    fill: #888;
+    font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
+}
+
+.sbs-subj-label {
+    font-size: 8px;
+    font-weight: 700;
+    fill: #333;
+    font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
+    letter-spacing: 0.02em;
+}

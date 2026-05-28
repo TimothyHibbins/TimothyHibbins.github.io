@@ -236,7 +236,8 @@ function renderCellBitGrid(item, value, colorMin, colorMax, isHighlighted, label
 
         // In predictive mode, make zero-bit slot regions easier to read by
         // alternating subtle dark greys per slot-sized group.
-        if (stripeAsEmptySlots && slotGroupBits > 0 && bitVal === 0) {
+        // Skip bits already colored by a filled segment — they should keep their heatmap colour.
+        if (stripeAsEmptySlots && slotGroupBits > 0 && bitVal === 0 && !(slotSeg && slotSeg.filled)) {
             const group = Math.floor(bit / slotGroupBits);
             rgb = (group % 2 === 0)
                 ? (effectiveHighlight ? [44, 48, 58] : [34, 38, 48])
@@ -417,6 +418,21 @@ function renderContiguousPackedFullRow(item, step, n, predictiveBits, colorMinVa
         root.appendChild(overlay);
     };
 
+    // Pre-scan: identify logical indices that will be rendered via the plain value path.
+    // This prevents duplicate overlays during the decompression/strip phase where a packed
+    // @-token for logical index i (left side) and a plain decompressed word i (right side)
+    // would both match trackedMap.get(i) and produce two labels for the same value.
+    const plainRenderedIndices = new Set();
+    for (let wIdx = 0; wIdx < n; wIdx++) {
+        const dvPre = Array.isArray(step.displayValues) ? step.displayValues[wIdx] : undefined;
+        const slPre = splitDisplayLabel(dvPre, step.values[wIdx]);
+        const cpPre = String(slPre.primary || '').trim();
+        if (!cpPre.startsWith('@') && !cpPre.startsWith('src:') && cpPre !== '') {
+            const rolePre = trackedMap ? trackedMap.get(wIdx) : null;
+            if (rolePre) plainRenderedIndices.add(wIdx);
+        }
+    }
+
     for (let wordIdx = 0; wordIdx < n; wordIdx++) {
         const value = step.values[wordIdx];
         if (value === null || value === undefined) continue;
@@ -462,6 +478,9 @@ function renderContiguousPackedFullRow(item, step, n, predictiveBits, colorMinVa
             const meta = parseMetaToken(token);
             if (!meta || String(meta.label).startsWith('~')) return;
             const logicalIdx = valueBits > 0 ? Math.floor(meta.bitOffset / valueBits) : wordIdx;
+            // Skip: this logical value is already shown via the plain decompressed path
+            // (higher-index word). Prevents duplicate labels during the strip phase.
+            if (plainRenderedIndices.has(logicalIdx)) return;
             const role = trackedMap ? trackedMap.get(logicalIdx) : null;
             const accentColor = role ? (PACKED_HIGHLIGHT_COLORS[role] || PACKED_HIGHLIGHT_COLORS.compare) : null;
             const overlayWidth = valueBits > 0 ? valueBits : meta.bitWidth;
@@ -1957,7 +1976,7 @@ class SortSimulator {
                 // Explicit bitOffset/bitWidth takes priority; a slot index falls back to
                 // predictiveBits.valueBits + slot * pairBits; otherwise full cell (0,32).
                 const valBitsP = predictiveBits && Number.isFinite(predictiveBits.valueBits) ? predictiveBits.valueBits : 0;
-                const prBitsP  = predictiveBits && Number.isFinite(predictiveBits.pairBits)  ? predictiveBits.pairBits  : 0;
+                const prBitsP = predictiveBits && Number.isFinite(predictiveBits.pairBits) ? predictiveBits.pairBits : 0;
                 const entryBitRange = (t) => {
                     if (Number.isFinite(t.bitOffset) && Number.isFinite(t.bitWidth))
                         return { bitOffset: t.bitOffset, bitWidth: t.bitWidth };
@@ -2179,7 +2198,16 @@ class SortSimulator {
                                     trackSpanBits: 32,
                                     // Non-empty slotLabel keeps stripeAsEmptySlots=false so
                                     // segment colours show on both 0 and 1 bits.
-                                    slotLabel: String(splitLabel.primary || splitLabel.secondary || '').trim()
+                                    // When displayLabel has a pipe with nothing after it (e.g. "9|"),
+                                    // the intent is colour-only — suppress the label so the secondary
+                                    // word of a cross-boundary packed pair doesn't show a duplicate.
+                                    slotLabel: (() => {
+                                        const dl = String(displayLabel ?? '');
+                                        const pipe = dl.indexOf('|');
+                                        return (pipe >= 0 && !dl.slice(pipe + 1).trim())
+                                            ? ''
+                                            : String(splitLabel.primary || splitLabel.secondary || '').trim();
+                                    })()
                                 };
                             }
                         }
@@ -2255,6 +2283,22 @@ class SortSimulator {
                                 : splitLabel.primary;
                             // Predictive mode: draw live in-place bits from raw cell word,
                             // but colour by decoded logical value for readability.
+                            // For slot-write-target bin cells the primary display label comes
+                            // from deltaSlotVisualInfo.slotLabel (e.g. "72"), but colorValue
+                            // was resolved from an empty splitLabel.primary → Number("") = 0
+                            // which maps to the purple end of the heatmap.  Override with the
+                            // first filled slot's actual data value so text colour matches the
+                            // value being placed, not the purple zero sentinel.
+                            const renderHeatmapValue = (slotWriteTarget
+                                && deltaSlotVisualInfo
+                                && Array.isArray(deltaSlotVisualInfo.slotSegments))
+                                ? (() => {
+                                    const firstFilled = deltaSlotVisualInfo.slotSegments.find((s) => s && s.filled);
+                                    return (firstFilled && Number.isFinite(Number(firstFilled.colorValue)))
+                                        ? Number(firstFilled.colorValue)
+                                        : colorValue;
+                                })()
+                                : colorValue;
                             renderCellBitGrid(
                                 item,
                                 value,
@@ -2262,7 +2306,7 @@ class SortSimulator {
                                 colorMaxValue,
                                 roles.length > 0 || slotWriteTarget || forceHighlight,
                                 primaryLabel,
-                                colorValue,
+                                renderHeatmapValue,
                                 {
                                     highlightSentinelBit: predictiveCountingMode,
                                     overwrittenWord: predictiveOverwritten,
@@ -2431,7 +2475,7 @@ class SortSimulator {
                     // Bit start for the leftmost (lo) column, bit end for the rightmost (hi).
                     const loBitStart = srcIsLo ? (srcBitOffset || 0) : (dstBitOffset || 0);
                     const hiSideOffset = srcIsLo ? (dstBitOffset || 0) : (srcBitOffset || 0);
-                    const hiSideWidth  = srcIsLo ? (dstBitWidth  || 32) : (srcBitWidth  || 32);
+                    const hiSideWidth = srcIsLo ? (dstBitWidth || 32) : (srcBitWidth || 32);
                     const hiBitEnd = Math.min(hiSideOffset + hiSideWidth, 32);
                     const spanner = document.createElement('div');
                     spanner.style.position = 'absolute';
@@ -2442,7 +2486,7 @@ class SortSimulator {
                     spanner.style.height = '2px';
                     spanner.style.background = rgbToString(connectRgb);
                     // Sub-column offsets: left trims to the slot start, right trims to the slot end.
-                    spanner.style.left  = `calc(${loBitStart} / 32 * var(--cell-width-px))`;
+                    spanner.style.left = `calc(${loBitStart} / 32 * var(--cell-width-px))`;
                     spanner.style.right = `calc((32 - ${hiBitEnd}) / 32 * var(--cell-width-px))`;
                     spanner.style.pointerEvents = 'none';
                     spanner.style.zIndex = '200';

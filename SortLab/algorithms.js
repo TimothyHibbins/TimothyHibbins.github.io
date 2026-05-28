@@ -2470,15 +2470,17 @@ function predictiveCounting(arr) {
                             // Re-apply source: the loop above may have overwritten dvCompress[idx]
                             // when idx <= r (pointing to a different pair's string).
                             dvCompress[idx] = `${absVal}|${absVal}\u00d7${cnt}`;
-                            dvCompress[wWord] = packedDisplayStrings.get(r);
+                            // Show the label on the wider fragment; if equal, primary (wWord) wins.
+                            const _bitsIn2c = ctPairBits - bitsInFirst;
+                            dvCompress[wWord] = (bitsInFirst >= _bitsIn2c)
+                                ? packedDisplayStrings.get(r) : `${absVal}|`;
                             const compressTracked = [
                                 { lane: 'main', index: idx, role: 'scan', part: 'compress', bitOffset: slotStart * pairBits, bitWidth: pairBits },
                                 { lane: 'main', index: wWord, role: 'write', part: 'compress', bitOffset: wShift, bitWidth: bitsInFirst }
                             ];
                             if (bitsInFirst < ctPairBits) {
-                                // Secondary word: show colour only (no CT label) to avoid
-                                // duplicate "11×1 11×1" artefact on adjacent cells.
-                                dvCompress[wWord + 1] = `${absVal}|`;
+                                dvCompress[wWord + 1] = (bitsInFirst >= _bitsIn2c)
+                                    ? `${absVal}|` : packedDisplayStrings.get(r);
                                 compressTracked.push({ lane: 'main', index: wWord + 1, role: 'write', part: 'compress', bitOffset: 0, bitWidth: ctPairBits - bitsInFirst });
                             }
                             // Build per-word segment snapshot for this step (all pairs packed so far).
@@ -2598,14 +2600,26 @@ function predictiveCounting(arr) {
                             for (let w = 0; w < packedWords; w += 1) {
                                 if (w < ww) dvExpand[w] = `${packedWordPrimaryAbsVal[w]}|`;
                             }
-                            dvExpand[wWord] = `${absVal}|${absVal}\u00d7${cnt}`;
-                            // Secondary word shows colour only, not the full CT label.
-                            if (bitsInFirst < ctPairBits) dvExpand[wWord + 1] = `${absVal}|`;
+                            // Show the label on the wider fragment; if equal, primary (wWord) wins.
+                            const _bitsIn2e = ctPairBits - bitsInFirst;
+                            dvExpand[wWord] = (bitsInFirst >= _bitsIn2e)
+                                ? `${absVal}|${absVal}\u00d7${cnt}` : `${absVal}|`;
+                            if (bitsInFirst < ctPairBits) {
+                                dvExpand[wWord + 1] = (bitsInFirst >= _bitsIn2e)
+                                    ? `${absVal}|` : `${absVal}|${absVal}\u00d7${cnt}`;
+                            }
                             const stepSegs = {};
                             if (phase3SegmentData) {
                                 for (const pw of Object.keys(phase3SegmentData)) {
                                     const pwi = +pw;
                                     if (pwi < ww) stepSegs[pwi] = phase3SegmentData[pwi];
+                                }
+                                // Always include the currently-scanned word(s): when wWord+1 === ww
+                                // the loop above excludes it (pwi < ww is false), but dvExpand
+                                // explicitly marks it as a colour-only cell — segment colours must show.
+                                if (wWord in phase3SegmentData) stepSegs[wWord] = phase3SegmentData[wWord];
+                                if (bitsInFirst < ctPairBits && (wWord + 1) in phase3SegmentData) {
+                                    stepSegs[wWord + 1] = phase3SegmentData[wWord + 1];
                                 }
                             }
                             collector.record(values,
