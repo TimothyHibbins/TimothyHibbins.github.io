@@ -25,17 +25,26 @@ async function _loadProfileText(profileText, label) {
         if (key in answerSource) q.answer = answerSource[key];
     }
 
+    // Drop seasons that have no answers at all (e.g. current in-progress season)
+    const seasonsWithAnswers = new Set(
+        Object.keys(answerSource).map(k => parseInt(k.split('-')[0], 10))
+    );
+    const filtered = questions.filter(q => seasonsWithAnswers.has(q.season));
+    const droppedSeasons = [...new Set(questions.map(q => q.season))]
+        .filter(s => !seasonsWithAnswers.has(s));
+
     _subjectOrder = null;  // reset when new data is loaded
-    _data = { playerName, questions, pctLookup };
+    _data = { playerName, questions: filtered, pctLookup };
     renderView();
 
-    const pctCount = questions.filter(
+    const pctCount = filtered.filter(
         q => (`${q.season}-${q.matchDay}-${q.questionNum}`) in pctLookup
     ).length;
-    const ansCount = questions.filter(q => q.answer).length;
-    const parts = [`${label || playerName}: ${questions.length} questions.`];
+    const ansCount = filtered.filter(q => q.answer).length;
+    const parts = [`${label || playerName}: ${filtered.length} questions.`];
     if (pctCount) parts.push(`${pctCount} with % correct data.`);
     if (ansCount) parts.push(`${ansCount} with answers.`);
+    if (droppedSeasons.length) parts.push(`(Season${droppedSeasons.length > 1 ? 's' : ''} ${droppedSeasons.join(', ')} excluded — no answers yet.)`);
     setStatus(parts.join(' '), 'ok');
 }
 

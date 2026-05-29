@@ -1,0 +1,2432 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+   
+   <html>
+   <head>
+      <meta charset="UTF-8" />
+
+      <title>👨‍🎓 S102 - Fall 2024 👩‍🎓</title>
+
+      <meta itemprop="name" content="👨‍🎓 S102 - Fall 2024 👩‍🎓" />
+      <meta itemprop="url" content="https://www.trivialstudies.com/study_1212102" />
+
+      <meta property="og:type" content="website" />
+      <meta property="og:title" content="👨‍🎓 S102 - Fall 2024 👩‍🎓" />
+      <meta property="og:description" content="Questions From Learned League Season 102 " />
+      <meta property="og:url" content="https://www.trivialstudies.com/study_1212102" />
+      <meta property="og:site_name" content="👨‍🎓 S102 - Fall 2024 👩‍🎓" />
+      <meta property="og:image" content="https://www.trivialstudies.com/images/logo_new.png" />
+      <meta property="og:image:width" content="1200" />
+      <meta property="og:image:height" content="630" />
+      <meta property="og:locale" content="en_US" />
+
+      <meta name="description" content="Questions From Learned League Season 102 "/>
+      <meta name="keywords" content="quiz, trivia, quizzes, study, pub trivia, learned league, study guides, learning, education, facts" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+      <!-- <link rel="shortcut icon"         href="https://www.trivialstudies.com/favicon.ico" /> -->
+      <!-- <link rel="icon" type="image/gif" href="https://www.trivialstudies.com/animated_favicon1.gif" /> -->
+
+      <!-- Favicon base -->
+      <link rel="icon" href="/images/favicon/favicon.ico" type="image/x-icon" />
+      <link rel="shortcut icon" href="/images/favicon/favicon.ico" type="image/x-icon" />
+      
+      <!-- SVG favicon (preferred by modern browsers) (TODO - 1MB file - shrink?) -->
+      <!-- <link rel="icon" href="/images/favicon/favicon.svg" type="image/svg+xml" /> -->
+      
+      <!-- PNG favicon for older browsers -->
+      <link rel="icon" type="image/png" sizes="96x96" href="/images/favicon/favicon-96x96.png">
+      
+      <!-- Apple Touch Icon -->
+      <link rel="apple-touch-icon" sizes="180x180" href="/images/favicon/apple-touch-icon.png">
+      
+      <!-- Manifest (use your site.webmanifest) -->
+      <link rel="manifest" href="/images/favicon/site.webmanifest">
+
+      <link rel="alternate" type="application/rss+xml" title="RSS Feed for TrivialStudies.com Blog" href="https://www.trivialstudies.com/rss_blog.xml" />
+   
+      <script type="text/javascript" src="https://www.trivialstudies.com/quizzer/scripts/ajax.js"></script>
+      <script type="text/javascript" src="https://www.trivialstudies.com/quizzer/scripts/ajax-dynamic-content.js"></script>
+
+      <script type="text/javascript">
+         function inc_button(type) {
+            var load_link = 'https://www.trivialstudies.com/button_cnt.php?b='+type;
+            document.getElementById('button_result').innerHTML = 'Updating button count for '+type;
+            ajax_loadContent('button_result',load_link);
+         }
+
+         function set_new_url(title, link) {
+            window.history.pushState("data",title,link);
+            document.title=title;
+         }
+
+      function toggle_visibility(id) {
+         var e;
+         // Turn off all elements, then enable the one input to this function
+         e = document.getElementById('main');     e.style.display = 'none';
+         e = document.getElementById('correct');  e.style.display = 'none';
+         e = document.getElementById('wrong');    e.style.display = 'none';
+         e = document.getElementById('results');  e.style.display = 'none';
+
+         e = document.getElementById(id);
+         e.style.display = 'table';
+      }
+
+      function submit_inits(quiz_id, correct, wrong, time) {
+
+         var inits = document.getElementById('initials').value;
+         var check_inits = /[A-Za-z]{3}/.test(inits);
+         // Please do not cheat and directly write to the leaderboard file with your own scores and times
+         // Keep it fair, :)
+         var load_link = 'https://www.trivialstudies.com/quizzer/leaderboard.php?q='+quiz_id+'&correct='+correct+'&wrong='+wrong+'&time='+time+'&init='+inits;
+
+         if(check_inits){
+            document.getElementById('ajax_results').innerHTML = 'Loading leaderboard...';
+            ajax_loadContent('ajax_results',load_link);
+         }
+         else{
+            document.getElementById('init_form_error').style.display = 'block';
+         }
+      }
+
+      function copyText(text, name) {
+
+        // create element and insert text
+        const area = document.createElement('textarea');
+        area.textContent = text;
+
+        // hide the element
+        area.style.position = 'absolute';
+        area.style.opacity = 0;
+        area.style.width = '1px';
+        area.style.height = '1px';
+        area.style.pointerEvents = 'none';
+
+        // attach element to button
+         document.getElementById(name).appendChild(area);
+
+        // focus, select, and copy to clipboard
+        area.focus();
+        area.select();
+        document.execCommand('copy');
+
+        // detach from button
+        document.getElementById(name).removeChild(area);
+      }
+
+      function filter_category(input) {
+         document.getElementById('filter_text').value = input;
+         filter_notebook();
+      }
+
+      function filter_notebook() {
+         // Declare variables
+         var input, filter, qtable, tr, i, txtValue;
+         input = document.getElementById('filter_text');
+         filter = input.value.toUpperCase();
+         qtable = document.getElementById('main');
+         tr = qtable.getElementsByTagName('tr');
+
+         // Loop through all list items, and hide those who dont match the search query
+         for (i = 0; i < tr.length; i++) {
+            txtValue = tr[i].textContent || tr[i].innerText;
+            if (txtValue.toUpperCase().indexOf(filter) > -1) {
+               tr[i].style.display = 'table-row';
+            } else {
+               tr[i].style.display = 'none';
+            }
+         }
+
+         // Hide all outlined rows
+         //tr = document.getElementsByClassName('outlined_row');
+         //for (i = 0; i < tr.length; i++) {
+            //tr[i].style.display = 'none';
+         //}
+
+         // Ensure all required rows remain visible
+         tr = document.getElementsByClassName('showrow');
+         for (i = 0; i < tr.length; i++) {
+            tr[i].style.display = 'table-row';
+         }
+
+      }
+
+
+   </script>
+
+      <!-- Global site tag (gtag.js) - Google Analytics -->
+      <script async src="https://www.googletagmanager.com/gtag/js?id=UA-109127908-1"></script>
+      <script>
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+
+          gtag('config', 'UA-109127908-1');
+      </script>
+
+
+<style>
+
+.dummy{
+  margin:      0;
+}
+
+html{
+  margin:      0;
+  padding:     0;
+  font-family: arial;
+  font-size:   2.25vh;
+  font-weight: 450;
+  color:       black;
+}
+
+.copy_font{
+  color:       black;
+}
+
+body{
+  margin:     0;
+  padding:    0;
+  background: white;
+  text-align: center;
+}
+
+table#page{
+  margin: 0px auto;
+  height:100vh;
+  width: 100vw;
+  position: absolute;
+  overflow: auto;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  text-align: center;
+  border-collapse: collapse;
+}
+
+td.header{
+   background: #ededed;
+   height: 8vh;
+   vertical-align: middle;
+   text-align: center;
+   font-size: 6vh;
+   text-shadow: 1px 1px 1px rgba(79,150,190,1);
+}
+
+td#header{
+   background: #ededed;
+   height: 8vh;
+   vertical-align: middle;
+   text-align: center;
+   font-size: 6vh;
+   text-shadow: 1px 1px 1px rgba(79,150,190,1);
+}
+
+td.tabs_header{
+   background: #ededed;
+   height: 6vh;
+   vertical-align: middle;
+   text-align: center;
+   font-weight: bold;
+   font-size: 4vh;
+   padding:    1vh;
+   border-radius: 1vh;}
+
+table#tabs{
+   margin-left: auto;
+   margin-right: auto;
+   font-size: 3vh;
+   text-align: center;
+   border-collapse: collapse;
+   overflow: auto;
+}
+
+.tab_cell{
+   background: #ededed;
+   padding:    1vh;
+   width: 20vw;
+   height: 5vh;
+   border: 1vh solid  white;
+   border-radius: 2vh;
+}
+
+.tab_cell:hover {
+   background: grey;
+   cursor:     pointer;
+}
+
+.link_cell{
+   background: #ededed;
+   padding:    2px;
+   border-width: 0px 3px 0px 3px;
+   border-style: solid;
+   border-color: white;
+   border-radius: 5px;
+}
+
+.link_cell:hover {
+   background: grey;
+}
+
+.patron_cell{
+   background: #ededed;
+   padding:    2px;
+   border-width: 0px 3px 0px 3px;
+   border-style: solid;
+   border-color: white;
+   border-radius: 5px;
+}
+
+
+td#ajax_reload{
+   height: 89vh;
+   vertical-align: middle;
+   text-align: center;
+   border-collapse: collapse;
+   margin: 0;
+   padding: 0;
+   overflow:auto;
+}
+
+table#main{
+  margin: 0px auto;
+  padding:    0;
+  height:89vh;
+  width: 80vw;
+  text-align: center;
+  border-collapse: collapse;
+  position: absolute;
+  overflow: auto;
+  top: 8vh;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+table.data{
+   margin-left: auto;
+   margin-right: auto;
+   padding:    1vh;
+   width: 75vw;
+   text-align: center;
+   border-collapse: collapse;
+   overflow: auto;
+}
+
+table#data{
+   border-collapse: collapse;
+}
+
+td#data{
+   text-align: center;
+   border-collapse: collapse;
+   margin: 0;
+   padding: 0;
+   overflow:auto;
+   vertical-align: top;
+}
+
+table.title{
+   border-collapse: collapse;
+   padding:    0px;
+}
+
+td.title{
+   background: #ededed;
+   height: 4vh;
+   vertical-align: middle;
+   text-align: center;
+   font-size: 4vh;
+}
+
+td.title_back{
+   width: 2vw;
+   cursor: pointer;
+   line-height: 0.93;
+}
+td.title_back:hover{
+   text-shadow:1px 1px 1px rgba(79,150,190,1);
+}
+
+td.title_text{
+   width: 98vw;
+   line-height: 0.93;
+}
+
+td.section_header{
+   background: #ededed;
+}
+
+div.section_header{
+   width: 100%;
+   background: #ededed;
+}
+
+div.blog_header{
+  background: #ededed;
+  padding: 5px;
+  border-radius: 5px;
+  border: 2px solid grey;
+}
+
+td.section_title{
+   background: #ededed;
+   width: 95vw;
+}
+
+td#question{
+   height: 40vh;
+   vertical-align: middle;
+   text-align: center;
+   border-collapse: collapse;
+   padding: 0;
+   overflow:auto;
+   text-wrap: balance;
+   color: black;
+}
+
+td.response{
+   border-collapse: collapse;
+   border-style: none;
+   text-align: left;
+   vertical-align: top;
+}
+
+td.icon{
+   border-collapse: collapse;
+   border-style: none;
+   text-align: right;
+   vertical-align: top;
+}
+
+td.pavlov{
+   border-collapse: collapse;
+   border-style: none;
+   text-align: right;
+   vertical-align: top;
+   font-weight: bold;
+   color: black;
+}
+
+td.info{
+   text-align: left;
+   border-collapse: collapse;
+   margin: 0;
+   padding: 2px;
+   overflow:auto;
+   vertical-align: top;
+   color: black;
+}
+
+td.quiz_link{
+  font-size:   2.5vh;
+  font-weight: 500;
+}
+
+div#home{
+   font-size: 3vh;
+   margin: 0 auto;
+   width: 75vw;
+   padding: 1.5vh;
+   line-height: 1.3;
+   text-wrap: balance;
+}
+
+div#randq, div.randq{
+  background: #ededed;
+  border: 0px;
+  padding: 2vh;
+  border-radius: 8px;
+  border: 2px solid grey;
+/*  box-shadow: 2px 2px 3px #ededed;   */
+}
+
+td.spacer{
+   height: 2.5vh;
+   border-collapse: collapse;
+   padding: 0;
+   overflow:auto;
+}
+
+td.option{
+   background: #ededed;
+   height: 8.5vh;
+   border-collapse: collapse;
+   vertical-align: middle;
+   text-align: center;
+   text-wrap: balance;
+   line-height: 1.4;
+   font-size: 3vh;
+   padding: 2px;
+   overflow:auto;
+}
+
+td.option:hover, td.option:active{
+   background: grey;
+   cursor: pointer;
+}
+
+div.return_home{
+   background: #ededed;
+   margin: 0px auto;
+   height: 4.5vh;
+   width: 80vw;
+   border-collapse: collapse;
+   vertical-align: middle;
+   text-align: center;
+   text-wrap: balance;
+   line-height: 1.4;
+   font-size: 3vh;
+   padding: 2px;
+   position: absolute;
+   overflow: auto;
+   bottom: 0px;
+   left: 0px;
+   right: 0px;
+   position: fixed;
+   z-index: 1;
+}
+
+div.return_home:hover, div.return_home:active{
+   background: grey;
+   cursor: pointer;
+}
+
+td.option0{
+   background: #dedede;
+   height: 8.5vh;
+   border-collapse: collapse;
+   vertical-align: middle;
+   text-align: center;
+   text-wrap: balance;
+   line-height: 1.4;
+   font-size: 3vh;
+   padding: 2px;
+   overflow:auto;
+   border-radius: 1vh;
+}
+
+td.option0:hover, td.option0:active{
+   background: grey;
+   cursor: pointer;
+}
+
+td.option1{
+   background: #e3e3e3;
+   height: 8.5vh;
+   border-collapse: collapse;
+   vertical-align: middle;
+   text-align: center;
+   text-wrap: balance;
+   line-height: 1.4;
+   font-size: 3vh;
+   padding: 2px;
+   overflow:auto;
+   border-radius: 1vh;
+}
+
+td.option1:hover, td.option1:active{
+   background: grey;
+   cursor: pointer;
+}
+
+td.option2{
+   background: #e7e7e7;
+   height: 8.5vh;
+   border-collapse: collapse;
+   vertical-align: middle;
+   text-align: center;
+   text-wrap: balance;
+   line-height: 1.4;
+   font-size: 3vh;
+   padding: 2px;
+   overflow:auto;
+   border-radius: 1vh;
+}
+
+td.option2:hover, td.option2:active{
+   background: grey;
+   cursor: pointer;
+}
+
+td.option3{
+   background: #ebebeb;
+   height: 8.5vh;
+   border-collapse: collapse;
+   vertical-align: middle;
+   text-align: center;
+   text-wrap: balance;
+   line-height: 1.4;
+   font-size: 3vh;
+   padding: 2px;
+   overflow:auto;
+   border-radius: 1vh;
+}
+
+td.option3:hover, td.option3:active{
+   background: grey;
+   cursor: pointer;
+}
+
+table#correct, table#wrong, table#results{
+  margin: 0px auto;
+  padding:    0;
+  height:91vh;
+  width: 80vw;
+  text-align: center;
+  border-collapse: collapse;
+  position: absolute;
+  overflow: auto;
+  top: 8vh;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+td#correct_header{
+   background: #ededed;
+   font-weight: 650;
+   height: 9vh;
+   border-collapse: collapse;
+   vertical-align: middle;
+   font-size:   4.5vh;
+   text-align: center;
+   padding: 0;
+   overflow:auto;
+}
+
+td#incorrect_header{
+   background: #ededed;
+   font-weight: 650;
+   height: 9vh;
+   border-collapse: collapse;
+   font-size:   4.5vh;
+   vertical-align: middle;
+   text-align: center;
+   padding: 0;
+   overflow:auto;
+}
+
+td#answer{
+   height: 42vh;
+   vertical-align: middle;
+   text-align: center;
+   text-wrap: balance;
+   border-collapse: collapse;
+   padding: 0;
+   overflow:auto;
+   color: black;
+}
+
+span.notes{
+   font-size:   2.5vh;
+   line-height: 1.2;
+}
+
+span.bld{
+  font-weight: bold;
+}
+
+span.itl{
+  font-style: italic;
+}
+
+td#footer{
+   height: 4vh;
+   vertical-align: middle;
+   text-align: center;
+   border-collapse: collapse;
+   padding: 0;
+   overflow:auto;
+}
+
+tr.outlined_row{
+   border-bottom: 1px solid #ededed;
+}
+
+tr.stripe:nth-child(odd) {
+   border-collapse: collapse;
+   background-color: #ededed;
+}
+
+img{
+   border: 1px solid lightgrey;
+   height: 32vh;
+   object-fit: contain;
+   max-width: 80vh;
+   /*width: auto;*/
+}
+
+a:link {
+   color: black;
+}
+a:visited {
+   color: grey;
+}
+a:hover {
+   color: grey;
+   text-shadow: 2px 2px 2px rgba(79,150,190,1);
+}
+a:active {
+    color: grey;
+}
+
+.mouse_pointer:hover{
+   cursor: pointer;
+}
+
+.font_85{
+   font-size: 85%;
+}
+
+.button {
+    vertical-align: middle;
+    border: 0px;
+    height: auto;
+    width: auto;
+}
+
+img.convert{
+   vertical-align: middle;
+   border: 0px;
+   max-width: 100%;
+}
+
+table.amazon_link {
+   color: navy;
+   background: white;
+   font-size: 50%;
+   padding: 0;
+   margin: 0 auto;
+   border-style: solid;
+   border-width: 3px 1px 1px 1px;
+   border-color: darkorange gray gray gray;
+}
+table.amazon_link:hover {
+   color: blue;
+}
+td.amazon_shop {
+   width:118px;
+   vertical-align:bottom;
+   text-align:right;
+}
+img.amazon_shop {
+   border: 0px;
+   height: auto;
+}
+
+/* Should only be for the code input on the settings page */
+.input[type=text] {
+   font-size: 2.25vh;
+   color: white;
+   background-color: #ededed;
+   padding: 4px 4px;
+   margin: 8px 0;
+   box-sizing: border-box;
+}
+
+input[type=submit]{
+  font-size: 2.25vh;
+  color: black;
+  background-color: #ededed;
+  border: none;
+  padding: 8px 16px;
+  text-decoration: none;
+  margin: 4px 2px;
+  cursor: pointer;
+}
+
+input[type=submit]:hover{
+  background-color: grey;
+}
+
+.raise:hover,
+.raise:focus {
+    box-shadow: 0 0.3em 0.3em -0.2em #000;
+    transform: translateY(-0.05em);
+}
+
+/* Popup container - can be anything you want */
+.popup {
+  background-color: #ededed;
+  padding: 2px;
+  border-radius: 4px;
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.popup:hover {
+  background-color: grey;
+}
+
+/* The actual popup */
+.popup .popuptext {
+  visibility: hidden;
+  width: 60vw;
+  background-color: #ededed;
+  color: black;
+  text-align: left;
+  border-radius: 6px;
+  padding: 1vh;
+  position: absolute;
+  z-index: 20;
+  bottom: 125%;
+  left: 12%;
+  margin-left: 0px;
+  cursor: pointer;
+}
+
+/* Popup arrow */
+.popup .popuptext::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 5%;
+  margin-left: -11px;
+  border-width: 11px;
+  border-style: solid;
+  border-color:  #ededed transparent transparent transparent;
+}
+
+/* Toggle this class - hide and show the popup */
+.popup .show {
+  visibility: visible;
+}
+
+/* The instructions popup */
+.popupinst {
+  padding: 2px;
+  border-radius: 4px;
+  position: relative;
+  cursor: pointer;
+  z-index: 24;
+}
+
+.popupinst:hover {
+  background-color: grey;
+}
+
+.popupinst .popuptext_inst {
+  visibility: hidden;
+  width: 35vw;
+  background-color: #ededed;
+  color: black;
+  text-align: left;
+  border-radius: 8px;
+  padding: 1vh;
+  position: absolute;
+  z-index: 25;
+  top: 15%;
+  right: 110%;
+  cursor: pointer;
+  border: 2px solid grey;
+}
+
+.popupinst .show {
+  visibility: visible;
+}
+
+span.blink {
+   animation: blinker 3s linear infinite;
+}
+@keyframes blinker {
+   50% { opacity: 0; }
+}
+
+td.compscorehead{
+   font-weight: bold;
+   padding: 0.5vh;
+   text-align: center;
+}
+
+td.compscore{
+   padding: 0.5vh;
+   text-align: center;
+}
+
+button {
+   text-size: 75%;
+   cursor: pointer;
+}
+
+button.fb {
+   background-color: #3b5998;
+   color: white;
+   box-sizing: border-box;
+   border: 2px solid #ADADAD;
+   border-style: outset;
+   border-radius: 2px;
+   margin: 0em;
+   padding: 1px 6px;
+}
+button.fb:hover {
+   background-color: #4371ba;
+   border: 2px solid #0078D7;
+}
+
+button.reddit {
+   background-color: #FF4500;
+   color: white;
+   box-sizing: border-box;
+   border: 2px solid #ADADAD;
+   border-style: outset;
+   border-radius: 2px;
+   margin: 0em;
+   padding: 1px 6px;
+}
+button.reddit:hover {
+   background-color: #FF6400;
+   border: 2px solid #0078D7;
+}
+
+button.twt {
+   background-color: #1da1f2;
+   color: white;
+   box-sizing: border-box;
+   border: 2px solid #ADADAD;
+   border-style: outset;
+   border-radius: 2px;
+   margin: 0em;
+   padding: 1px 6px;
+}
+button.twt:hover {
+   background-color: #657786;
+   border: 2px solid #0078D7;
+}
+
+      </style>
+   </head>
+   
+<body>
+
+<table id="page">
+   <tr>
+      <td id="header">
+         👨‍🎓 S102 - Fall 2024 👩‍🎓
+      </td>
+   </tr>
+
+   <tr>
+      <td class="font_85" style="text-align: right; height: 1vh;">
+         <span class="popupinst" onclick="document.getElementById('instructions').classList.toggle('show');">Instructions
+            <span class="popuptext_inst" id="instructions"><b>Study Mode Game:</b> This is probably the fastest way to skim a topic. It will display all questions on one page, and you can click each question to reveal the answer (or click a button at the top of the page to show all answers). Once the answer is showing you can click it for detailed information about the answer (if available), then click it (or the popup) to hide this information.<br>The questions in "Study Mode" are presented in random order, so they will be in a different order every time you "Study".</span>
+         </span>
+         &nbsp;&nbsp;&nbsp;&nbsp;
+      </td>
+   </tr>
+   <tr>
+      <td id="ajax_reload">
+      
+<div class="return_home" style="" onclick="window.location.href = 'https://www.trivialstudies.com/ll.php';">
+   Return Home&nbsp;&nbsp;&nbsp;&nbsp;(Remaining: <span id="study_count">162</span>)
+</div>
+<table id="main" style="display: table; ;">
+   <tr class="showrow"><td>&nbsp;</td></tr>
+   <tr class="showrow">
+      <td width="100%" class="option" style=" height: 4.5vh;" onclick="document.getElementById('ans_0').style.display = 'inline'; document.getElementById('ans_1').style.display = 'inline'; document.getElementById('ans_2').style.display = 'inline'; document.getElementById('ans_3').style.display = 'inline'; document.getElementById('ans_4').style.display = 'inline'; document.getElementById('ans_5').style.display = 'inline'; document.getElementById('ans_6').style.display = 'inline'; document.getElementById('ans_7').style.display = 'inline'; document.getElementById('ans_8').style.display = 'inline'; document.getElementById('ans_9').style.display = 'inline'; document.getElementById('ans_10').style.display = 'inline'; document.getElementById('ans_11').style.display = 'inline'; document.getElementById('ans_12').style.display = 'inline'; document.getElementById('ans_13').style.display = 'inline'; document.getElementById('ans_14').style.display = 'inline'; document.getElementById('ans_15').style.display = 'inline'; document.getElementById('ans_16').style.display = 'inline'; document.getElementById('ans_17').style.display = 'inline'; document.getElementById('ans_18').style.display = 'inline'; document.getElementById('ans_19').style.display = 'inline'; document.getElementById('ans_20').style.display = 'inline'; document.getElementById('ans_21').style.display = 'inline'; document.getElementById('ans_22').style.display = 'inline'; document.getElementById('ans_23').style.display = 'inline'; document.getElementById('ans_24').style.display = 'inline'; document.getElementById('ans_25').style.display = 'inline'; document.getElementById('ans_26').style.display = 'inline'; document.getElementById('ans_27').style.display = 'inline'; document.getElementById('ans_28').style.display = 'inline'; document.getElementById('ans_29').style.display = 'inline'; document.getElementById('ans_30').style.display = 'inline'; document.getElementById('ans_31').style.display = 'inline'; document.getElementById('ans_32').style.display = 'inline'; document.getElementById('ans_33').style.display = 'inline'; document.getElementById('ans_34').style.display = 'inline'; document.getElementById('ans_35').style.display = 'inline'; document.getElementById('ans_36').style.display = 'inline'; document.getElementById('ans_37').style.display = 'inline'; document.getElementById('ans_38').style.display = 'inline'; document.getElementById('ans_39').style.display = 'inline'; document.getElementById('ans_40').style.display = 'inline'; document.getElementById('ans_41').style.display = 'inline'; document.getElementById('ans_42').style.display = 'inline'; document.getElementById('ans_43').style.display = 'inline'; document.getElementById('ans_44').style.display = 'inline'; document.getElementById('ans_45').style.display = 'inline'; document.getElementById('ans_46').style.display = 'inline'; document.getElementById('ans_47').style.display = 'inline'; document.getElementById('ans_48').style.display = 'inline'; document.getElementById('ans_49').style.display = 'inline'; document.getElementById('ans_50').style.display = 'inline'; document.getElementById('ans_51').style.display = 'inline'; document.getElementById('ans_52').style.display = 'inline'; document.getElementById('ans_53').style.display = 'inline'; document.getElementById('ans_54').style.display = 'inline'; document.getElementById('ans_55').style.display = 'inline'; document.getElementById('ans_56').style.display = 'inline'; document.getElementById('ans_57').style.display = 'inline'; document.getElementById('ans_58').style.display = 'inline'; document.getElementById('ans_59').style.display = 'inline'; document.getElementById('ans_60').style.display = 'inline'; document.getElementById('ans_61').style.display = 'inline'; document.getElementById('ans_62').style.display = 'inline'; document.getElementById('ans_63').style.display = 'inline'; document.getElementById('ans_64').style.display = 'inline'; document.getElementById('ans_65').style.display = 'inline'; document.getElementById('ans_66').style.display = 'inline'; document.getElementById('ans_67').style.display = 'inline'; document.getElementById('ans_68').style.display = 'inline'; document.getElementById('ans_69').style.display = 'inline'; document.getElementById('ans_70').style.display = 'inline'; document.getElementById('ans_71').style.display = 'inline'; document.getElementById('ans_72').style.display = 'inline'; document.getElementById('ans_73').style.display = 'inline'; document.getElementById('ans_74').style.display = 'inline'; document.getElementById('ans_75').style.display = 'inline'; document.getElementById('ans_76').style.display = 'inline'; document.getElementById('ans_77').style.display = 'inline'; document.getElementById('ans_78').style.display = 'inline'; document.getElementById('ans_79').style.display = 'inline'; document.getElementById('ans_80').style.display = 'inline'; document.getElementById('ans_81').style.display = 'inline'; document.getElementById('ans_82').style.display = 'inline'; document.getElementById('ans_83').style.display = 'inline'; document.getElementById('ans_84').style.display = 'inline'; document.getElementById('ans_85').style.display = 'inline'; document.getElementById('ans_86').style.display = 'inline'; document.getElementById('ans_87').style.display = 'inline'; document.getElementById('ans_88').style.display = 'inline'; document.getElementById('ans_89').style.display = 'inline'; document.getElementById('ans_90').style.display = 'inline'; document.getElementById('ans_91').style.display = 'inline'; document.getElementById('ans_92').style.display = 'inline'; document.getElementById('ans_93').style.display = 'inline'; document.getElementById('ans_94').style.display = 'inline'; document.getElementById('ans_95').style.display = 'inline'; document.getElementById('ans_96').style.display = 'inline'; document.getElementById('ans_97').style.display = 'inline'; document.getElementById('ans_98').style.display = 'inline'; document.getElementById('ans_99').style.display = 'inline'; document.getElementById('ans_100').style.display = 'inline'; document.getElementById('ans_101').style.display = 'inline'; document.getElementById('ans_102').style.display = 'inline'; document.getElementById('ans_103').style.display = 'inline'; document.getElementById('ans_104').style.display = 'inline'; document.getElementById('ans_105').style.display = 'inline'; document.getElementById('ans_106').style.display = 'inline'; document.getElementById('ans_107').style.display = 'inline'; document.getElementById('ans_108').style.display = 'inline'; document.getElementById('ans_109').style.display = 'inline'; document.getElementById('ans_110').style.display = 'inline'; document.getElementById('ans_111').style.display = 'inline'; document.getElementById('ans_112').style.display = 'inline'; document.getElementById('ans_113').style.display = 'inline'; document.getElementById('ans_114').style.display = 'inline'; document.getElementById('ans_115').style.display = 'inline'; document.getElementById('ans_116').style.display = 'inline'; document.getElementById('ans_117').style.display = 'inline'; document.getElementById('ans_118').style.display = 'inline'; document.getElementById('ans_119').style.display = 'inline'; document.getElementById('ans_120').style.display = 'inline'; document.getElementById('ans_121').style.display = 'inline'; document.getElementById('ans_122').style.display = 'inline'; document.getElementById('ans_123').style.display = 'inline'; document.getElementById('ans_124').style.display = 'inline'; document.getElementById('ans_125').style.display = 'inline'; document.getElementById('ans_126').style.display = 'inline'; document.getElementById('ans_127').style.display = 'inline'; document.getElementById('ans_128').style.display = 'inline'; document.getElementById('ans_129').style.display = 'inline'; document.getElementById('ans_130').style.display = 'inline'; document.getElementById('ans_131').style.display = 'inline'; document.getElementById('ans_132').style.display = 'inline'; document.getElementById('ans_133').style.display = 'inline'; document.getElementById('ans_134').style.display = 'inline'; document.getElementById('ans_135').style.display = 'inline'; document.getElementById('ans_136').style.display = 'inline'; document.getElementById('ans_137').style.display = 'inline'; document.getElementById('ans_138').style.display = 'inline'; document.getElementById('ans_139').style.display = 'inline'; document.getElementById('ans_140').style.display = 'inline'; document.getElementById('ans_141').style.display = 'inline'; document.getElementById('ans_142').style.display = 'inline'; document.getElementById('ans_143').style.display = 'inline'; document.getElementById('ans_144').style.display = 'inline'; document.getElementById('ans_145').style.display = 'inline'; document.getElementById('ans_146').style.display = 'inline'; document.getElementById('ans_147').style.display = 'inline'; document.getElementById('ans_148').style.display = 'inline'; document.getElementById('ans_149').style.display = 'inline'; document.getElementById('ans_150').style.display = 'inline'; document.getElementById('ans_151').style.display = 'inline'; document.getElementById('ans_152').style.display = 'inline'; document.getElementById('ans_153').style.display = 'inline'; document.getElementById('ans_154').style.display = 'inline'; document.getElementById('ans_155').style.display = 'inline'; document.getElementById('ans_156').style.display = 'inline'; document.getElementById('ans_157').style.display = 'inline'; document.getElementById('ans_158').style.display = 'inline'; document.getElementById('ans_159').style.display = 'inline'; document.getElementById('ans_160').style.display = 'inline'; document.getElementById('ans_161').style.display = 'inline'; ">
+         Show All Answers
+      </td>
+   </tr>
+   <tr class="showrow">
+      <td>
+         <br>
+         <span class="font_85">
+            Share this study guide:&nbsp;
+            <button class="fb"     onclick="window.open('https://www.facebook.com/sharer/sharer.php?u=http%3A%2F%2Fwww.trivialstudies.com%2Fquiz_1212102');">Facebook</button>&nbsp;
+            <button class="twt"    onclick="window.open('https://twitter.com/intent/tweet?url=http%3A%2F%2Fwww.trivialstudies.com%2Fquiz_1212102');">Twitter</button>&nbsp;
+            <button class="reddit" onclick="window.open('http://reddit.com/submit?url=http%3A%2F%2Fwww.trivialstudies.com%2Fquiz_1212102');">Reddit</button>
+         </span>
+      </td>
+   </tr>
+   <tr class="showrow"><td>&nbsp;</td></tr>
+   <tr class="showrow">
+      <td id="filtrow" style="text-align: center;">
+         Search questions: <input type="text" id="filter_text" title="Search for a specific subject matter." placeholder="Search for question...">&nbsp;&nbsp;&nbsp;
+         <button onclick="filter_notebook();">Search</button>
+      </td>
+   </tr>
+   
+   <tr class="showrow"><td>&nbsp;</td></tr>
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_0">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_0').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#1.  Learned League - Season: 102 - Day: 1 - Question: 1<br>GEOGRAPHY - The southernmost state of India is, per its name, the land of what people, whose name also refers to the Dravidian language spoken there?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_0" style="display: none;" ><b>TAMIL</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_1">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_1').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#2.  Learned League - Season: 102 - Day: 1 - Question: 2<br>POP MUSIC - Though its founding brothers were born in Glasgow, Scotland, and its long-time (44 years and counting) lead vocalist is from Northern England, near Newcastle, what band was formed in Sydney in 1973 and is (by many measures) the internationally greatest-selling musical act from Australia?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_1" style="display: none;" ><b>AC/DC</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_2">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_2').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#3.  Learned League - Season: 102 - Day: 1 - Question: 3<br>FOOD/DRINK - Joppiesaus, Comeback Sauce, Louis dressing, remoulades, Marie Rose sauce, and Samouraï sauce are all made with what emulsive base?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_2" style="display: none;" ><b>MAYONNAISE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_3">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_3').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#4.  Learned League - Season: 102 - Day: 1 - Question: 4<br>SCIENCE - The astronomical phenomenon in which distant stars traveling away from the observer are redshifted, while those approaching are blueshifted, is an example of an effect named after what Austrian mathematician and physicist?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_3" style="display: none;" ><b>CHRISTIAN DOPPLER</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_4">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_4').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#5.  Learned League - Season: 102 - Day: 1 - Question: 5<br>FILM - What term fills in the blank in the following excerpt from a 1966 interview of Alfred Hitchcock by François Truffaut? "It might be a Scottish name, taken from a story about two men in a train. One man says, 'What's that package up there in the baggage rack?' And the other answers, 'Oh that's a [BLANK].'"</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_4" style="display: none;" ><b>MACGUFFIN</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_5">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_5').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#6.  Learned League - Season: 102 - Day: 1 - Question: 6<br>AMER HIST - The danger of close links between defense contractors and the armed forces, and the damaging effects this unified entity can have on public policy, were outlined in President Dwight Eisenhower's 1961 farewell address, remembered today for its popularization of what three-part term?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_5" style="display: none;" ><b>MILITARY-INDUSTRIAL COMPLEX</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_6">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_6').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#7.  Learned League - Season: 102 - Day: 2 - Question: 1<br>THEATRE - Peter Quince, Nick Bottom, Francis Flute, Tom Snout, Robin Starveling, and Snug are Shakespearean characters known collectively as what?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_6" style="display: none;" ><b>(RUDE) MECHANICALS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_7">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_7').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#8.  Learned League - Season: 102 - Day: 2 - Question: 2<br>GAMES/SPORT - The NHL player who won the league's Hart Memorial Trophy (for most valuable player) in 2017, 2021, and 2023 shares his first name with the NHL player who won the league's Calder Trophy (for rookie of the year) in 2024, and with the player who won the league's Vezina Trophy (for best goaltender) in 2020 and 2024. What is that first name?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_7" style="display: none;" ><b>CONNOR</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_8">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_8').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#9.  Learned League - Season: 102 - Day: 2 - Question: 3<br>WORLD HIST - Although today it commemorates all the servicemembers of Australia and New Zealand, what holiday was originally designated on April 25 in those countries to honor the members of the Army Corps who served in World War I's Gallipoli campaign?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_8" style="display: none;" ><b>ANZAC DAY</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_9">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_9').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#10.  Learned League - Season: 102 - Day: 2 - Question: 4<br>LITERATURE - Some of the stories in a 1981 short story collection by Raymond Carver have influenced or have been adapted into film, including 2014's <i>Birdman</i>, whose plot centers on a Broadway production of one of the stories. That story, like the collection itself, is titled "What We Talk about When" what?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_9" style="display: none;" ><b>WE TALK ABOUT LOVE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_10">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_10').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#11.  Learned League - Season: 102 - Day: 2 - Question: 5<br>SCIENCE - One word is often used to denote fatty acids with only single bonds between carbons in the hydrocarbon chain, whereas another, opposite word denotes fatty acids in which the hydrocarbon chain contains one or more double bonds. What are those two words?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_10" style="display: none;" ><b>SATURATED, UNSATURATED</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_11">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_11').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#12.  Learned League - Season: 102 - Day: 2 - Question: 6<br>LIFESTYLE - Matty Tingles is one of several popular YouTubers who specialize in videos with auditory and visual stimuli that, to many of his fans, trigger a sensation commonly known by what four-letter initialism?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_11" style="display: none;" ><b>ASMR</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_12">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_12').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#13.  Learned League - Season: 102 - Day: 3 - Question: 1<br>MATH - In mathematics, the sum of a real number and an imaginary number, expressed typically as <i>x</i> + <i>iy</i> or <i>a</i> + <i>bi</i>, is referred to most often as what kind of number?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_12" style="display: none;" ><b>COMPLEX NUMBER</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_13">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_13').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#14.  Learned League - Season: 102 - Day: 3 - Question: 2<br>LANGUAGE - What word, defined as a large trunk or suitcase used for traveling, is perhaps better known in its newer, literary sense, as coined and utilized frequently by Lewis Carroll?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_13" style="display: none;" ><b>PORTMANTEAU</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_14">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_14').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#15.  Learned League - Season: 102 - Day: 3 - Question: 3<br>TELEVISION - Lisa Turtle on <i>Saved by the Bell</i>, <i>The Cheetah Girls</i>' Galleria Garibaldi, Buttercup in <i>The Princess Bride</i>, Det. Tony Costas in the straight-to-video <i>Collision Course</i>, and Margaret White in the 1976 film <i>Carrie</i> - all of these roles were portrayed by actors who have first names with what commonality?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_14" style="display: none;" ><b>NAMES OF BIRDS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_15">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_15').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#16.  Learned League - Season: 102 - Day: 3 - Question: 4<br>GAMES/SPORT - Four teams in college football's highest-level Division I Football Bowl Subdivision (FBS) took in zero players through the transfer portal in 2024. One of the four was Clemson. Name any one of the other three, all of which share a particular and unique distinction among FBS teams.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_15" style="display: none;" ><b>ARMY, NAVY, AIR FORCE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_16">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_16').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#17.  Learned League - Season: 102 - Day: 3 - Question: 5<br>ART - What type of object appears in Claude Monet's <i>The Gare Saint-Lazare</i> (quite fittingly) as well as René Magritte's <i>Time Transfixed</i> (much less so)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_16" style="display: none;" ><b>TRAIN/LOCOMOTIVE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_17">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_17').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#18.  Learned League - Season: 102 - Day: 3 - Question: 6<br>POP MUSIC - <i>Traveller</i> (2015), <i>From A Room: Volume 1</i> (2017), and <i>Starting Over</i> (2021), all of which won the Academy of Country Music Awards Album of the Year, the Country Music Association Awards Album of the Year, and the Grammy Award for Best Country Album, are releases by what artist?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_17" style="display: none;" ><b>CHRIS STAPLETON</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_18">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_18').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#19.  Learned League - Season: 102 - Day: 4 - Question: 1<br>LITERATURE - Society hostess Anna Pavlovna Scherer, at a party she is hosting in July 1805, during the era of Napoleonic conflicts, is the first among the nearly 600 named characters to be introduced in what novel?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_18" style="display: none;" ><b>WAR AND PEACE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_19">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_19').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#20.  Learned League - Season: 102 - Day: 4 - Question: 2<br>SCIENCE - The first human-made object to exit the heliosphere and enter interstellar space, doing so in August 2012, was one of the two probes launched by NASA as a part of what program? The program's other probe entered interstellar space in November 2018.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_19" style="display: none;" ><b>VOYAGER</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_20">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_20').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#21.  Learned League - Season: 102 - Day: 4 - Question: 3<br>LIFESTYLE - What durable, soft, suede-like leather, a gently brushed and buffed full-grain leather, was once produced from the hides of young deer (hence its name)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_20" style="display: none;" ><b>NUBUCK</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_21">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_21').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#22.  Learned League - Season: 102 - Day: 4 - Question: 4<br>FILM - Schecky Moskowitz, Robbie Hart, Bobby Boucher Jr., Sonny Koufax, Paul Crewe, Zohan Dvir, Lenny Feder, and Howard Ratner are all characters portrayed in film by what actor?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_21" style="display: none;" ><b>ADAM SANDLER</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_22">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_22').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#23.  Learned League - Season: 102 - Day: 4 - Question: 5<br>GAMES/SPORT - Which of the four railroads on the standard Monopoly game board was inspired by an interurban that ran from Atlantic City, New Jersey, to nearby communities (as opposed to the others, which were named after longer, interstate operators)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_22" style="display: none;" ><b>SHORT LINE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_23">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_23').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#24.  Learned League - Season: 102 - Day: 4 - Question: 6<br>GEOGRAPHY - <i>Al-Mamlakah al-Maghribiyyah</i> ("Kingdom of the West") is the official name of what country?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_23" style="display: none;" ><b>MOROCCO</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_24">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_24').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#25.  Learned League - Season: 102 - Day: 5 - Question: 1<br>TELEVISION - Jazmine Sullivan, H.E.R., and Ne-Yo are among the many artists whose earliest television appearances were as "amateurs" on a series recorded at, and named after, what Uptown Manhattan venue?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_24" style="display: none;" ><b>APOLLO THEATER</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_25">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_25').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#26.  Learned League - Season: 102 - Day: 5 - Question: 2<br>LANGUAGE - Which letter of the Greek alphabet was used in antiquity as a symbol for death, presumably because it was the first letter of the Greek word for "death" and also perhaps because it roughly resembles a human skull. Some engravings would avoid the letter's use by showing the letters delta and epsilon in its place.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_25" style="display: none;" ><b>THETA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_26">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_26').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#27.  Learned League - Season: 102 - Day: 5 - Question: 3<br>CLASS MUSIC - <i>Neoclassicism</i> in music is closely associated with some of the works of what composer, in particular works composed during the period from <i>Pulcinella</i> (1920) to <i>The Rake's Progress</i> (1951)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_26" style="display: none;" ><b>IGOR STRAVINSKY</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_27">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_27').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#28.  Learned League - Season: 102 - Day: 5 - Question: 4<br>WORLD HIST - What four-letter word means "son of" in the Kalenjin language, such as in the name of the man who served from 1978 to 2002 as president of Kenya?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_27" style="display: none;" ><b>ARAP</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_28">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_28').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#29.  Learned League - Season: 102 - Day: 5 - Question: 5<br>BUS/ECON - Cryptocurrency (technically, the private keys that provide access to cryptocurrencies) is stored in wallets. What antonyms are most commonly used to distinguish wallets that are connected to the internet and those that are not? (Two answers required.)</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_28" style="display: none;" ><b>HOT, COLD</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_29">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_29').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#30.  Learned League - Season: 102 - Day: 5 - Question: 6<br>LIFESTYLE - What tree links US President Andrew Jackson, the 1951–52 Indiana high school boys basketball champs in a 1986 film, and the largest city in Catawba County, North Carolina?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_29" style="display: none;" ><b>HICKORY</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_30">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_30').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#31.  Learned League - Season: 102 - Day: 6 - Question: 1<br>POP MUSIC - The lyrics to a smash 2024 single by Sabrina Carpenter, the second single from <i>Short n' Sweet</i>, frequently repeat what word (including three times in the title)? The word also appeared frequently, and twice in the title, of a hit released 61 years prior. </div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_30" style="display: none;" ><b>PLEASE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_31">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_31').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#32.  Learned League - Season: 102 - Day: 6 - Question: 2<br>BUS/ECON - From its launch in December 2001 until production ceased in June 2020, what was the world's best-selling (but, at 140,000 units, still not really very great-selling) brand of self-balancing, two-wheeled "Personal Transporter"? </div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_31" style="display: none;" ><b>SEGWAY</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_32">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_32').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#33.  Learned League - Season: 102 - Day: 6 - Question: 3<br>THEATRE - A historical set of six individuals are the central characters of the hit musical <i>Six</i>. Give the first name of any one of the six.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_32" style="display: none;" ><b>ANNA, ANNE, CATHERINE, KATHERINE, JANE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_33">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_33').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#34.  Learned League - Season: 102 - Day: 6 - Question: 4<br>AMER HIST - Jamaica-born activist Marcus Garvey, founder of the Pan-African UNIA, was also involved in the founding of a shipping line with what name? The name is ostensibly a play on that of the British line whose vessels included the Atlantic, Britannic, and Titanic.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_33" style="display: none;" ><b>BLACK STAR LINE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_34">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_34').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#35.  Learned League - Season: 102 - Day: 6 - Question: 5<br>SCIENCE - The main types of volcanoes are <i>composite</i> (e.g., Mt. St. Helens and Mt. Fuji), made up of alternating layers of lava and ash; <i>cinder</i> (e.g. Arizona's Sunset Crater), composed of small lava fragments and having steep sides; <i>lava domes</i> (e.g. California's Lassen Peak), which are thick and pasty lava layers; and what fourth type, which have large and broad shapes (hence their name), and which are exemplified by the Hawaiian Islands?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_34" style="display: none;" ><b>SHIELD</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_35">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_35').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#36.  Learned League - Season: 102 - Day: 6 - Question: 6<br>FILM - The hit-and-run manslaughter of a pedestrian is one of the many crimes committed by high schoolers who have descended into chaos in what 1936 anticannabis exploitation film, which has a cult following today despite (or due to) being widely regarded as terrible? </div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_35" style="display: none;" ><b>REEFER MADNESS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_36">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_36').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#37.  Learned League - Season: 102 - Day: 7 - Question: 1<br>BUS/ECON - A <i>metonym</i> is a figure of speech in which an entity or concept is referred to by a name closely associated with that entity (e.g., "Wall Street" for the US financial markets ). What simple name, formally that of a local authority district of England, is commonly used as a metonym for the United Kingdom's financial-service industries?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_36" style="display: none;" ><b>THE CITY (OF LONDON)</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_37">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_37').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#38.  Learned League - Season: 102 - Day: 7 - Question: 2<br>WORLD HIST - Seretse Khama, heir to the chieftainship of the Ngwato, founded the Bechuanaland Democratic Party in 1956, and later became the president of what landlocked republic in southern Africa, from its independence in 1966 until his death in 1980?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_37" style="display: none;" ><b>BOTSWANA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_38">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_38').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#39.  Learned League - Season: 102 - Day: 7 - Question: 3<br>GAMES/SPORT - The Hanshin Electric Railway, ORIX Corporation, Nippon Ham Co., Yakult Honsha Company, and the holding company of the Yomiuri Shimbun newspaper are all otherwise unrelated Japanese business enterprises connected by their ownership of entities in an organization known as Nippon Yakyū Kikō, or "Nippon Professional" what? </div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_38" style="display: none;" ><b>BASEBALL</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_39">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_39').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#40.  Learned League - Season: 102 - Day: 7 - Question: 4<br>TELEVISION - What current ABC News program debuted in 1979 initially to cover the Iran Hostage Crisis (and was in fact titled <i>The Iran Crisis - America Held Hostage</i>), and was anchored from 1980 until 2005 by English-born journalist Ted Koppel?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_39" style="display: none;" ><b>NIGHTLINE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_40">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_40').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#41.  Learned League - Season: 102 - Day: 7 - Question: 5<br>LITERATURE - The 1933 novel <i>The Case of the Velvet Claws</i> was the first novel by Erle Stanley Gardner and the first to feature what lawyer?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_40" style="display: none;" ><b>PERRY MASON</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_41">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_41').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#42.  Learned League - Season: 102 - Day: 7 - Question: 6<br>CLASS MUSIC - Mozart's Serenade No. 13 for Strings in G Major is much better known by what three-word German name, provided by the composer himself via a notation he made in his catalog that describes the piece?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_41" style="display: none;" ><b>EINE KLEINE NACHTMUSIK</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_42">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_42').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#43.  Learned League - Season: 102 - Day: 8 - Question: 1<br>ART - A certain pair of items in the permanent collection of New York's Museum of Modern Art were designed in 1956 and have been available for purchase from Herman Miller continuously since that year. Name the designing couple responsible for this particular set.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_42" style="display: none;" ><b>CHARLES AND RAY EAMES</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_43">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_43').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#44.  Learned League - Season: 102 - Day: 8 - Question: 2<br>FILM - Identify the phrase coined by Lauren Bacall to describe a certain set of actors in the 1950s and the adapted term used by journalist David Blum to describe a separate set of actors in the 1980s. (Two answers required.)</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_43" style="display: none;" ><b>RAT PACK, BRAT PACK</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_44">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_44').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#45.  Learned League - Season: 102 - Day: 8 - Question: 3<br>WORLD HIST - In 1349, the future King Charles V of France purchased land which gave its name to the title of the eldest son of the reigning French monarch (until 1830). What was that title?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_44" style="display: none;" ><b>DAUPHIN</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_45">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_45').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#46.  Learned League - Season: 102 - Day: 8 - Question: 4<br>POP MUSIC - One Thomas - Thomas Andrew - was born in 1899 and is remembered as "The Father of Gospel Music". The other, Thomas Francis, was born in 1905, went by "Tommy", and was "The Sentimental Gentleman of Swing". What last name did these two Thomases share?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_45" style="display: none;" ><b>DORSEY</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_46">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_46').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#47.  Learned League - Season: 102 - Day: 8 - Question: 5<br>SCIENCE - Although some fertilizers contain micronutrients, including metals such as zinc and iron, most fertilizers used in gardening and agriculture contain the three basic plant nutrients: nitrogen, phosphorus, and what third?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_46" style="display: none;" ><b>POTASSIUM</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_47">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_47').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#48.  Learned League - Season: 102 - Day: 8 - Question: 6<br>GEOGRAPHY - Whereas Monaco, a small country with an area of less than one square mile, is the most densely populated country in the world, the most densely populated "nonsmall" country in the world  is what Asian nation - the eighth-most populous country overall, with around 170 million people within its 57,000 square miles? (Here, we arbitrarily define a "nonsmall" country as one with an area greater than 3,000 square miles, though we could go much lower and keep the same answer.)</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_47" style="display: none;" ><b>BANGLADESH</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_48">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_48').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#49.  Learned League - Season: 102 - Day: 9 - Question: 1<br>LITERATURE - <i>The Voyage of the Dawn Treader</i>, <i>The Silver Chair</i>, and <i>The Magician's Nephew</i> are all books set in what mythical realm?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_48" style="display: none;" ><b>NARNIA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_49">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_49').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#50.  Learned League - Season: 102 - Day: 9 - Question: 2<br>ART - What is the name used for the characters created by American illustrator Rose O'Neill in 1909, as cherub-faced baby characters in magazine illustrations and a comic strip, that became extremely popular and sought after as porcelain and later plastic dolls? Their mythology-derived name is now used for Japan's leading mayonnaise brand, which uses the doll as its emblem.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_49" style="display: none;" ><b>KEWPIE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_50">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_50').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#51.  Learned League - Season: 102 - Day: 9 - Question: 3<br>GEOGRAPHY - The name of what small city of around 34,000 residents in Washington State is on a particularly distinctive list that includes a tourist destination with luxury resorts in the Society Islands of French Polynesia, a spa town in far southwestern Germany, the capital of American Samoa, a maximum-security prison in New York's Westchester County, and a Pennsylvania community that hosts the headquarters (and is the namesake) of a convenience-store chain?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_50" style="display: none;" ><b>WALLA WALLA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_51">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_51').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#52.  Learned League - Season: 102 - Day: 9 - Question: 4<br>SCIENCE - What two-word phrase is the most common colloquial term for carbon dioxide (CO<sub>2</sub>) in solid form?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_51" style="display: none;" ><b>DRY ICE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_52">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_52').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#53.  Learned League - Season: 102 - Day: 9 - Question: 5<br>FOOD/DRINK - The standard recipe for eggs Benedict consists of two halves of an English muffin, each topped with Canadian bacon, a poached egg, and what else (plus perhaps a sprinkled garnish)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_52" style="display: none;" ><b>HOLLANDAISE SAUCE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_53">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_53').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#54.  Learned League - Season: 102 - Day: 9 - Question: 6<br>GAMES/SPORT - <i>Hacks</i>, <i>back lines</i>, <i>tee lines</i>, and <i>hog lines</i> are all elements of the playing surface during a <i>bonspiel</i> in what sport?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_53" style="display: none;" ><b>CURLING</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_54">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_54').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#55.  Learned League - Season: 102 - Day: 10 - Question: 1<br>LANGUAGE - Most commonly, what is the Spanish equivalent of the French <i>s'il vous plaît</i>?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_54" style="display: none;" ><b>POR FAVOR</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_55">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_55').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#56.  Learned League - Season: 102 - Day: 10 - Question: 2<br>GAMES/SPORT - In tennis, when the ball hits the net during a serve and lands in the correct service box, the umpire calls out a word and the players replay the point. What is this three-letter word?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_55" style="display: none;" ><b>LET</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_56">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_56').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#57.  Learned League - Season: 102 - Day: 10 - Question: 3<br>AMER HIST - The Pendleton Civil Service Reform Act of 1883 addressed the "spoils system", in which numerous government employees lost their jobs each time a new president took office. The act was prompted in large part by whose death two years earlier (at the hands of a disappointed government job seeker)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_56" style="display: none;" ><b>JAMES A. GARFIELD</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_57">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_57').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#58.  Learned League - Season: 102 - Day: 10 - Question: 4<br>FILM - A lion, a hippo, a giraffe, and a zebra are the main characters of what 2005 film (though none of the four species are native to the film's titular location)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_57" style="display: none;" ><b>MADAGASCAR</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_58">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_58').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#59.  Learned League - Season: 102 - Day: 10 - Question: 5<br>POP MUSIC - The TR-707, TR-808, and TR-909 drum machines, as well as the Juno-106 and D-50 synthesizers, were massively influential electronic musical instruments produced in the 1980s by what manufacturer?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_58" style="display: none;" ><b>ROLAND</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_59">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_59').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#60.  Learned League - Season: 102 - Day: 10 - Question: 6<br>SCIENCE - Histidine, isoleucine, leucine, lysine, methionine, and phenylalanine are all categorized as what type of acid?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_59" style="display: none;" ><b>AMINO ACIDS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_60">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_60').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#61.  Learned League - Season: 102 - Day: 11 - Question: 1<br>LITERATURE - "Do I contradict myself? Very well then I contradict myself, (I am large, I contain [BLANK].)" In this quote from Walt Whitman's "Song of Myself", what word fills the blank? </div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_60" style="display: none;" ><b>MULTITUDES</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_61">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_61').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#62.  Learned League - Season: 102 - Day: 11 - Question: 2<br>SCIENCE - An eighteenth-century New England farmer and agricultural scientist with the last name of Hanson promoted the use of a particular native European grass to farmers in Great Britain and the American South for pasture grass and hay. The tall grass, occasionally approaching five feet in height, with small, green, "cattail" flower heads two to six inches long, is known by what name, which was Hanson's first name?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_61" style="display: none;" ><b>TIMOTHY</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_62">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_62').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#63.  Learned League - Season: 102 - Day: 11 - Question: 3<br>GEOGRAPHY - The Sahara is widely believed to be the largest desert in the world, but to be precise, the largest desert on earth is actually what?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_62" style="display: none;" ><b>ANTARCTICA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_63">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_63').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#64.  Learned League - Season: 102 - Day: 11 - Question: 4<br>WORLD HIST - A semi-secret federation known as the FAI  was formed in 1927 to maintain the revolutionary anarchist orthodoxy of the CNT (English: "National Confederation of Labor") amid the CNT's increasing syndicalism. The FAI eventually gained significant influence within the CNT during the period known as the Second Republic. In what country did these events take place?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_63" style="display: none;" ><b>SPAIN</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_64">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_64').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#65.  Learned League - Season: 102 - Day: 11 - Question: 5<br>GAMES/SPORT - The R&amp;A is the name of an organization that serves as a governing body for the game of golf, roughly an international analog to the USGA. According to its namesake, from which the organization spun off in 2004, what do the letters in "R&amp;A" stand for?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_64" style="display: none;" ><b>ROYAL, ANCIENT</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_65">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_65').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#66.  Learned League - Season: 102 - Day: 11 - Question: 6<br>THEATRE - A 1964 drama by Peter Weiss, structured as a play-within-a-play performed by inmates of a French asylum, has a formal name (in English) that is 25 words long but is best known by what much shorter title?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_65" style="display: none;" ><b>MARAT/SADE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_66">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_66').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#67.  Learned League - Season: 102 - Day: 12 - Question: 1<br>LIFESTYLE - Beginning in 2023, a series of viral videos revolves around a conflict pitting humanoids with TVs, speakers, and cameras for heads against what common everyday objects (but "Skibidi" and with human heads)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_66" style="display: none;" ><b>TOILETS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_67">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_67').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#68.  Learned League - Season: 102 - Day: 12 - Question: 2<br>AMER HIST - A legendary wilderness guide and U.S. Army officer of the Wild West era, a hugely popular icon of expansionism and the American frontier during his lifetime, became - 10 years before his death in 1868 - the namesake of a settlement that is now the capital of what state?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_67" style="display: none;" ><b>NEVADA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_68">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_68').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#69.  Learned League - Season: 102 - Day: 12 - Question: 3<br>GEOGRAPHY - From 1932 until the fall of the Soviet Union, the Volga River city of Nizhny Novgorod was named after what writer and Marxist activist who went by the first name Maxim and was born there in 1868? The name is still used for a large park in central Moscow.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_68" style="display: none;" ><b>GORKY</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_69">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_69').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#70.  Learned League - Season: 102 - Day: 12 - Question: 4<br>SCIENCE - Basalt, diabase, and gabbro are among the rock types characterized as mafic. This word, mafic, was invented to describe these rocks, based on the fact that they are rich in what two metallic elements?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_69" style="display: none;" ><b>MAGNESIUM, IRON</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_70">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_70').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#71.  Learned League - Season: 102 - Day: 12 - Question: 5<br>GAMES/SPORT - Identify the athlete who, as a senior at Cleveland's East Technical High School, entered his first national scholastic track meet in 1933 and set world scholastic records in the 100- and 220-yard dashes and the broad jump.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_70" style="display: none;" ><b>JESSE OWENS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_71">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_71').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#72.  Learned League - Season: 102 - Day: 12 - Question: 6<br>LITERATURE - "I've got the name for our publishing operation. We just said we were going to publish a few books on the side at [REDACTED]." This quote is from Bennett Cerf's posthumous 1977 memoir, in which he recounts the naming of the publisher he co-founded. What word has been redacted, which is the first word of the publishing firm's name? </div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_71" style="display: none;" ><b>RANDOM (HOUSE)</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_72">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_72').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#73.  Learned League - Season: 102 - Day: 13 - Question: 1<br>LIFESTYLE - A spirited and heated debate in 1964 rejected an option called the Pearson Pennant as well as an existing Red Ensign in favor of a now-iconic design centered on an arboreal emblem of the genus <i>Acer</i>. What is that emblem?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_72" style="display: none;" ><b>MAPLE LEAF/CANADIAN FLAG</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_73">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_73').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#74.  Learned League - Season: 102 - Day: 13 - Question: 2<br>ART - What word is used to describe monuments such as the Wellington Monument in Dublin, the Monument to the People's Heroes in Beijing's Tiananmen Square, and the Washington Monument on the National Mall in DC, while the word itself is used in the names of similar monuments in Stockholm and Buenos Aires?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_73" style="display: none;" ><b>OBELISK</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_74">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_74').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#75.  Learned League - Season: 102 - Day: 13 - Question: 3<br>POP MUSIC - "Sad But True" by Jason Isbell and the 400 Unit, "Holier Than Thou" by Off!, "The Unforgiven" by Cage the Elephant, "Wherever I May Roam" by J Balvin, "Through the Never" by The Hu, and "Nothing Else Matters" by Phoebe Bridgers are among the songs on a 2021 album recorded as a 30th-anniversary tribute to an album by what band?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_74" style="display: none;" ><b>METALLICA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_75">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_75').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#76.  Learned League - Season: 102 - Day: 13 - Question: 4<br>WORLD HIST - What term was used in a derogatory sense by parliament supporters to describe royalists who fought for Charles I during the English Civil Wars of the 1640s, evoking long-haired, sword-bearing, war-mongering, swaggering courtiers?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_75" style="display: none;" ><b>CAVALIERS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_76">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_76').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#77.  Learned League - Season: 102 - Day: 13 - Question: 5<br>LANGUAGE - What language, primarily spoken by the inhabitants of Tanzania, Kenya, and Mozambique, is the most widely spoken in the Bantu language family of central and southern Africa? </div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_76" style="display: none;" ><b>SWAHILI</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_77">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_77').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#78.  Learned League - Season: 102 - Day: 13 - Question: 6<br>FILM - A 2010 movie whose plot revolves around the production of a certain Tchaikovsky work has a title that is the same as a phrase used for rare events, specifically, in recent times, ones that have extreme impact and lead to retrospective explanation. What is this title?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_77" style="display: none;" ><b>BLACK SWAN</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_78">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_78').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#79.  Learned League - Season: 102 - Day: 14 - Question: 1<br>TELEVISION - Ted Allen, the original food and wine connoisseur on Bravo's <i>Queer Eye for the Straight Guy</i>, has hosted what cooking competition reality series since its debut in 2009?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_78" style="display: none;" ><b>CHOPPED</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_79">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_79').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#80.  Learned League - Season: 102 - Day: 14 - Question: 2<br>GAMES/SPORT - The five members of the 2023–24 All-NBA 1st Team represent five different countries in international competition. One country is the US (represented by Jayson Tatum) - name any one of the other four countries.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_79" style="display: none;" ><b>CANADA, GREECE, SERBIA, SLOVENIA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_80">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_80').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#81.  Learned League - Season: 102 - Day: 14 - Question: 3<br>SCIENCE - In physics, of the various quantities that characterize a given wave, which is defined as the distance from the equilibrium point of the wave to the highest point of a crest or the lowest point of a trough?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_80" style="display: none;" ><b>AMPLITUDE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_81">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_81').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#82.  Learned League - Season: 102 - Day: 14 - Question: 4<br>LIFESTYLE - What three-letter word is defined as a slot or notch cut in wood to receive another piece of wood and is also familiar in the world of carpentry and other trades as the name of a leading manufacturer of caulks and sealants?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_81" style="display: none;" ><b>DAP</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_82">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_82').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#83.  Learned League - Season: 102 - Day: 14 - Question: 5<br>CLASS MUSIC - <i>The Bringer of War</i>, <i>The Bringer of Peace</i>, and <i>The Winged Messenger</i> are subtitles of three of the seven movements of what orchestral suite that premiered in 1917? </div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_82" style="display: none;" ><b>THE PLANETS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_83">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_83').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#84.  Learned League - Season: 102 - Day: 14 - Question: 6<br>LITERATURE - In Samuel Taylor Coleridge's <i>The Rime of the Ancient Mariner</i>, the "bird of good omen" is what kind of bird?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_83" style="display: none;" ><b>ALBATROSS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_84">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_84').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#85.  Learned League - Season: 102 - Day: 15 - Question: 1<br>SCIENCE - A fiercely predatory African fish with extremely large teeth, several species of moth with distinctive patterns and coloration, and a large species of shark notorious for its willingness to eat almost anything (and for its rare attacks on humans) all have names that include the name of what other animal?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_84" style="display: none;" ><b>TIGER</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_85">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_85').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#86.  Learned League - Season: 102 - Day: 15 - Question: 2<br>FOOD/DRINK - "Pep-O-Mint" was the first flavor of what confection and mints brand, introduced in 1912 and currently owned by Mars Inc.? The brand has had more than 40 flavors in its portfolio over the years.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_85" style="display: none;" ><b>LIFE SAVERS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_86">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_86').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#87.  Learned League - Season: 102 - Day: 15 - Question: 3<br>CURR EVENTS - In August 2024, Russian billionaire Pavel Durov was taken into custody by French authorities on an arrest warrant alleging crimes including drug trafficking, fraud, money laundering, and other offenses on what service, of which Durov is the founder and CEO?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_86" style="display: none;" ><b>TELEGRAM</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_87">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_87').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#88.  Learned League - Season: 102 - Day: 15 - Question: 4<br>WORLD HIST - What word for a magnate or great personage comes from the name of the Muslim dynasty, of Turkish origin with strong Persian influence, that ruled India from the sixteenth to the eighteenth centuries? </div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_87" style="display: none;" ><b>MOGUL</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_88">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_88').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#89.  Learned League - Season: 102 - Day: 15 - Question: 5<br>GEOGRAPHY - Of the 20 <i>regioni</i> of Italy, Sicily is the largest in area, followed closely by Piedmont. Which of the 20 - also large in area and home to the cities of Milan, Brescia, and Bergamo - is by far the most populous?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_88" style="display: none;" ><b>LOMBARDY</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_89">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_89').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#90.  Learned League - Season: 102 - Day: 15 - Question: 6<br>POP MUSIC - Bill Monroe, the music legend and "Father of Bluegrass" who essentially created the genre, was a master of what instrument, one of the core instruments of the traditional bluegrass five-piece band?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_89" style="display: none;" ><b>MANDOLIN</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_90">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_90').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#91.  Learned League - Season: 102 - Day: 16 - Question: 1<br>TELEVISION - In 2003, the television network TV Land produced an animated special titled <i>The Alan Brady Show</i>, which was a spin-off of what sitcom that premiered 42 years earlier?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_90" style="display: none;" ><b>THE DICK VAN DYKE SHOW</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_91">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_91').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#92.  Learned League - Season: 102 - Day: 16 - Question: 2<br>WORLD HIST - A large estate with a manor house in Latin America that was granted to the upper class for profit-making activity (plantations, mines, etc.) was sometimes known in Argentina as <i>estancia</i>, but in Mexico and elsewhere, it was typically known as what? The word has become common in the US in the names of apartment complexes and Mexican restaurants, and it is also an architectural style that mixes Spanish colonial and indigenous Mexican influences.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_91" style="display: none;" ><b>HACIENDA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_92">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_92').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#93.  Learned League - Season: 102 - Day: 16 - Question: 3<br>GAMES/SPORT - What game, a long-time popular pencil-and-paper game dating back to the early twentieth century under various names, was first released as a board game with plastic boards and pegs by Milton Bradley in 1967?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_92" style="display: none;" ><b>BATTLESHIP</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_93">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_93').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#94.  Learned League - Season: 102 - Day: 16 - Question: 4<br>LITERATURE - In 1936, the American educator and author Dale Carnegie published a book, which eventually sold millions of copies, that (according to its title) instructed its readers on how to do what (five words)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_93" style="display: none;" ><b>WIN FRIENDS AND INFLUENCE PEOPLE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_94">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_94').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#95.  Learned League - Season: 102 - Day: 16 - Question: 5<br>LIFESTYLE - A river in (and region of) the northwestern United States, within northern Idaho and southeastern Washington, is the source of the name for what popular and distinctive American horse breed, known for its patient disposition and colorful spotted coat pattern?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_94" style="display: none;" ><b>APPALOOSA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_95">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_95').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#96.  Learned League - Season: 102 - Day: 16 - Question: 6<br>BUS/ECON - Tennis legends Rod Laver and Stan Smith were contemporaries and rivals on the court, as well as contemporaries (and perhaps rivals) with eponymous products produced by what company?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_95" style="display: none;" ><b>ADIDAS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_96">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_96').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#97.  Learned League - Season: 102 - Day: 17 - Question: 1<br>ART - Although he was born in Rio de Janeiro in 1907 and died there nearing the age of 105, architect Oscar Niemeyer is probably most closely associated with what other city, particularly in his collaboration with fellow countryman Lúcio Costa?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_96" style="display: none;" ><b>BRASILIA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_97">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_97').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#98.  Learned League - Season: 102 - Day: 17 - Question: 2<br>SCIENCE - Ionization and deionization are terms for phase changes between a gas and what other state of matter?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_97" style="display: none;" ><b>PLASMA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_98">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_98').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#99.  Learned League - Season: 102 - Day: 17 - Question: 3<br>CLASS MUSIC - The title character of Gioachino Rossini's last opera, which premiered in 1829, was Guillaume. What was his last name?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_98" style="display: none;" ><b>TELL</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_99">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_99').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#100.  Learned League - Season: 102 - Day: 17 - Question: 4<br>WORLD HIST - Avignon, now a municipality in southern France, was from 1378 to 1417 home to a rival and schismatic line of "anti" what?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_99" style="display: none;" ><b>POPES</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_100">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_100').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#101.  Learned League - Season: 102 - Day: 17 - Question: 5<br>LITERATURE - Washington Irving's <i>The Legend of Sleepy Hollow</i> features the spirit of a Hessian soldier from the American Revolutionary War who was known as what (though it might've just been that mischievous Brom Bones)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_100" style="display: none;" ><b>HEADLESS HORSEMAN</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_101">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_101').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#102.  Learned League - Season: 102 - Day: 17 - Question: 6<br>GEOGRAPHY - An archipelago in the North Atlantic which is an autonomous region of Portugal, and the largest tributary of the Amazon, both take their names from a Portuguese word for "wood." What is that word?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_101" style="display: none;" ><b>MADEIRA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_102">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_102').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#103.  Learned League - Season: 102 - Day: 18 - Question: 1<br>TELEVISION - In a climactic scene from a season-three episode of the dramatic TV series <i>Lost</i>, the character Charlie, immediately before his death, holds up his hand on which he has written three words. The first two are "Not Penny's" - what is the third?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_102" style="display: none;" ><b>BOAT</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_103">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_103').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#104.  Learned League - Season: 102 - Day: 18 - Question: 2<br>FOOD/DRINK - What fancy English main course, a signature of chef Gordon Ramsay, is nominally related to nineteenth-century British general Arthur Wellesley?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_103" style="display: none;" ><b>BEEF WELLINGTON</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_104">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_104').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#105.  Learned League - Season: 102 - Day: 18 - Question: 3<br>LITERATURE - "I believe in periods, in capitals, in the occasional comma, and that's it." Name the author of this declaration, who followed it with the lack of quotation marks and semicolons in his 1992 novel <i>All the Pretty Horses</i>.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_104" style="display: none;" ><b>CORMAC MCCARTHY</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_105">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_105').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#106.  Learned League - Season: 102 - Day: 18 - Question: 4<br>SCIENCE - What distinctive, gland-filled part of human anatomy has a name that translates from Latin as "little grape" (which, it could be argued, it resembles)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_105" style="display: none;" ><b>UVULA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_106">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_106').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#107.  Learned League - Season: 102 - Day: 18 - Question: 5<br>ART - Identify the American artist, born in Greenwich, New York, in September 1860, whose famous works include <i>Out for the Christmas Tree</i> (1946), <i>A Country Wedding</i> (1951), and <i>Bennington</i> (1953).</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_106" style="display: none;" ><b>GRANDMA (ANNA MARY ROBERTSON) MOSES</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_107">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_107').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#108.  Learned League - Season: 102 - Day: 18 - Question: 6<br>FILM - The blockbuster film from 2024 that became the highest-grossing R-rated film of all time featured what Marvelous duo?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_107" style="display: none;" ><b>DEADPOOL & WOLVERINE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_108">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_108').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#109.  Learned League - Season: 102 - Day: 19 - Question: 1<br>SCIENCE - What Russian word for "east" is included in the name, appropriately enough, of the capital of the Far Eastern Federal District of Russia, and is also the name of the Russian research station in Antarctica that recorded the lowest temperature on Earth (−128.6°F) as well as the Soviet space program that sent the first human into space?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_108" style="display: none;" ><b>VOSTOK</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_109">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_109').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#110.  Learned League - Season: 102 - Day: 19 - Question: 2<br>AMER HIST - What increased steadily in size over the years from its creation until the year 1929, when it was fixed at 435 (where it remains today)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_109" style="display: none;" ><b>U.S. HOUSE OF REPRESENTATIVES</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_110">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_110').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#111.  Learned League - Season: 102 - Day: 19 - Question: 3<br>POP MUSIC - The 1984 Madonna song that she performed memorably at the inaugural MTV Video Music Awards and the 1989 Madonna song whose video was condemned by the Vatican both begin with what word?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_110" style="display: none;" ><b>LIKE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_111">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_111').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#112.  Learned League - Season: 102 - Day: 19 - Question: 4<br>GAMES/SPORT - The United States won the most gold medals and most medals overall in Track and Field events at the 2024 Summer Olympics in Paris (with 14 and 34 respectively). What nation finished second in both measures, with four gold medals and eleven track and field medals overall?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_111" style="display: none;" ><b>KENYA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_112">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_112').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#113.  Learned League - Season: 102 - Day: 19 - Question: 5<br>LITERATURE - <i>What's Next</i> by Melissa Fitzgerald and Mary McCormack, which made the <i>New York Times</i> Hardcover Nonfiction Best Sellers list in the summer of 2024, is advertised as a behind-the-scenes look into the creation and legacy of what television series, as told by members of its cast and crew?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_112" style="display: none;" ><b>THE WEST WING</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_113">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_113').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#114.  Learned League - Season: 102 - Day: 19 - Question: 6<br>GEOGRAPHY - A river that rises in the Czech Republic and flows through Germany to the North Sea has a name that, by changing one letter, becomes the name of a small island off the coast of Italy that achieved a specific historical distinction in the 1810s. Give the name of either.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_113" style="display: none;" ><b>ELBE, ELBA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_114">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_114').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#115.  Learned League - Season: 102 - Day: 20 - Question: 1<br>SCIENCE - "I will use those dietary regimens which will benefit my patients according to my greatest ability and judgment, and I will do no harm or injustice to them." This is a translation of a portion of text commonly attributed to whom?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_114" style="display: none;" ><b>HIPPOCRATES</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_115">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_115').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#116.  Learned League - Season: 102 - Day: 20 - Question: 2<br>TELEVISION - The Lifetime network television series <i>Any Day Now</i> and the BBC/Netflix series <i>Peaky Blinders</i> were both set in cities with what name? </div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_115" style="display: none;" ><b>BIRMINGHAM</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_116">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_116').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#117.  Learned League - Season: 102 - Day: 20 - Question: 3<br>FOOD/DRINK - Among the common types of broths used for ramen dishes are Shio, seasoned primarily with salt (as 塩 "shio" = salt), Miso (miso paste), Tonkotsu (pork bone), and Shoyu, which is primarily flavored with what?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_116" style="display: none;" ><b>SOY SAUCE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_117">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_117').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#118.  Learned League - Season: 102 - Day: 20 - Question: 4<br>BUS/ECON - Otis, ThyssenKrupp, KONE, Fujitec, and Kleemann are companies that are among the world’s leading manufacturers of what machines? (American English or British English is acceptable.)</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_117" style="display: none;" ><b>ELEVATOR/LIFTS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_118">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_118').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#119.  Learned League - Season: 102 - Day: 20 - Question: 5<br>LITERATURE - <i>My Brilliant Friend</i> is the first of the Neapolitan Novels by what Italian author?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_118" style="display: none;" ><b>ELENA FERRANTE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_119">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_119').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#120.  Learned League - Season: 102 - Day: 20 - Question: 6<br>WORLD HIST - The splendiferous French king Louis XIV, who ruled for 72 years beginning in 1643 at the age of four, is remembered for many things during his long reign, including his famous protestation, <i>L'État, c'est [BLANK]</i>. (Fill in the blank.)</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_119" style="display: none;" ><b>MOI</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_120">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_120').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#121.  Learned League - Season: 102 - Day: 21 - Question: 1<br>MATH - British mathematician Andrew Wiles, born in Cambridge, England, in 1953, will forever be inextricably linked via the Taniyama-Shimura-Weil conjecture with what other mathematician born 346 years earlier?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_120" style="display: none;" ><b>PIERRE DE FERMAT</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_121">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_121').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#122.  Learned League - Season: 102 - Day: 21 - Question: 2<br>FILM - The title of a 1996 Michael Bay action thriller starring Sean Connery and Nicolas Cage equals the star of the 2015 action thriller <i>San Andreas</i>. What is that 1996 movie?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_121" style="display: none;" ><b>THE ROCK</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_122">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_122').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#123.  Learned League - Season: 102 - Day: 21 - Question: 3<br>GAMES/SPORT - In an athletic sense, what word is the French equivalent of the Spanish <i>Vuelta</i> and the Italian <i>Giro</i>?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_122" style="display: none;" ><b>TOUR</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_123">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_123').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#124.  Learned League - Season: 102 - Day: 21 - Question: 4<br>WORLD HIST - The marriage of Ferdinand and Isabel in the city of Valladolid in October 1469 was monumental for uniting the two major Spanish kingdoms. Name <i>both</i> of these kingdoms.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_123" style="display: none;" ><b>ARAGON, CASTILE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_124">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_124').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#125.  Learned League - Season: 102 - Day: 21 - Question: 5<br>CLASS MUSIC - What is the name of the simple musical scale, also known as the 12-tone scale and often considered the opposite of diatonic, which contains 12 pitches (notes) separated by a semitone in a stepwise scale ?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_124" style="display: none;" ><b>CHROMATIC SCALE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_125">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_125').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#126.  Learned League - Season: 102 - Day: 21 - Question: 6<br>LITERATURE - Ta-Nehisi Coates's brutal and honest 2015 book <i>Between the World and Me</i>, a thorough and illuminating exploration of America's racial history, is structured as a letter from the author to whom?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_125" style="display: none;" ><b>HIS SON</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_126">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_126').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#127.  Learned League - Season: 102 - Day: 22 - Question: 1<br>THEATRE - In 2000 and again in 2017, the Tony Award for Best Play was won by a play whose title is the name of a national capital city. Name <i>either</i> of these cities, which are just over one hour apart by plane.</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_126" style="display: none;" ><b>COPENHAGEN, OSLO</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_127">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_127').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#128.  Learned League - Season: 102 - Day: 22 - Question: 2<br>LITERATURE - What is the portmanteau title of William Gibson's seminal and influential 1984 cyberpunk novel, the first (and only) to win the Nebula, Hugo, and Philip K. Dick awards?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_127" style="display: none;" ><b>NEUROMANCER</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_128">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_128').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#129.  Learned League - Season: 102 - Day: 22 - Question: 3<br>ART - An 1872 work by French Impressionist Claude Monet has a title that gave the movement its name. The title begins <i>Impression</i>. What English word, or two French words, completes the title?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_128" style="display: none;" ><b>SUNRISE/SOLEIL LEVANT</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_129">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_129').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#130.  Learned League - Season: 102 - Day: 22 - Question: 4<br>WORLD HIST - The photographer Roger Fenton, the nursing pioneer Florence Nightingale, and the poet Alfred Lord Tennyson are all, for different reasons, closely associated with what war?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_129" style="display: none;" ><b>CRIMEAN WAR</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_130">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_130').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#131.  Learned League - Season: 102 - Day: 22 - Question: 5<br>TELEVISION - What word was used beginning in the late 1970s and early 1980s to describe television channels such as Atlanta's WTBS and Chicago's WGN, including in their own branding and marketing, as they expanded their local reach to become national broadcasters at the dawn of the cable television era in America?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_130" style="display: none;" ><b>SUPERSTATION</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_131">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_131').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#132.  Learned League - Season: 102 - Day: 22 - Question: 6<br>FOOD/DRINK - What antioxidant-rich plant, the subject of an 1893 US Supreme Court decision regarding its classification, originated in the Andes region and was cultivated by the Inca and Aztec peoples?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_131" style="display: none;" ><b>TOMATO</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_132">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_132').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#133.  Learned League - Season: 102 - Day: 23 - Question: 1<br>BUS/ECON - The interest rate charged by the US Federal Reserve on loans it makes to commercial banks (which is one mechanism for influencing other interest rates) is a rate most commonly known by what name?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_132" style="display: none;" ><b>DISCOUNT RATE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_133">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_133').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#134.  Learned League - Season: 102 - Day: 23 - Question: 2<br>GAMES/SPORT - In association football (soccer), when the ball is kicked out of bounds behind the goal line by the <i>defensive</i> team, what is awarded to the offensive team to restart play?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_133" style="display: none;" ><b>CORNER KICK</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_134">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_134').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#135.  Learned League - Season: 102 - Day: 23 - Question: 3<br>TELEVISION - The unseen dictator of a 1949 novel provides the name of a television series whose US version debuted in July 2000. What is the name of this series?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_134" style="display: none;" ><b>BIG BROTHER</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_135">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_135').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#136.  Learned League - Season: 102 - Day: 23 - Question: 4<br>CURR EVENTS - The Mexican political party named the National Regeneration Movement (<i>Movimiento Regeneración Nacional</i>) is one of the country's three major political parties and the party of 2024 presidential election-winner Claudia Sheinbaum as well as majorities of both the Senate and Chamber of Deputies. By what abbreviation is this party best known (which also alludes to the country's patron saint, the Virgin of Guadalupe)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_135" style="display: none;" ><b>MORENA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_136">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_136').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#137.  Learned League - Season: 102 - Day: 23 - Question: 5<br>FILM - Martin Scorsese's Oscar-winning film <i>The Departed</i> was a remake of a film made four years earlier that is regarded by many as one of the best action films ever to come out of Hong Kong. By what punny English name is this original Cantonese-language film known?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_136" style="display: none;" ><b>INFERNAL AFFAIRS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_137">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_137').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#138.  Learned League - Season: 102 - Day: 23 - Question: 6<br>AMER HIST - The "Contract with America", a commitment to curb wasteful spending in the federal government (among other provisions), was spearheaded during the 1994 US congressional election campaign by what Georgia Republican, who was punished by the House for ethics violations three years later?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_137" style="display: none;" ><b>NEWT GINGRICH</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_138">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_138').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#139.  Learned League - Season: 102 - Day: 24 - Question: 1<br>LANGUAGE - What fellow West Germanic language, still spoken by a small population in Northwestern Europe bordering the North Sea, is generally considered to be the modern language closest to English? While not mutually intelligible with English, its "Old" version was possibly so with the Anglo-Saxon language (Old English).</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_138" style="display: none;" ><b>FRISIAN</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_139">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_139').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#140.  Learned League - Season: 102 - Day: 24 - Question: 2<br>WORLD HIST - Established in 1908 by medical students in the city then known as Batavia, Budi Utomo was an organization that laid the groundwork for the broader nationalist movement and eventual independence of what country?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_139" style="display: none;" ><b>INDONESIA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_140">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_140').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#141.  Learned League - Season: 102 - Day: 24 - Question: 3<br>SCIENCE - The doughnut-shaped regions of space surrounding the Earth that are rich in charged (and potentially dangerous) particles are belts discovered by, and named after, what eminent physicist and NASA researcher?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_140" style="display: none;" ><b>JAMES VAN ALLEN</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_141">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_141').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#142.  Learned League - Season: 102 - Day: 24 - Question: 4<br>MATH - What term in geometry is defined as the shortest path between two points on a curved surface, such as a sphere (or, as is commonly applied in architecture, a dome)?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_141" style="display: none;" ><b>GEODESIC</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_142">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_142').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#143.  Learned League - Season: 102 - Day: 24 - Question: 5<br>FILM - The name of what childhood home fills the blank in this partial, chronological list: <i>Casino Royale</i>, <i>Quantum of Solace</i>, [BLANK], <i>Spectre</i>, <i>No Time to Die</i>?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_142" style="display: none;" ><b>SKYFALL</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_143">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_143').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#144.  Learned League - Season: 102 - Day: 24 - Question: 6<br>LITERATURE - Jean Rhys's feminist and postcolonialist 1966 prequel to <i>Jane Eyre</i>, which fleshes out the story of Bertha Mason (Antoinette Cosway), uses what body of water - in the story and in the title - to symbolize Antoinette's displacement and turmoil?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_143" style="display: none;" ><b>(WIDE) SARGASSO SEA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_144">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_144').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#145.  Learned League - Season: 102 - Day: 25 - Question: 1<br>POP MUSIC - In the summer of 2024, the color specified by the Pantone code 3507C, or by the hex code #8ACE00, was a startling and verdant hue widely referred to by what four-letter word?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_144" style="display: none;" ><b>BRAT</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_145">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_145').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#146.  Learned League - Season: 102 - Day: 25 - Question: 2<br>AMER HIST - According to the popular slogan and song used by the Whig Party in the US presidential election of 1840, what was the nickname of candidate William Henry Harrison, who was renowned for his achievements during Tecumseh's War as a military leader and governor of the Indiana Territory?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_145" style="display: none;" ><b>(OLD) TIPPECANOE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_146">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_146').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#147.  Learned League - Season: 102 - Day: 25 - Question: 3<br>FOOD/DRINK - Among the tediously numerous and unverifiable origin stories for what cocktail is the claim by bartender Daniel Negrete that he (allegedly) invented it in 1936 at the Garci-Crespo Hotel and named it after his girlfriend?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_146" style="display: none;" ><b>MARGARITA</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_147">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_147').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#148.  Learned League - Season: 102 - Day: 25 - Question: 4<br>ART - Like many gothic cathedrals, the cathedrals of Chartres and Notre Dame de Paris were built with distinctive, external, arched supports (allowing for very tall but relatively thin stone walls) that are commonly known by what two-word term?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_147" style="display: none;" ><b>FLYING BUTTRESS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_148">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_148').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#149.  Learned League - Season: 102 - Day: 25 - Question: 5<br>GAMES/SPORT - The final 2023 WSL rankings saw Filipe Toledo (BRA) finish ahead of Ethan Ewing (AUS) and Griffin Colapinto (USA) on the men's side, while Caroline Marks (USA) ended in first place over Carissa Moore (HAW) and Tyler Wright (AUS) on the women's. The WSL is the governing body for professionals in what sport?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_148" style="display: none;" ><b>SURFING</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_149">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_149').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#150.  Learned League - Season: 102 - Day: 25 - Question: 6<br>POP MUSIC - While it came to represent the US music publishing industry in general, what term originally referred specifically to a stretch of West 28th Street in Manhattan between Fifth and Sixth Ave. that was once home to Harry von Tilzer Music Publishing Company, Paul Dresser Publishing Company, Shapiro &amp; Bernstein Publishers, and many others?</div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_149" style="display: none;" ><b>TIN PAN ALLEY</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_150">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_150').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#151.  Learned League - Season: 102 - MSC - Question: 1<br>"Great Adventure", "Great Escape", "Magic Mountain", and "Over Texas" are different word pairs that are all associated in certain branding with what other word pair?<br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_150" style="display: none;" ><b>SIX FLAGS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_151">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_151').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#152.  Learned League - Season: 102 - MSC - Question: 2<br>Name the long-running children's television program that was conceived and hosted by Bob Keeshan, who was actually American (the title character's name comes from his pockets).<br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_151" style="display: none;" ><b>CAPTAIN KANGAROO</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_152">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_152').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#153.  Learned League - Season: 102 - MSC - Question: 3<br>What term, which literally translates to "in glass", is used for biological experiments or studies that are carried out in a laboratory, outside the body of a living organism? <br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_152" style="display: none;" ><b>IN VITRO</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_153">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_153').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#154.  Learned League - Season: 102 - MSC - Question: 4<br>Identify the early electronic melody instrument, named after its Russian inventor who patented it in 1928, which is closely associated with B-grade horror films of the 1950s (and also perhaps the theme to the original <i>Star Trek</i> series, though the instrument was not actually used in that case).<br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_153" style="display: none;" ><b>THEREMIN</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_154">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_154').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#155.  Learned League - Season: 102 - MSC - Question: 5<br>Yarrow, Stookey, and Travers were the last names of the members of what successful American folk trio popular beginning in the early 1960s?<br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_154" style="display: none;" ><b>PETER, PAUL, AND MARY</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_155">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_155').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#156.  Learned League - Season: 102 - MSC - Question: 6<br>Name the two major rivers that meet in Paducah, Kentucky, neither of which is the Kentucky River (though of similar nomenclature).<br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_155" style="display: none;" ><b>OHIO RIVER, TENNESSEE RIVER</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_156">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_156').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#157.  Learned League - Season: 102 - MSC - Question: 7<br>Sometimes used as a synonym for "metonymy" (or considered a type of metonymy), what is the word for the figure of speech and rhetorical device that refers to a whole by one of its parts? "All hands on deck" is an example, with "hands" referring to the people on the ship.<br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_156" style="display: none;" ><b>SYNECDOCHE</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_157">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_157').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#158.  Learned League - Season: 102 - MSC - Question: 8<br>As of May 29, 2024, who is officially Major League Baseball's all-time career leader in batting average, slugging percentage, and on-base plus slugging percentage (OPS), as well as the single-season record-holder in those categories?<br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_157" style="display: none;" ><b>JOSH GIBSON</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_158">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_158').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#159.  Learned League - Season: 102 - MSC - Question: 9<br>The Indian music label and film production company Super Cassettes Industries Private Limited, noteworthy for owning YouTube's most-viewed and most-subscribed channel (ahead of #2 MrBeast), does business under what name, by which it is better known?<br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_158" style="display: none;" ><b>T-SERIES</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_159">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_159').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#160.  Learned League - Season: 102 - MSC - Question: 10<br> While poached eggs are cooked in a pot of simmering water or broth, eggs cooked similarly but steamed within a small container (such as a ramekin) are described by what other word, a form of which can be used for the container itself?<br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_159" style="display: none;" ><b>CODDLED</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_160">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_160').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#161.  Learned League - Season: 102 - MSC - Question: 11<br> What was the three-letter acronym used for the "secret army organization" of far-right French Algerians active in resisting Algerian independence during the early 1960s?<br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_160" style="display: none;" ><b>OAS</b></div>
+            <br>
+         </td>
+      </tr>
+
+      <tr class="outlined_row"><td></td></tr>
+      <tr class="qrow">
+         <td style="text-align: left;" id="question_161">
+            <div class="mouse_pointer" onclick="document.getElementById('study_count').innerText = Math.max(0,parseInt(document.getElementById('study_count').innerText)-1); document.getElementById('ans_161').style.display = 'inline'; this.scrollIntoView({ behavior: 'smooth', block: 'start' });">#162.  Learned League - Season: 102 - MSC - Question: 12<br> Catholic clergyman Jean-Bapiste Lamy (fictionalized as Jean Marie Latour) and his attempt to develop the newly established diocese of New Mexico are the basis for a 1927 novel by Willa Cather. At the end of the novel, and the end of his life, what is Latour's position (per the novel's title)?<br/></div>
+               &nbsp;&nbsp;&nbsp;<div  id="ans_161" style="display: none;" ><b>ARCHBISHOP</b></div>
+            <br>
+         </td>
+      </tr>
+
+   <tr class="outlined_row showrow"><td></td></tr>
+   <tr class="showrow"><td>&nbsp;</td></tr>
+   <tr>
+      <td>
+            If you see value in these study guides, please support TrivialStudies.com.<br>
+            <a target= "_blank" onclick="inc_button('patreon');"  href="https://www.patreon.com/bePatron?u=4518151">
+               <img class="convert raise" style="border-radius: 18px; height: 36px;" alt="Patreon" src="https://www.trivialstudies.com/images/patron_button.png">
+            </a><br><br>
+      </td>
+   </tr>
+   <tr><td>&nbsp;</td></tr>
+
+   <tr class="showrow"><td><br><br></td></tr>
+</table>      </td>
+   </tr>
+</table>
+
+</body>
+

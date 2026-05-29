@@ -7,8 +7,9 @@ import re, json, os, glob
 def parse_season_file(html_text):
     lookup = {}
 
-    # Season number from <h1 class='matchday'> or class="matchday"
-    h1_match = re.search(r"<h1[^>]*class=['\"]matchday['\"][^>]*>(.*?)</h1>", html_text, re.DOTALL)
+    # Season number from any <h1> containing "LL\d+"
+    # (covers both class='matchday' division pages and class='' leaguewide pages)
+    h1_match = re.search(r"<h1[^>]*>(.*?)</h1>", html_text, re.DOTALL)
     if not h1_match:
         return lookup
     season_match = re.search(r'LL(\d+)', h1_match.group(1))

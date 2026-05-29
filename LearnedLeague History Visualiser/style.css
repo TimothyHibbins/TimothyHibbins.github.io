@@ -44,13 +44,6 @@ main {
 }
 
 /* ── Upload section ──────────────────────────────────────────────────────── */
-#upload-section {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 1rem;
-}
-
 .upload-group {
     display: flex;
     flex-direction: column;
@@ -79,7 +72,7 @@ input[type="file"] {
     font-weight: 600;
     cursor: pointer;
     transition: background 0.15s;
-    align-self: flex-end;
+    flex-shrink: 0;
 }
 
 #load-btn:hover {
@@ -91,10 +84,14 @@ input[type="file"] {
 }
 
 .status {
-    width: 100%;
+    display: block;
     margin: 0;
+    padding: 0.2rem 2rem;
     font-size: 0.82rem;
     color: #999;
+    background: #1a1a1a;
+    border-bottom: 1px solid #2a2a2a;
+    min-height: 1.6em;
 }
 
 .status.error {
@@ -336,16 +333,19 @@ input[type="file"] {
 #subject-tray {
     display: flex;
     flex: 1;
-    min-width: 180px;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 6px 12px;
-    padding: 8px 12px;
-    margin: 6px 0 4px;
-    background: #252525;
-    border: 1px solid #333;
-    border-radius: 6px;
+    min-width: 0;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px;
+    margin: 0;
+    overflow-x: auto;
     font-size: 0.78rem;
+    scrollbar-width: none;
+}
+
+#subject-tray::-webkit-scrollbar {
+    display: none;
 }
 
 #subject-tray.hidden {

@@ -1367,12 +1367,13 @@ function renderGrid(questions, pctLookup, subjectOrder = null, titleCase = false
     const PAD_R = 10;
     const availW = Math.max(200, chartEl.clientWidth || (window.innerWidth - 80));
 
-    // Prefer individual columns; only pack when screen is too narrow.
-    const MIN_ROW_H = 9;   // px — minimum row height for answer text to be legible
+    // Prefer individual columns; only pack when the screen is too narrow.
+    // When packing is needed, binary-search for the assignment that maximises
+    // the minimum row height across all bins.
 
     // Compute minimum column width so that 95% of answers fit without truncation.
-    // maxChars = floor(COL_W / 5.0) in the text renderer, so MIN_COL_W = p95_chars * 5 + padding.
-    const CHAR_W = 5.0;
+    // maxChars = floor(COL_W / 5.0) in the text renderer; CHAR_W=4.0 gives ~20% tolerance.
+    const CHAR_W = 4.0;
     const ansLengths = matched
         .filter(q => q.answer)
         .map(q => (titleCase ? _toTitleCase(q.answer) : q.answer).length);
@@ -1385,36 +1386,55 @@ function renderGrid(questions, pctLookup, subjectOrder = null, titleCase = false
         MIN_COL_W = 80; // fallback when no answers available
     }
 
-    const noPackColW = columns.length > 1
-        ? (availW - PAD_L - PAD_R - COL_GAP * (columns.length - 1)) / columns.length
-        : (availW - PAD_L - PAD_R);
-
-    // "Fits" = columns wide enough AND every subject's individual rows are tall enough to show text
-    const allFit = noPackColW >= MIN_COL_W &&
-        columns.every(col => (CHART_AREA / col.qs.length) >= MIN_ROW_H);
+    // Maximum bins that can fit on screen at MIN_COL_W each
+    const maxBins = Math.max(1, Math.floor(
+        (availW - PAD_L - PAD_R + COL_GAP) / (MIN_COL_W + COL_GAP)));
 
     let bins;
-    if (allFit) {
-        // Every subject gets its own column
+    if (columns.length <= maxBins) {
+        // Each subject gets its own column — already optimal for min row height
         bins = columns.map(col => ({ cols: [col], totalQ: col.qs.length }));
     } else {
-        // Too many subjects to fit individually; pack from smallest upward
-        const colsByCount = [...columns].sort((a, b) => b.qs.length - a.qs.length);
-        bins = [];
-        let curBin = { cols: [], totalQ: 0 };
-        for (const col of colsByCount) {
-            const newK = curBin.cols.length + 1;
-            const newTotalQ = curBin.totalQ + col.qs.length;
-            const rowH = (CHART_AREA - MINI_H * (newK - 1)) / newTotalQ;
-            if (curBin.cols.length === 0 || rowH >= MIN_ROW_H) {
-                curBin.cols.push(col);
-                curBin.totalQ = newTotalQ;
-            } else {
-                bins.push(curBin);
-                curBin = { cols: [col], totalQ: col.qs.length };
+        // Need to reduce to maxBins bins.  Find the partition that maximises the
+        // minimum row height using binary search + greedy ("First Fit Decreasing
+        // with skip"): take the largest unassigned subject, then scan remaining
+        // subjects smallest-to-largest-skipped to fill the bin while rowH >= T.
+        const sorted = [...columns].sort((a, b) => b.qs.length - a.qs.length);
+
+        // Returns the packed bins if the layout fits in maxBins, else null.
+        function tryPack(T) {
+            const rem = [...sorted];
+            const result = [];
+            while (rem.length > 0) {
+                if (result.length >= maxBins) return null;
+                const bin = { cols: [rem.shift()], totalQ: 0 };
+                bin.totalQ = bin.cols[0].qs.length;
+                let k = 1, j = 0;
+                while (j < rem.length) {
+                    const newTotalQ = bin.totalQ + rem[j].qs.length;
+                    // For k+1 subjects the rowH constraint is:
+                    // (CHART_AREA - MINI_H * k) / newTotalQ >= T
+                    const cap = (CHART_AREA - MINI_H * k) / T;
+                    if (newTotalQ <= cap) {
+                        bin.cols.push(rem.splice(j, 1)[0]);
+                        bin.totalQ = newTotalQ;
+                        k++;
+                    } else {
+                        j++;
+                    }
+                }
+                result.push(bin);
             }
+            return result;
         }
-        if (curBin.cols.length > 0) bins.push(curBin);
+
+        // Binary search for the largest T that still fits in maxBins
+        let lo = 0, hi = CHART_AREA / sorted[0].qs.length;
+        for (let iter = 0; iter < 52; iter++) {
+            const mid = (lo + hi) / 2;
+            if (tryPack(mid) !== null) lo = mid; else hi = mid;
+        }
+        bins = tryPack(lo) || sorted.map(col => ({ cols: [col], totalQ: col.qs.length }));
     }
 
     // Stretch columns to fill available width
@@ -1532,21 +1552,28 @@ function renderGrid(questions, pctLookup, subjectOrder = null, titleCase = false
                     class: 'grid-bar',
                 });
 
-                // Answer text (only when row is tall enough)
-                if (rowH >= 9 && q.answer) {
-                    const maxChars = Math.floor(COL_W / 5.0);
-                    const rawAnswer = titleCase ? _toTitleCase(q.answer) : q.answer;
-                    const label = rawAnswer.length > maxChars
-                        ? rawAnswer.slice(0, maxChars - 1) + '\u2026'
-                        : rawAnswer;
-                    svgEl(svg, NS, 'text', {
-                        x: bin.x + 4, y: rowY + rowH / 2,
-                        'dominant-baseline': 'central',
-                        'clip-path': `url(#${bin._clipId})`,
-                        fill: q.correct ? contrastColor(color) : '#ddd',
-                        'font-weight': q.correct ? '600' : '700',
-                        class: 'grid-answer',
-                    }).textContent = label;
+                // Answer text — scale font down for small rows rather than hiding
+                if (q.answer) {
+                    const nominalFS = titleCase ? 10.0 : 8.5;
+                    const ansFS = Math.min(nominalFS, rowH - 0.5);
+                    const MIN_FS = 5.5;
+                    if (ansFS >= MIN_FS) {
+                        const padL = Math.max(2, Math.floor(ansFS / 2));
+                        const maxChars = Math.floor((COL_W - padL) / (ansFS * 0.62));
+                        const rawAnswer = titleCase ? _toTitleCase(q.answer) : q.answer;
+                        const label = rawAnswer.length > maxChars
+                            ? rawAnswer.slice(0, maxChars - 1) + '\u2026'
+                            : rawAnswer;
+                        svgEl(svg, NS, 'text', {
+                            x: bin.x + padL, y: rowY + rowH / 2,
+                            'dominant-baseline': 'central',
+                            'clip-path': `url(#${bin._clipId})`,
+                            fill: q.correct ? contrastColor(color) : '#ddd',
+                            'font-weight': q.correct ? '600' : '700',
+                            style: `font-size:${ansFS}px`,
+                            class: 'grid-answer',
+                        }).textContent = label;
+                    }
                 }
 
                 // Transparent hit area (tooltip + click + hover effects)
