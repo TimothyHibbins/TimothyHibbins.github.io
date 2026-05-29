@@ -7,6 +7,38 @@ let _axisFlipped = true;      // true = hard questions (low %) at top
 let _subjectOrder = null;      // ordered array of active subjects for Answers view
 let _titleCase = false;        // whether to render answer text in title case
 
+// ─── Shared profile loader ───────────────────────────────────────────────────
+async function _loadProfileText(profileText, label) {
+    const { playerName, questions } = parseProfile(profileText);
+
+    if (!questions.length) {
+        setStatus('No question history found in the profile. Make sure you uploaded the full profile page (with the Question History tab included).', 'error');
+        return;
+    }
+
+    const pctLookup = (typeof LL_PCT !== 'undefined') ? LL_PCT : {};
+
+    // Annotate questions with pre-built answers (from answers.js global LL_ANSWERS)
+    const answerSource = (typeof LL_ANSWERS !== 'undefined') ? LL_ANSWERS : {};
+    for (const q of questions) {
+        const key = `${q.season}-${q.matchDay}-${q.questionNum}`;
+        if (key in answerSource) q.answer = answerSource[key];
+    }
+
+    _subjectOrder = null;  // reset when new data is loaded
+    _data = { playerName, questions, pctLookup };
+    renderView();
+
+    const pctCount = questions.filter(
+        q => (`${q.season}-${q.matchDay}-${q.questionNum}`) in pctLookup
+    ).length;
+    const ansCount = questions.filter(q => q.answer).length;
+    const parts = [`${label || playerName}: ${questions.length} questions.`];
+    if (pctCount) parts.push(`${pctCount} with % correct data.`);
+    if (ansCount) parts.push(`${ansCount} with answers.`);
+    setStatus(parts.join(' '), 'ok');
+}
+
 // ─── Load button ──────────────────────────────────────────────────────────────
 document.getElementById('load-btn').addEventListener('click', async () => {
     const profileInput = document.getElementById('profile-input');
@@ -20,34 +52,7 @@ document.getElementById('load-btn').addEventListener('click', async () => {
 
     try {
         const profileText = await readFileAsText(profileInput.files[0]);
-        const { playerName, questions } = parseProfile(profileText);
-
-        if (!questions.length) {
-            setStatus('No question history found in the profile. Make sure you uploaded the full profile page (with the Question History tab included).', 'error');
-            return;
-        }
-
-        const pctLookup = (typeof LL_PCT !== 'undefined') ? LL_PCT : {};
-
-        // Annotate questions with pre-built answers (from answers.js global LL_ANSWERS)
-        const answerSource = (typeof LL_ANSWERS !== 'undefined') ? LL_ANSWERS : {};
-        for (const q of questions) {
-            const key = `${q.season}-${q.matchDay}-${q.questionNum}`;
-            if (key in answerSource) q.answer = answerSource[key];
-        }
-
-        _subjectOrder = null;  // reset when new data is loaded
-        _data = { playerName, questions, pctLookup };
-        renderView();
-
-        const pctCount = questions.filter(
-            q => (`${q.season}-${q.matchDay}-${q.questionNum}`) in pctLookup
-        ).length;
-        const ansCount = questions.filter(q => q.answer).length;
-        const parts = [`${questions.length} questions in profile.`];
-        if (pctCount) parts.push(`${pctCount} with % correct data.`);
-        if (ansCount) parts.push(`${ansCount} with answers.`);
-        setStatus(parts.join(' '), 'ok');
+        await _loadProfileText(profileText, profileInput.files[0].name);
     } catch (err) {
         setStatus(`Error: ${err.message}`, 'error');
         console.error(err);
@@ -222,4 +227,16 @@ function setStatus(msg, type) {
     el.textContent = msg;
     el.className = 'status ' + (type || '');
 }
+
+// ─── Auto-load default profile ────────────────────────────────────────────────
+(async () => {
+    try {
+        const res = await fetch('LL%20Profile_%20HibbinsT.html');
+        if (!res.ok) return; // file not present — silently skip
+        const text = await res.text();
+        await _loadProfileText(text, 'Default profile');
+    } catch (e) {
+        // Network or parse error — silently ignore so the upload UI still works
+    }
+})();
 
