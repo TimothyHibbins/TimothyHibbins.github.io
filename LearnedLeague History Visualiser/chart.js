@@ -361,6 +361,13 @@ const SUBJECT_FALLBACK = '#888';
 
 function subjectColor(s) { return SUBJECT_COLORS[s] || SUBJECT_FALLBACK; }
 
+function contrastColor(hex) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? '#111' : '#fff';
+}
+
 // ─── Timeline constants ───────────────────────────────────────────────────────
 
 const TL = {
@@ -854,16 +861,13 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
     document.getElementById('chart-legend').innerHTML = '';
 
     // ── Layout constants ─────────────────────────────────────────────────────
-    const LABEL_W = 130;   // fixed label width
-    const H_PAD = 4;     // horizontal padding inside label
-    const AVAIL_W = LABEL_W - 2 * H_PAD;  // 122 px of usable text width
-    const FONT_1 = 8.5;   // single-line font size
-    const FONT_2 = 7;     // two-line font size
-    const CW_1 = 4.8;   // avg char width at FONT_1
-    const CW_2 = 4.2;   // avg char width at FONT_2
-    const MAX_RATIO = 1.3;   // allow up to 30 % textLength compression
-    const H_1 = 13;    // single-line label height
-    const H_2 = 19;    // two-line label height
+    const LABEL_W = 130;
+    const H_PAD = 4;
+    const AVAIL_W = LABEL_W - 2 * H_PAD;
+    const FONT_1 = 10;
+    const FONT_MIN = 5;
+    const CW_1 = 5.6;
+    const H_1 = 15;
     const COL_W = 14;    // dot-only column width
     const DOT_R = 3;     // dot radius
     const LABEL_SEP = 30;    // gap between dot area right edge and label strip
@@ -872,47 +876,22 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
     const SUBJ_GAP = 24;
     const PAD_L = 10;
     const PAD_R = 10;
-    const chartH = Math.max(400, window.innerHeight - 200);
-    const AXIS_Y = chartH - 50;
-    const MAX_H = AXIS_Y - 15;
+    const chartContainer = document.getElementById('chart-container');
+    const chartH = Math.max(400, window.innerHeight - chartContainer.getBoundingClientRect().top - 20);
+    const AXIS_Y = chartH - 10;
+    const MAX_H = AXIS_Y - 70;
     const SVG_H = chartH;
     const CHART_TOP = AXIS_Y - MAX_H;
-    const TICK_Y1 = AXIS_Y + 3;
-    const TICK_Y2 = AXIS_Y + 9;
-    const SEASON_LBL = AXIS_Y + 19;
-    const SUBJ_LBL = AXIS_Y + 35;
+    const TICK_Y1 = CHART_TOP - 22;   // top tick, above chart area
+    const TICK_Y2 = CHART_TOP - 16;
+    const SEASON_LBL = CHART_TOP - 26; // season label baseline
+    const SUBJ_LBL = CHART_TOP - 59;  // subject label baseline
 
     // ── Text-fitting helpers ──────────────────────────────────────────────────
-    function splitAtMid(text) {
-        const words = text.split(' ');
-        if (words.length === 1) {
-            const m = Math.ceil(text.length / 2);
-            return [text.slice(0, m), text.slice(m)];
-        }
-        const target = text.length / 2;
-        let best = 1, bestDiff = Infinity, cum = words[0].length;
-        for (let i = 1; i < words.length; i++) {
-            const diff = Math.abs(cum - target);
-            if (diff < bestDiff) { bestDiff = diff; best = i; }
-            cum += 1 + words[i].length;
-        }
-        return [words.slice(0, best).join(' '), words.slice(best).join(' ')];
-    }
-
     function labelMetrics(answer) {
-        if (!answer) return { lines: [''], h: H_1, fs: FONT_1, tl: null };
-        const nw1 = answer.length * CW_1;
-        if (nw1 <= AVAIL_W * MAX_RATIO) {
-            return { lines: [answer], h: H_1, fs: FONT_1, tl: nw1 > AVAIL_W ? AVAIL_W : null };
-        }
-        const [l1, l2] = splitAtMid(answer);
-        const nw2 = Math.max(l1.length, l2.length) * CW_2;
-        if (nw2 <= AVAIL_W * MAX_RATIO) {
-            return { lines: [l1, l2], h: H_2, fs: FONT_2, tl: nw2 > AVAIL_W ? AVAIL_W : null };
-        }
-        // Truncate as last resort
-        const maxCh = Math.floor(AVAIL_W * MAX_RATIO / CW_1);
-        return { lines: [answer.slice(0, maxCh - 1) + '\u2026'], h: H_1, fs: FONT_1, tl: AVAIL_W };
+        if (!answer) return { lines: [''], h: H_1, fs: FONT_1 };
+        const fs = Math.max(FONT_MIN, Math.min(FONT_1, FONT_1 * AVAIL_W / (answer.length * CW_1)));
+        return { lines: [answer], h: H_1, fs };
     }
 
     // ── Label placement: push overlapping chips apart, keep within chart ──────
@@ -928,8 +907,16 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
             if (qs[i].adjY < minY) qs[i].adjY = minY;
         }
 
-        // Clamp last to chart bottom, then backward pass
+        // Center the block around the data midpoint so labels can shift up as well as down
         const last = n - 1;
+        const blockTop = qs[0].adjY - qs[0].metrics.h / 2;
+        const blockBot = qs[last].adjY + qs[last].metrics.h / 2;
+        const blockCenter = (blockTop + blockBot) / 2;
+        const dataCenter = (qs[0]._cy + qs[last]._cy) / 2;
+        const shift = dataCenter - blockCenter;
+        if (Math.abs(shift) > 0.5) for (const q of qs) q.adjY += shift;
+
+        // Clamp last to chart bottom, then backward pass
         const maxBottom = AXIS_Y - qs[last].metrics.h / 2;
         if (qs[last].adjY > maxBottom) {
             qs[last].adjY = maxBottom;
@@ -947,6 +934,13 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
                 const minY = qs[i - 1].adjY + (qs[i - 1].metrics.h + qs[i].metrics.h) / 2 + LABEL_GAP;
                 if (qs[i].adjY < minY) qs[i].adjY = minY;
             }
+        }
+
+        // Final hard clamp — guarantee no label escapes chart bounds
+        for (const q of qs) {
+            const lo = CHART_TOP + q.metrics.h / 2;
+            const hi = AXIS_Y - q.metrics.h / 2;
+            q.adjY = Math.max(lo, Math.min(hi, q.adjY));
         }
     }
 
@@ -982,6 +976,22 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
     const seasons = [...seasonSet].sort((a, b) => a - b);
 
     // ── Build columns + subject spans ─────────────────────────────────────────
+    // Pre-compute a dynamic subject gap to fill the available container width
+    let _fixedW = PAD_L + PAD_R, _nSubj = 0;
+    for (const subj of subjects) {
+        const smap = subjectMap.get(subj);
+        const nseas = seasons.filter(s => smap.has(s)).length;
+        if (nseas === 0) continue;
+        _fixedW += nseas * COL_W + Math.max(0, nseas - 1) * COL_GAP + LABEL_SEP + LABEL_W;
+        _nSubj++;
+    }
+    const _nGaps = Math.max(1, _nSubj - 1);
+    _fixedW += _nGaps * SUBJ_GAP;
+    const _availW = chartContainer.clientWidth || (window.innerWidth - 20);
+    const subjGap = _nSubj > 1 && _availW > _fixedW
+        ? SUBJ_GAP + (_availW - _fixedW) / _nGaps
+        : SUBJ_GAP;
+
     const columns = [];
     const subjectSpans = [];
     let xLeft = PAD_L;
@@ -1003,10 +1013,10 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
             const labelX = dotsX2 + LABEL_SEP;
             const totalX2 = labelX + LABEL_W;
             subjectSpans.push({ subject, x1: subjX1, dotsX2, labelX, x2: totalX2 });
-            xLeft = totalX2 + SUBJ_GAP;
+            xLeft = totalX2 + subjGap;
         }
     }
-    if (subjectSpans.length) xLeft -= SUBJ_GAP;
+    if (subjectSpans.length) xLeft -= subjGap;
     const svgWidth = xLeft + PAD_R;
 
     // ── Compute y positions and metrics ────────────────────────────────────
@@ -1024,7 +1034,7 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
         const subjQs = columns
             .filter(col => col.subject === span.subject)
             .flatMap(col => col.qs);
-        subjQs.sort((a, b) => a._cy - b._cy);
+        subjQs.sort((a, b) => a._cy - b._cy || b.season - a.season);
         resolveOverlaps(subjQs);
     }
 
@@ -1042,8 +1052,8 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
 
     // Subject dividers
     for (let i = 0; i < subjectSpans.length - 1; i++) {
-        const divX = subjectSpans[i].x2 + SUBJ_GAP / 2;
-        svgEl(svg, NS, 'line', { x1: divX, y1: CHART_TOP, x2: divX, y2: AXIS_Y + 25, class: 'season-divider' });
+        const divX = subjectSpans[i].x2 + subjGap / 2;
+        svgEl(svg, NS, 'line', { x1: divX, y1: 0, x2: divX, y2: AXIS_Y, class: 'season-divider' });
     }
 
     // Season ticks + labels
@@ -1056,13 +1066,49 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
         svg.appendChild(sl);
     }
 
-    // Subject group labels
+    // Per-subject: subject label + single stats bar with div % marker
     for (const span of subjectSpans) {
-        const t = document.createElementNS(NS, 'text');
-        t.setAttribute('x', (span.x1 + span.x2) / 2); t.setAttribute('y', SUBJ_LBL);
-        t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 'sbs-subj-label');
-        t.textContent = span.subject;
-        svg.appendChild(t);
+        const subjQsAll = columns
+            .filter(c => c.subject === span.subject)
+            .flatMap(c => c.qs);
+        const nTotal = subjQsAll.length;
+        if (!nTotal) continue;
+        const nCorrect = subjQsAll.filter(q => q.correct).length;
+        const playerPct = nCorrect / nTotal * 100;
+        const leaguePct = subjQsAll.reduce((s, q) => s + q.pct, 0) / nTotal;
+        const delta = playerPct - leaguePct;
+        const color = subjectColor(span.subject);
+        const barW = span.x2 - span.x1;
+        const bx = span.x1;
+        const midX = bx + barW / 2;
+
+        // Subject label at top
+        svgEl(svg, NS, 'text', {
+            x: midX, y: SUBJ_LBL, 'text-anchor': 'middle', class: 'sbs-subj-label',
+        }).textContent = span.subject;
+
+        // Stats bar: player % fill, div % marker
+        const barY = SUBJ_LBL + 2;
+        svgEl(svg, NS, 'rect', { x: bx, y: barY, width: barW, height: 7, fill: '#ddd', rx: 1.5 });
+        svgEl(svg, NS, 'rect', { x: bx, y: barY, width: Math.max(2, barW * playerPct / 100), height: 7, fill: color, rx: 1.5 });
+        const markerX = bx + Math.min(barW - 1, barW * leaguePct / 100);
+        svgEl(svg, NS, 'rect', { x: markerX - 1, y: barY - 2, width: 2, height: 11, fill: '#111' });
+
+        // Stats text: "73%  div 56%  +17%" with coloured delta
+        const statsTxt = document.createElementNS(NS, 'text');
+        statsTxt.setAttribute('x', midX);
+        statsTxt.setAttribute('y', barY + 16);
+        statsTxt.setAttribute('text-anchor', 'middle');
+        statsTxt.setAttribute('class', 'subj-stat');
+        const s1 = document.createElementNS(NS, 'tspan');
+        s1.textContent = `${playerPct.toFixed(0)}%  div ${leaguePct.toFixed(0)}%  `;
+        statsTxt.appendChild(s1);
+        const s2 = document.createElementNS(NS, 'tspan');
+        s2.textContent = `${delta >= 0 ? '+' : ''}${delta.toFixed(0)}%`;
+        s2.setAttribute('fill', delta >= 0 ? '#2ea44f' : '#d73a3a');
+        s2.setAttribute('font-weight', '700');
+        statsTxt.appendChild(s2);
+        svg.appendChild(statsTxt);
     }
 
     // Dots (left, in columns) + diagonal leader lines + labels (right, aligned)
@@ -1071,12 +1117,15 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
     // 1. Leader lines — drawn first, behind everything
     for (const col of columns) {
         const lx = subjLabelX.get(col.subject);
+        const color = subjectColor(col.subject);
         for (const q of col.qs) {
-            svgEl(svg, NS, 'line', {
-                x1: col.cx, y1: q._cy,
-                x2: lx, y2: q.adjY,
-                class: 'ans-leader',
+            const x1 = col.cx, y1 = q._cy, x2 = lx, y2 = q.adjY;
+            const dx = (x2 - x1) * 0.5;
+            const leader = svgEl(svg, NS, 'path', {
+                d: `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`,
+                class: q.correct ? 'ans-leader ans-leader--correct' : 'ans-leader ans-leader--wrong',
             });
+            leader.style.stroke = q.correct ? color : '#111';
         }
     }
 
@@ -1129,32 +1178,16 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
             }
             g.appendChild(rect);
 
-            const textFill = q.correct ? '#111' : '#ddd';
+            const textFill = q.correct ? contrastColor(color) : '#fff';
             const textX = lx + H_PAD;
-            if (metrics.lines.length === 1) {
-                const t = document.createElementNS(NS, 'text');
-                t.setAttribute('x', textX);
-                t.setAttribute('y', q.adjY + metrics.fs * 0.36);
-                t.setAttribute('font-size', metrics.fs);
-                t.setAttribute('class', 'ans-text');
-                if (metrics.tl) { t.setAttribute('textLength', AVAIL_W); t.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
-                t.textContent = metrics.lines[0];
-                t.setAttribute('fill', textFill);
-                g.appendChild(t);
-            } else {
-                const lineH = metrics.fs * 1.3;
-                metrics.lines.forEach((line, i) => {
-                    const t = document.createElementNS(NS, 'text');
-                    t.setAttribute('x', textX);
-                    t.setAttribute('y', q.adjY - lineH * 0.5 + i * lineH + metrics.fs * 0.85);
-                    t.setAttribute('font-size', metrics.fs);
-                    t.setAttribute('class', 'ans-text');
-                    if (metrics.tl) { t.setAttribute('textLength', AVAIL_W); t.setAttribute('lengthAdjust', 'spacingAndGlyphs'); }
-                    t.textContent = line;
-                    t.setAttribute('fill', textFill);
-                    g.appendChild(t);
-                });
-            }
+            const t = document.createElementNS(NS, 'text');
+            t.setAttribute('x', textX);
+            t.setAttribute('y', q.adjY + metrics.fs * 0.36);
+            t.setAttribute('font-size', metrics.fs);
+            t.setAttribute('class', 'ans-text');
+            t.textContent = metrics.lines[0];
+            t.setAttribute('fill', textFill);
+            g.appendChild(t);
 
             const tipHTML = buildTooltipHTML(q);
             g.addEventListener('mousemove', e => showTooltip(tooltip, e, tipHTML));
@@ -1163,6 +1196,67 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
             svg.appendChild(g);
         }
     }
+
+    // ── Column drag-to-reorder ────────────────────────────────────────────────
+    const insertLine = svgEl(svg, NS, 'line', { x1: 0, x2: 0, y1: 0, y2: AXIS_Y, class: 'col-insert-line' });
+    insertLine.setAttribute('display', 'none');
+    let _dragCol = null;
+
+    svg.addEventListener('pointermove', e => {
+        const svgRect = svg.getBoundingClientRect();
+        if (!_dragCol) {
+            svg.style.cursor = (e.clientY - svgRect.top) < CHART_TOP ? 'grab' : '';
+            return;
+        }
+        const sx = e.clientX - svgRect.left;
+        let insertIdx = 0;
+        for (let i = 0; i < subjectSpans.length; i++) {
+            if (sx > (subjectSpans[i].x1 + subjectSpans[i].x2) / 2) insertIdx = i + 1;
+        }
+        _dragCol.insertIdx = insertIdx;
+        let lx;
+        if (insertIdx === 0) lx = subjectSpans[0].x1 - 4;
+        else if (insertIdx >= subjectSpans.length) lx = subjectSpans[subjectSpans.length - 1].x2 + 4;
+        else lx = (subjectSpans[insertIdx - 1].x2 + subjectSpans[insertIdx].x1) / 2;
+        insertLine.setAttribute('x1', lx);
+        insertLine.setAttribute('x2', lx);
+        insertLine.removeAttribute('display');
+    });
+
+    svg.addEventListener('pointerdown', e => {
+        const svgRect = svg.getBoundingClientRect();
+        if ((e.clientY - svgRect.top) >= CHART_TOP) return;
+        const sx = e.clientX - svgRect.left;
+        const hit = subjectSpans.find(s => sx >= s.x1 && sx < s.x2);
+        if (!hit) return;
+        e.preventDefault();
+        _dragCol = { subject: hit.subject, insertIdx: null };
+        svg.setPointerCapture(e.pointerId);
+        svg.style.cursor = 'grabbing';
+    });
+
+    function _commitColDrag() {
+        if (!_dragCol) return;
+        svg.style.cursor = '';
+        insertLine.setAttribute('display', 'none');
+        const { subject, insertIdx } = _dragCol;
+        _dragCol = null;
+        if (insertIdx === null) return;
+        const curOrder = subjectSpans.map(s => s.subject);
+        const oldIdx = curOrder.indexOf(subject);
+        if (insertIdx === oldIdx || insertIdx === oldIdx + 1) return;
+        const newOrder = curOrder.filter(s => s !== subject);
+        newOrder.splice(insertIdx > oldIdx ? insertIdx - 1 : insertIdx, 0, subject);
+        _subjectOrder = newOrder;
+        reRenderAnswers();
+    }
+
+    svg.addEventListener('pointerup', _commitColDrag);
+    svg.addEventListener('pointercancel', () => {
+        _dragCol = null;
+        svg.style.cursor = '';
+        insertLine.setAttribute('display', 'none');
+    });
 
     container.appendChild(svg);
     renderYAxis(0, SVG_H, true, AXIS_Y, MAX_H, flipped);

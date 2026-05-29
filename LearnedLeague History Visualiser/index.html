@@ -24,25 +24,23 @@
             <button id="load-btn">Visualise</button>
             <p id="status-msg" class="status"></p>
         </div>
+
+        <div id="view-toggle" class="hidden">
+            <button id="btn-answers" class="view-btn active">Answers</button>
+            <button id="btn-subjectseasons" class="view-btn">Subject Seasons</button>
+            <button id="btn-timeline" class="view-btn">Timeline</button>
+            <button id="btn-subjects" class="view-btn">By Subject</button>
+            <button id="btn-flip-axis" class="view-btn flip-btn" title="Flip the vertical axis direction">⇅ Flip
+                axis</button>
+        </div>
+
+        <div id="subject-tray" class="hidden"></div>
     </header>
 
     <main>
 
         <!-- ── Chart ───────────────────────────────────────────────────────────── -->
         <section id="chart-section" class="hidden">
-
-            <div id="view-toggle">
-                <button id="btn-answers" class="view-btn active">Answers</button>
-                <button id="btn-subjectseasons" class="view-btn">Subject Seasons</button>
-                <button id="btn-timeline" class="view-btn">Timeline</button>
-                <button id="btn-subjects" class="view-btn">By Subject</button>
-                <button id="btn-flip-axis" class="view-btn flip-btn" title="Flip the vertical axis direction">⇅ Flip
-                    axis</button>
-            </div>
-
-            <div id="subject-tray" class="hidden"></div>
-
-            <h2 id="player-name"></h2>
 
             <div id="chart-outer">
                 <div id="y-axis-wrapper"></div>

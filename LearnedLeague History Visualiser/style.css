@@ -16,8 +16,8 @@ body {
 header {
     display: flex;
     align-items: center;
-    gap: 2rem;
-    padding: 0.8rem 2rem;
+    gap: 1.5rem;
+    padding: 0.4rem 2rem;
     border-bottom: 1px solid #ddd;
     background: #fff;
     flex-wrap: wrap;
@@ -40,8 +40,7 @@ header a {
 
 /* ── Main layout ─────────────────────────────────────────────────────────── */
 main {
-    padding: 1.8rem 2rem;
-    max-width: 1800px;
+    padding: 0.4rem 2rem 0;
 }
 
 /* ── Upload section ──────────────────────────────────────────────────────── */
@@ -337,6 +336,8 @@ input[type="file"] {
 /* ── Subject tray (Answers view drag-to-show) ───────────────────────────── */
 #subject-tray {
     display: flex;
+    flex: 1;
+    min-width: 180px;
     flex-wrap: wrap;
     align-items: flex-start;
     gap: 6px 12px;
@@ -421,6 +422,31 @@ input[type="file"] {
 
 .tray-chip.tray-dragging {
     opacity: 0.4;
+}
+
+.tray-toggle-all {
+    padding: 2px 8px;
+    border-radius: 12px;
+    border: 1.5px solid #bbb;
+    background: #fff;
+    cursor: pointer;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    color: #555;
+    font-family: inherit;
+    flex-shrink: 0;
+}
+
+.tray-toggle-all:hover {
+    background: #f0f0f0;
+}
+
+.col-insert-line {
+    fill: none;
+    stroke: #444;
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+    pointer-events: none;
 }
 
 /* ── Flip-axis button (only shown in Timeline / Subject Seasons) ──────────── */
@@ -514,10 +540,17 @@ input[type="file"] {
 }
 
 .ans-leader {
-    stroke: #444;
+    fill: none;
     stroke-width: 1;
-    stroke-dasharray: 2 2;
     pointer-events: none;
+}
+
+.ans-leader--correct {
+    stroke-opacity: 0.55;
+}
+
+.ans-leader--wrong {
+    stroke-opacity: 0.5;
 }
 
 .legend-hint {
@@ -537,11 +570,14 @@ input[type="file"] {
 #view-toggle {
     display: flex;
     gap: 0;
-    margin-bottom: 1rem;
     border: 1px solid #ccc;
     border-radius: 5px;
     overflow: hidden;
     width: fit-content;
+}
+
+#view-toggle.hidden {
+    display: none;
 }
 
 .view-btn {
@@ -647,4 +683,16 @@ input[type="file"] {
     fill: #333;
     font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
     letter-spacing: 0.02em;
+}
+
+/* ── Per-subject stats (Answers view) ──────────────────────────────────── */
+.subj-stat {
+    font-size: 7.5px;
+    fill: #555;
+    font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
+}
+
+.subj-stat--delta {
+    font-weight: 700;
+    font-size: 8.5px;
 }
