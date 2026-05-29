@@ -8,8 +8,8 @@
 body {
     font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
     margin: 0;
-    background: #f8f8f6;
-    color: #1a1a1a;
+    background: #161616;
+    color: #e0e0de;
 }
 
 /* ── Header ──────────────────────────────────────────────────────────────── */
@@ -18,8 +18,8 @@ header {
     align-items: center;
     gap: 1.5rem;
     padding: 0.4rem 2rem;
-    border-bottom: 1px solid #ddd;
-    background: #fff;
+    border-bottom: 1px solid #333;
+    background: #1e1e1e;
     flex-wrap: wrap;
 }
 
@@ -31,11 +31,11 @@ header h1 {
 header p {
     margin: 0;
     font-size: 0.85rem;
-    color: #555;
+    color: #999;
 }
 
 header a {
-    color: #293A55;
+    color: #6a9fd8;
 }
 
 /* ── Main layout ─────────────────────────────────────────────────────────── */
@@ -60,12 +60,13 @@ main {
 .upload-group label {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #333;
+    color: #bbb;
 }
 
 input[type="file"] {
     font-size: 0.85rem;
     cursor: pointer;
+    color: #ccc;
 }
 
 #load-btn {
@@ -93,20 +94,20 @@ input[type="file"] {
     width: 100%;
     margin: 0;
     font-size: 0.82rem;
-    color: #555;
+    color: #999;
 }
 
 .status.error {
-    color: #c00;
+    color: #ff8080;
 }
 
 .status.ok {
-    color: #2a7a3b;
+    color: #5ad87a;
 }
 
 .upload-hint {
     font-size: 0.75rem;
-    color: #888;
+    color: #666;
 }
 
 /* ── Chart section ───────────────────────────────────────────────────────── */
@@ -139,7 +140,7 @@ input[type="file"] {
 }
 
 .y-tick {
-    stroke: #ccc;
+    stroke: #333;
     stroke-width: 1;
 }
 
@@ -156,10 +157,10 @@ input[type="file"] {
     min-width: 0;
     flex: 1;
     overflow-y: visible;
-    padding-bottom: 0.5rem;
+    padding-bottom: 2px;
     /* Custom scrollbar */
     scrollbar-width: thin;
-    scrollbar-color: #bbb #f0f0ee;
+    scrollbar-color: #444 #222;
 }
 
 #chart-container::-webkit-scrollbar {
@@ -167,11 +168,11 @@ input[type="file"] {
 }
 
 #chart-container::-webkit-scrollbar-track {
-    background: #f0f0ee;
+    background: #222;
 }
 
 #chart-container::-webkit-scrollbar-thumb {
-    background: #bbb;
+    background: #444;
     border-radius: 3px;
 }
 
@@ -257,7 +258,7 @@ input[type="file"] {
     gap: 2rem;
     margin-top: 1.2rem;
     font-size: 0.8rem;
-    color: #555;
+    color: #777;
 }
 
 .legend-swatch {
@@ -286,7 +287,7 @@ input[type="file"] {
     padding: 9px 13px;
     border-radius: 7px;
     font-size: 0.78rem;
-    max-width: 560px;
+    max-width: 680px;
     line-height: 1.5;
     pointer-events: none;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
@@ -319,11 +320,9 @@ input[type="file"] {
 }
 
 .tip-text {
-    font-style: italic;
     opacity: 0.85;
     font-size: 1.48rem;
     line-height: 1.4;
-    max-width: 340px;
 }
 
 .tip-answer {
@@ -343,8 +342,8 @@ input[type="file"] {
     gap: 6px 12px;
     padding: 8px 12px;
     margin: 6px 0 4px;
-    background: #f5f5f5;
-    border: 1px solid #ddd;
+    background: #252525;
+    border: 1px solid #333;
     border-radius: 6px;
     font-size: 0.78rem;
 }
@@ -396,8 +395,9 @@ input[type="file"] {
 .tray-chip {
     padding: 2px 8px;
     border-radius: 12px;
-    border: 1.5px solid #bbb;
-    background: #fff;
+    border: 1.5px solid #444;
+    background: #2a2a2a;
+    color: #ccc;
     cursor: grab;
     user-select: none;
     font-size: 0.72rem;
@@ -414,9 +414,9 @@ input[type="file"] {
 }
 
 .tray-chip--inactive {
-    color: #aaa;
-    border-color: #ddd;
-    background: #fafafa;
+    color: #555;
+    border-color: #333;
+    background: #1e1e1e;
     cursor: pointer;
 }
 
@@ -427,18 +427,18 @@ input[type="file"] {
 .tray-toggle-all {
     padding: 2px 8px;
     border-radius: 12px;
-    border: 1.5px solid #bbb;
-    background: #fff;
+    border: 1.5px solid #444;
+    background: #2a2a2a;
     cursor: pointer;
     font-size: 0.72rem;
     white-space: nowrap;
-    color: #555;
+    color: #999;
     font-family: inherit;
     flex-shrink: 0;
 }
 
 .tray-toggle-all:hover {
-    background: #f0f0f0;
+    background: #333;
 }
 
 .col-insert-line {
@@ -493,7 +493,7 @@ input[type="file"] {
 }
 
 .al-item:hover {
-    background: #1e1e1e;
+    background: #252525;
 }
 
 /* The SVG dot — same visuals as the chart views */
@@ -570,7 +570,7 @@ input[type="file"] {
 #view-toggle {
     display: flex;
     gap: 0;
-    border: 1px solid #ccc;
+    border: 1px solid #333;
     border-radius: 5px;
     overflow: hidden;
     width: fit-content;
@@ -583,11 +583,11 @@ input[type="file"] {
 .view-btn {
     padding: 0.35rem 1rem;
     border: none;
-    border-right: 1px solid #ccc;
-    background: #fff;
+    border-right: 1px solid #333;
+    background: #252525;
     cursor: pointer;
     font-size: 0.85rem;
-    color: #555;
+    color: #aaa;
     line-height: 1.4;
     transition: background 0.1s;
 }
@@ -597,12 +597,12 @@ input[type="file"] {
 }
 
 .view-btn.active {
-    background: #293A55;
+    background: #3d6aa0;
     color: #fff;
 }
 
 .view-btn:not(.active):hover {
-    background: #f0f0ee;
+    background: #2a2a2a;
 }
 
 /* ── Timeline SVG elements ───────────────────────────────────────────────── */
@@ -667,7 +667,7 @@ input[type="file"] {
 
 .color-name {
     font-size: 0.78rem;
-    color: #333;
+    color: #ccc;
 }
 
 /* ── Subject-by-season mode labels ──────────────────────────────────────── */
@@ -680,7 +680,7 @@ input[type="file"] {
 .sbs-subj-label {
     font-size: 8px;
     font-weight: 700;
-    fill: #333;
+    fill: #ccc;
     font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
     letter-spacing: 0.02em;
 }
@@ -688,11 +688,37 @@ input[type="file"] {
 /* ── Per-subject stats (Answers view) ──────────────────────────────────── */
 .subj-stat {
     font-size: 7.5px;
-    fill: #555;
+    fill: #aaa;
     font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
 }
 
 .subj-stat--delta {
     font-weight: 700;
     font-size: 8.5px;
+}
+
+/* ── Grid view ───────────────────────────────────────────────────────────── */
+.grid-svg {
+    display: block;
+    overflow: visible;
+}
+
+.grid-answer {
+    font-size: 8.5px;
+    font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
+    pointer-events: none;
+}
+
+.grid-hit {
+    cursor: pointer;
+}
+
+.grid-mini-label {
+    font-size: 7.5px;
+    font-weight: 700;
+    fill: #bbb;
+    font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    pointer-events: none;
 }

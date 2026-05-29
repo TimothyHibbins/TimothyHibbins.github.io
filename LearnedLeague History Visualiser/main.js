@@ -2,9 +2,10 @@
 
 // ─── Persistent state ─────────────────────────────────────────────────────────
 let _data = null;      // { playerName, questions, pctLookup }
-let _view = 'answers'; // 'answers' | 'subjectseasons' | 'timeline' | 'subjects'
+let _view = 'grid'; // 'grid' | 'answers' | 'subjectseasons' | 'timeline' | 'subjects'
 let _axisFlipped = true;      // true = hard questions (low %) at top
 let _subjectOrder = null;      // ordered array of active subjects for Answers view
+let _titleCase = false;        // whether to render answer text in title case
 
 // ─── Load button ──────────────────────────────────────────────────────────────
 document.getElementById('load-btn').addEventListener('click', async () => {
@@ -54,6 +55,13 @@ document.getElementById('load-btn').addEventListener('click', async () => {
 });
 
 // ─── View toggle buttons ──────────────────────────────────────────────────────
+document.getElementById('btn-grid').addEventListener('click', () => {
+    if (_view === 'grid') return;
+    _view = 'grid';
+    updateToggleButtons();
+    if (_data) renderView();
+});
+
 document.getElementById('btn-answers').addEventListener('click', () => {
     if (_view === 'answers') return;
     _view = 'answers';
@@ -82,6 +90,13 @@ document.getElementById('btn-subjects').addEventListener('click', () => {
     if (_data) renderView();
 });
 
+// ─── Title case button ───────────────────────────────────────────────────────
+document.getElementById('btn-title-case').addEventListener('click', () => {
+    _titleCase = !_titleCase;
+    updateToggleButtons();
+    if (_data && _view === 'grid') renderGrid(_data.questions, _data.pctLookup, _subjectOrder, _titleCase);
+});
+
 // ─── Flip axis button ─────────────────────────────────────────────────────────
 document.getElementById('btn-flip-axis').addEventListener('click', () => {
     _axisFlipped = !_axisFlipped;
@@ -93,9 +108,13 @@ document.getElementById('btn-flip-axis').addEventListener('click', () => {
 function renderView() {
     document.getElementById('chart-section').classList.remove('hidden');
     document.getElementById('view-toggle').classList.remove('hidden');
-    if (_view === 'answers') {
+    if (_view === 'grid' || _view === 'answers') {
         renderSubjectTray();
-        renderAnswers(_data.questions, _data.pctLookup, _axisFlipped, _subjectOrder);
+        if (_view === 'grid') {
+            renderGrid(_data.questions, _data.pctLookup, _subjectOrder, _titleCase);
+        } else {
+            renderAnswers(_data.questions, _data.pctLookup, _axisFlipped, _subjectOrder);
+        }
     } else {
         document.getElementById('subject-tray').classList.add('hidden');
         if (_view === 'subjectseasons') {
@@ -109,6 +128,7 @@ function renderView() {
 }
 
 function updateToggleButtons() {
+    document.getElementById('btn-grid').classList.toggle('active', _view === 'grid');
     document.getElementById('btn-answers').classList.toggle('active', _view === 'answers');
     document.getElementById('btn-subjectseasons').classList.toggle('active', _view === 'subjectseasons');
     document.getElementById('btn-timeline').classList.toggle('active', _view === 'timeline');
@@ -117,8 +137,12 @@ function updateToggleButtons() {
 }
 
 function updateFlipButton() {
+    const tcBtn = document.getElementById('btn-title-case');
+    tcBtn.style.display = _view === 'grid' ? '' : 'none';
+    tcBtn.classList.toggle('active', _titleCase);
+
     const btn = document.getElementById('btn-flip-axis');
-    const axisViews = _view === 'answers' || _view === 'timeline' || _view === 'subjectseasons';
+    const axisViews = _view === 'answers' || _view === 'timeline' || _view === 'subjectseasons'; // not grid
     btn.style.display = axisViews ? '' : 'none';
     btn.classList.toggle('active', !_axisFlipped); // active = "normal" (not flipped)
     btn.title = _axisFlipped
@@ -128,7 +152,11 @@ function updateFlipButton() {
 
 // ─── Subject tray ─────────────────────────────────────────────────────────────
 function reRenderAnswers() {
-    renderAnswers(_data.questions, _data.pctLookup, _axisFlipped, _subjectOrder);
+    if (_view === 'grid') {
+        renderGrid(_data.questions, _data.pctLookup, _subjectOrder, _titleCase);
+    } else {
+        renderAnswers(_data.questions, _data.pctLookup, _axisFlipped, _subjectOrder);
+    }
 }
 
 function renderSubjectTray() {
@@ -136,7 +164,7 @@ function renderSubjectTray() {
     if (!_data) { tray.classList.add('hidden'); return; }
 
     const allSubjects = [...new Set(_data.questions.map(q => q.subject))].sort();
-    if (_subjectOrder === null) _subjectOrder = [];
+    if (_subjectOrder === null) _subjectOrder = [...allSubjects];
 
     const activeSet = new Set(_subjectOrder);
     tray.classList.remove('hidden');

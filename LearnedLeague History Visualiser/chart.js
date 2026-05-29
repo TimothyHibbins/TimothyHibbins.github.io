@@ -1261,3 +1261,431 @@ function renderAnswers(questions, pctLookup, flipped = false, subjectOrder = nul
     container.appendChild(svg);
     renderYAxis(0, SVG_H, true, AXIS_Y, MAX_H, flipped);
 }
+
+// ─── Grid view renderer ───────────────────────────────────────────────────────
+// Subjects are bin-packed into visual columns to fit the viewport width.
+// Within each visual column, subjects are stacked vertically; stacked subjects
+// beyond the first get a compact mini-header. Columns are drag-to-reorder.
+
+// ── Grid helpers ──────────────────────────────────────────────────────────────
+let _gridAudioCtx = null;
+function _getGridAudioCtx() {
+    if (!_gridAudioCtx) {
+        try { _gridAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+        catch (e) { return null; }
+    }
+    return _gridAudioCtx;
+}
+function _playGridHoverSound() {
+    const ctx = _getGridAudioCtx();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1100, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(550, ctx.currentTime + 0.05);
+    gain.gain.setValueAtTime(0.04, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.07);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.08);
+}
+function _toTitleCase(str) {
+    // Matches a word token including diacritics and apostrophes (e.g. IT'S, O'BRIEN, SEÑOR)
+    const WORD_RE = /[A-Za-z\u00C0-\u024F]+(?:'[A-Za-z\u00C0-\u024F]+)*/g;
+    const ASCII_VOWEL = /[AEIOUaeiou]/;
+    return str.replace(WORD_RE, token => {
+        const parts = token.split("'");
+        return parts.map((part, i) => {
+            if (i === 0) {
+                // If the part is all consonants (no ASCII vowels) it's likely an acronym — keep uppercase
+                if (!ASCII_VOWEL.test(part)) return part.toUpperCase();
+                return part[0].toUpperCase() + part.slice(1).toLowerCase();
+            }
+            // After apostrophe: single-letter suffix (contraction: 's, 't, 'd, 'm) → lowercase;
+            // multi-letter suffix (name: O'Brien, D'Alembert) → capitalise first letter
+            if (part.length <= 1) return part.toLowerCase();
+            return part[0].toUpperCase() + part.slice(1).toLowerCase();
+        }).join("'");
+    });
+}
+
+function renderGrid(questions, pctLookup, subjectOrder = null, titleCase = false) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const container = document.getElementById('chart-container');
+    container.innerHTML = '';
+    document.getElementById('y-axis-wrapper').innerHTML = '';
+    document.getElementById('chart-legend').innerHTML = '';
+
+    // Attach pct to questions
+    const matched = [];
+    for (const q of questions) {
+        const key = `${q.season}-${q.matchDay}-${q.questionNum}`;
+        if (key in pctLookup) matched.push({ ...q, pct: pctLookup[key] });
+    }
+    if (!matched.length) {
+        const msg = document.createElement('p');
+        msg.className = 'chart-empty';
+        msg.textContent = 'No % correct data found for questions in this profile.';
+        container.appendChild(msg);
+        return;
+    }
+
+    // Group by subject
+    const colMap = new Map();
+    for (const q of matched) {
+        if (!colMap.has(q.subject)) colMap.set(q.subject, { subject: q.subject, qs: [] });
+        colMap.get(q.subject).qs.push(q);
+    }
+    for (const col of colMap.values()) {
+        col.qs.sort((a, b) => a.pct - b.pct); // hardest (lowest %) at top
+    }
+
+    // Resolve subject order
+    const allSubjects = [...new Set(matched.map(q => q.subject))].sort();
+    const activeSubjects = subjectOrder && subjectOrder.length > 0
+        ? subjectOrder.filter(s => allSubjects.includes(s))
+        : allSubjects;
+    if (!activeSubjects.length) return;
+
+    const columns = [];
+    for (const subj of activeSubjects) {
+        if (colMap.has(subj)) columns.push(colMap.get(subj));
+    }
+    if (!columns.length) return;
+
+    // ── Layout ────────────────────────────────────────────────────────────────
+    const chartEl = document.getElementById('chart-container');
+    const chartH = Math.max(400, window.innerHeight - chartEl.getBoundingClientRect().top - 20);
+    const HEADER_H = 44;   // header per visual column (subject label + stats bar)
+    const MINI_H = 40;   // mini-header height for stacked subjects (2nd, 3rd…)
+    const BOTTOM_PAD = 4;
+    const CHART_AREA = chartH - HEADER_H - BOTTOM_PAD;
+    const COL_GAP = 9;
+    const PAD_L = 10;
+    const PAD_R = 10;
+    const availW = Math.max(200, chartEl.clientWidth || (window.innerWidth - 80));
+
+    // Prefer individual columns; only pack when screen is too narrow.
+    const MIN_ROW_H = 9;   // px — minimum row height for answer text to be legible
+
+    // Compute minimum column width so that 95% of answers fit without truncation.
+    // maxChars = floor(COL_W / 5.0) in the text renderer, so MIN_COL_W = p95_chars * 5 + padding.
+    const CHAR_W = 5.0;
+    const ansLengths = matched
+        .filter(q => q.answer)
+        .map(q => (titleCase ? _toTitleCase(q.answer) : q.answer).length);
+    let MIN_COL_W;
+    if (ansLengths.length > 0) {
+        ansLengths.sort((a, b) => a - b);
+        const p95chars = ansLengths[Math.floor(ansLengths.length * 0.95)];
+        MIN_COL_W = Math.ceil(p95chars * CHAR_W) + 8; // +8 for left/right padding
+    } else {
+        MIN_COL_W = 80; // fallback when no answers available
+    }
+
+    const noPackColW = columns.length > 1
+        ? (availW - PAD_L - PAD_R - COL_GAP * (columns.length - 1)) / columns.length
+        : (availW - PAD_L - PAD_R);
+
+    // "Fits" = columns wide enough AND every subject's individual rows are tall enough to show text
+    const allFit = noPackColW >= MIN_COL_W &&
+        columns.every(col => (CHART_AREA / col.qs.length) >= MIN_ROW_H);
+
+    let bins;
+    if (allFit) {
+        // Every subject gets its own column
+        bins = columns.map(col => ({ cols: [col], totalQ: col.qs.length }));
+    } else {
+        // Too many subjects to fit individually; pack from smallest upward
+        const colsByCount = [...columns].sort((a, b) => b.qs.length - a.qs.length);
+        bins = [];
+        let curBin = { cols: [], totalQ: 0 };
+        for (const col of colsByCount) {
+            const newK = curBin.cols.length + 1;
+            const newTotalQ = curBin.totalQ + col.qs.length;
+            const rowH = (CHART_AREA - MINI_H * (newK - 1)) / newTotalQ;
+            if (curBin.cols.length === 0 || rowH >= MIN_ROW_H) {
+                curBin.cols.push(col);
+                curBin.totalQ = newTotalQ;
+            } else {
+                bins.push(curBin);
+                curBin = { cols: [col], totalQ: col.qs.length };
+            }
+        }
+        if (curBin.cols.length > 0) bins.push(curBin);
+    }
+
+    // Stretch columns to fill available width
+    const COL_W = Math.floor(
+        (availW - PAD_L - PAD_R - COL_GAP * (bins.length - 1)) / bins.length);
+
+    // Assign x positions
+    let x = PAD_L;
+    for (const bin of bins) { bin.x = x; x += COL_W + COL_GAP; }
+    const totalW = bins[bins.length - 1].x + COL_W + PAD_R;
+
+    // Subject spans (per bin) for header drag
+    const subjectSpans = bins.map(bin => ({
+        subject: bin.cols[0].subject,
+        allSubjects: bin.cols.map(c => c.subject),
+        x1: bin.x,
+        x2: bin.x + COL_W,
+    }));
+
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', totalW);
+    svg.setAttribute('height', chartH);
+    svg.setAttribute('class', 'grid-svg');
+
+    // Clip paths (one per bin)
+    const defs = svgEl(svg, NS, 'defs', {});
+    for (const bin of bins) {
+        const clipId = `gcl-${bin.cols[0].subject.replace(/\W/g, '-')}`;
+        bin._clipId = clipId;
+        const clip = svgEl(defs, NS, 'clipPath', { id: clipId });
+        svgEl(clip, NS, 'rect', { x: bin.x, y: HEADER_H, width: COL_W, height: CHART_AREA });
+    }
+
+    const tooltip = document.getElementById('tooltip');
+
+    // ── Draw rows per bin ─────────────────────────────────────────────────────
+    for (const bin of bins) {
+        const k = bin.cols.length;
+        const miniHeaders = k - 1;
+        const availForRows = CHART_AREA - MINI_H * miniHeaders;
+        let yOffset = HEADER_H;
+
+        for (let si = 0; si < k; si++) {
+            const col = bin.cols[si];
+            const color = subjectColor(col.subject);
+            const nQ = col.qs.length;
+
+            // Mini-header for stacked subjects (si > 0): full stats bar
+            if (si > 0) {
+                const nT = col.qs.length;
+                const nC = col.qs.filter(q => q.correct).length;
+                const pPct = nC / nT * 100;
+                const lPct = col.qs.reduce((s, q) => s + q.pct, 0) / nT;
+                const dlt = pPct - lPct;
+                const mY = yOffset;
+                const mMid = bin.x + COL_W / 2;
+
+                // 4px gap (shows chart background) then header background
+                const mGap = 4;
+                svgEl(svg, NS, 'rect', {
+                    x: bin.x, y: mY + mGap, width: COL_W, height: MINI_H - mGap,
+                    fill: '#1e1e1e',
+                });
+
+                svgEl(svg, NS, 'text', {
+                    x: mMid, y: mY + mGap + 10,
+                    'text-anchor': 'middle', class: 'sbs-subj-label',
+                }).textContent = col.subject;
+
+                const mbY = mY + mGap + 14;
+                const mbH = 4;
+                svgEl(svg, NS, 'rect', { x: bin.x, y: mbY, width: COL_W, height: mbH, fill: '#3a3a3a', rx: 1 });
+                svgEl(svg, NS, 'rect', { x: bin.x, y: mbY, width: Math.max(2, COL_W * pPct / 100), height: mbH, fill: color, rx: 1 });
+                const mrkX = bin.x + Math.min(COL_W - 1, COL_W * lPct / 100);
+                svgEl(svg, NS, 'rect', { x: mrkX - 1, y: mbY - 1, width: 2, height: mbH + 2, fill: '#aaa' });
+
+                const mTxt = document.createElementNS(NS, 'text');
+                mTxt.setAttribute('x', mMid);
+                mTxt.setAttribute('y', String(mbY + mbH + 8));
+                mTxt.setAttribute('text-anchor', 'middle');
+                mTxt.setAttribute('class', 'subj-stat');
+                const ms1 = document.createElementNS(NS, 'tspan');
+                ms1.textContent = `${pPct.toFixed(0)}%  div ${lPct.toFixed(0)}%  `;
+                mTxt.appendChild(ms1);
+                const ms2 = document.createElementNS(NS, 'tspan');
+                ms2.textContent = `${dlt >= 0 ? '+' : ''}${dlt.toFixed(0)}%`;
+                ms2.setAttribute('fill', dlt >= 0 ? '#2ea44f' : '#d73a3a');
+                ms2.setAttribute('font-weight', '700');
+                mTxt.appendChild(ms2);
+                svg.appendChild(mTxt);
+
+                yOffset += MINI_H;
+            }
+
+            // Proportional row height for this subject within the bin
+            const subjectRowArea = availForRows * nQ / bin.totalQ;
+            const rowH = subjectRowArea / nQ; // no gap
+
+            for (let r = 0; r < nQ; r++) {
+                const q = col.qs[r];
+                const rowY = yOffset + r * rowH;
+
+                // Background: subject tint (correct) or dark grey (wrong)
+                svgEl(svg, NS, 'rect', {
+                    x: bin.x, y: rowY, width: COL_W, height: rowH,
+                    fill: q.correct ? color : '#252525',
+                    'fill-opacity': q.correct ? '0.38' : '1',
+                });
+
+                // Bar = % correct: subject colour (correct) or dark grey (wrong)
+                const barW = Math.max(1, COL_W * q.pct / 100);
+                svgEl(svg, NS, 'rect', {
+                    x: bin.x, y: rowY, width: barW, height: rowH,
+                    fill: q.correct ? color : '#3a3a3a',
+                    class: 'grid-bar',
+                });
+
+                // Answer text (only when row is tall enough)
+                if (rowH >= 9 && q.answer) {
+                    const maxChars = Math.floor(COL_W / 5.0);
+                    const rawAnswer = titleCase ? _toTitleCase(q.answer) : q.answer;
+                    const label = rawAnswer.length > maxChars
+                        ? rawAnswer.slice(0, maxChars - 1) + '\u2026'
+                        : rawAnswer;
+                    svgEl(svg, NS, 'text', {
+                        x: bin.x + 4, y: rowY + rowH / 2,
+                        'dominant-baseline': 'central',
+                        'clip-path': `url(#${bin._clipId})`,
+                        fill: q.correct ? contrastColor(color) : '#ddd',
+                        'font-weight': q.correct ? '600' : '700',
+                        class: 'grid-answer',
+                    }).textContent = label;
+                }
+
+                // Transparent hit area (tooltip + click + hover effects)
+                const hit = svgEl(svg, NS, 'rect', {
+                    x: bin.x, y: rowY, width: COL_W, height: rowH,
+                    fill: 'rgba(0,0,0,0)', class: 'grid-hit',
+                });
+                const tipHTML = buildTooltipHTML(q);
+                hit.addEventListener('pointerenter', () => {
+                    hit.setAttribute('stroke', '#fff');
+                    hit.setAttribute('stroke-width', '1.5');
+                    hit.setAttribute('stroke-opacity', '0.55');
+                    _playGridHoverSound();
+                });
+                hit.addEventListener('pointerleave', () => {
+                    hit.removeAttribute('stroke');
+                    hit.removeAttribute('stroke-width');
+                    hit.removeAttribute('stroke-opacity');
+                });
+                hit.addEventListener('mousemove', e => showTooltip(tooltip, e, tipHTML));
+                hit.addEventListener('mouseleave', () => hideTooltip(tooltip));
+                if (q.questionUrl) {
+                    hit.addEventListener('click', () =>
+                        window.open(q.questionUrl, '_blank', 'noopener,noreferrer'));
+                }
+            }
+            yOffset += subjectRowArea;
+        }
+    }
+
+    // ── Column headers (top HEADER_H of each bin) ─────────────────────────────
+    for (const bin of bins) {
+        const allQs = bin.cols.flatMap(c => c.qs);
+        const nTotal = allQs.length;
+        const nCorrect = allQs.filter(q => q.correct).length;
+        const playerPct = nCorrect / nTotal * 100;
+        const leaguePct = allQs.reduce((s, q) => s + q.pct, 0) / nTotal;
+        const delta = playerPct - leaguePct;
+        const color = subjectColor(bin.cols[0].subject);
+        const bx = bin.x;
+        const midX = bx + COL_W / 2;
+
+        const labelText = bin.cols.length > 1
+            ? `${bin.cols[0].subject} +${bin.cols.length - 1}`
+            : bin.cols[0].subject;
+
+        svgEl(svg, NS, 'text', { x: midX, y: 11, 'text-anchor': 'middle', class: 'sbs-subj-label' })
+            .textContent = labelText;
+
+        const barY = 16;
+        const barH = 5;
+        svgEl(svg, NS, 'rect', { x: bx, y: barY, width: COL_W, height: barH, fill: '#3a3a3a', rx: 1.5 });
+        svgEl(svg, NS, 'rect', { x: bx, y: barY, width: Math.max(2, COL_W * playerPct / 100), height: barH, fill: color, rx: 1.5 });
+        const markerX = bx + Math.min(COL_W - 1, COL_W * leaguePct / 100);
+        svgEl(svg, NS, 'rect', { x: markerX - 1, y: barY - 2, width: 2, height: barH + 4, fill: '#aaa' });
+
+        const statsTxt = document.createElementNS(NS, 'text');
+        statsTxt.setAttribute('x', midX);
+        statsTxt.setAttribute('y', String(barY + barH + 10));
+        statsTxt.setAttribute('text-anchor', 'middle');
+        statsTxt.setAttribute('class', 'subj-stat');
+        const s1 = document.createElementNS(NS, 'tspan');
+        s1.textContent = `${playerPct.toFixed(0)}%  div ${leaguePct.toFixed(0)}%  `;
+        statsTxt.appendChild(s1);
+        const s2 = document.createElementNS(NS, 'tspan');
+        s2.textContent = `${delta >= 0 ? '+' : ''}${delta.toFixed(0)}%`;
+        s2.setAttribute('fill', delta >= 0 ? '#2ea44f' : '#d73a3a');
+        s2.setAttribute('font-weight', '700');
+        statsTxt.appendChild(s2);
+        svg.appendChild(statsTxt);
+    }
+
+    // ── Column drag-to-reorder ────────────────────────────────────────────────
+    const insertLine = svgEl(svg, NS, 'line',
+        { x1: 0, x2: 0, y1: 0, y2: chartH, class: 'col-insert-line' });
+    insertLine.setAttribute('display', 'none');
+    let _dragCol = null;
+
+    svg.addEventListener('pointermove', e => {
+        const svgRect = svg.getBoundingClientRect();
+        if (!_dragCol) {
+            svg.style.cursor = (e.clientY - svgRect.top) < HEADER_H ? 'grab' : '';
+            return;
+        }
+        const sx = e.clientX - svgRect.left;
+        let insertIdx = 0;
+        for (let i = 0; i < subjectSpans.length; i++) {
+            if (sx > (subjectSpans[i].x1 + subjectSpans[i].x2) / 2) insertIdx = i + 1;
+        }
+        _dragCol.insertIdx = insertIdx;
+        let lx;
+        if (insertIdx === 0) lx = subjectSpans[0].x1 - 4;
+        else if (insertIdx >= subjectSpans.length) lx = subjectSpans[subjectSpans.length - 1].x2 + 4;
+        else lx = (subjectSpans[insertIdx - 1].x2 + subjectSpans[insertIdx].x1) / 2;
+        insertLine.setAttribute('x1', lx);
+        insertLine.setAttribute('x2', lx);
+        insertLine.removeAttribute('display');
+    });
+
+    svg.addEventListener('pointerdown', e => {
+        const svgRect = svg.getBoundingClientRect();
+        if ((e.clientY - svgRect.top) >= HEADER_H) return;
+        const sx = e.clientX - svgRect.left;
+        const hit = subjectSpans.find(s => sx >= s.x1 && sx < s.x2);
+        if (!hit) return;
+        e.preventDefault();
+        _dragCol = { allSubjects: hit.allSubjects, insertIdx: null };
+        svg.setPointerCapture(e.pointerId);
+        svg.style.cursor = 'grabbing';
+    });
+
+    function _commitColDrag() {
+        if (!_dragCol) return;
+        svg.style.cursor = '';
+        insertLine.setAttribute('display', 'none');
+        const { allSubjects: dragSubjects, insertIdx } = _dragCol;
+        _dragCol = null;
+        if (insertIdx === null) return;
+        const binIdx = subjectSpans.findIndex(s => s.allSubjects[0] === dragSubjects[0]);
+        if (insertIdx === binIdx || insertIdx === binIdx + 1) return;
+        const insertBeforeSubj = insertIdx < subjectSpans.length
+            ? subjectSpans[insertIdx].allSubjects[0]
+            : null;
+        const allFlat = subjectSpans.flatMap(s => s.allSubjects);
+        const without = allFlat.filter(s => !dragSubjects.includes(s));
+        const pos = insertBeforeSubj ? without.indexOf(insertBeforeSubj) : without.length;
+        _subjectOrder = [...without.slice(0, pos), ...dragSubjects, ...without.slice(pos)];
+        reRenderAnswers();
+    }
+
+    svg.addEventListener('pointerup', _commitColDrag);
+    svg.addEventListener('pointercancel', () => {
+        _dragCol = null;
+        svg.style.cursor = '';
+        insertLine.setAttribute('display', 'none');
+    });
+
+    container.appendChild(svg);
+
+    const legend = document.getElementById('chart-legend');
+    legend.innerHTML = '<span class="legend-hint">Bar width = % who got it right · Coloured bar = you got it right · Dark bar on grey = you got it wrong · Drag header to reorder · Click to open on LearnedLeague.com</span>';
+}
