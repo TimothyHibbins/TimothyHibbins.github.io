@@ -1,0 +1,27 @@
+# OS junk
+.DS_Store
+**/.DS_Store
+
+# Local tooling / IDE
+.claude/
+.vscode/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Large archives — never commit these
+*.zip
+
+# Bulk stock daily data: thousands of per-ticker .txt files
+Finance Tests/lh replication/data/
+
+# Large generated/intermediate finance outputs (each >5 MB).
+# Keep the analysis code, regenerate these locally.
+Finance Tests/lh replication/loess_curves.json
+Finance Tests/lh replication/lh_forward_comoments.csv
+Finance Tests/lh replication/coassociation_matrix.npz
+Finance Tests/lh replication/stock_returns_stooq.csv
+Finance Tests/lh replication/lh_comoment_panel_q.csv
+Finance Tests/lh replication/cluster_embedding_timeseries.json
+Finance Tests/lh replication/cluster_pca_timeseries.json
+Finance Tests/stock_returns.csv

@@ -20,16 +20,8 @@
             <label for="profile-input">Profile page (HTML)</label>
             <input type="file" id="profile-input" accept=".html,.htm">
         </div>
-        <button id="load-btn">Visualise</button>
 
         <div id="view-toggle" class="hidden">
-            <button id="btn-grid" class="view-btn active">Grid</button>
-            <button id="btn-answers" class="view-btn">Answers</button>
-            <button id="btn-subjectseasons" class="view-btn">Subject Seasons</button>
-            <button id="btn-timeline" class="view-btn">Timeline</button>
-            <button id="btn-subjects" class="view-btn">By Subject</button>
-            <button id="btn-flip-axis" class="view-btn flip-btn" title="Flip the vertical axis direction">⇅ Flip
-                axis</button>
             <button id="btn-title-case" class="view-btn title-case-btn"
                 title="Toggle title case for answer text">Aa</button>
         </div>
@@ -43,6 +35,13 @@
 
         <!-- ── Chart ───────────────────────────────────────────────────────────── -->
         <section id="chart-section" class="hidden">
+
+            <div id="label-palette">
+                <span class="label-palette-hint">✎ Drag to chart:</span>
+                <div class="label-template" draggable="true">Label</div>
+                <div class="label-template" draggable="true">Label</div>
+                <div class="label-template" draggable="true">Label</div>
+            </div>
 
             <div id="chart-outer">
                 <div id="y-axis-wrapper"></div>
@@ -61,6 +60,7 @@
     <script src="pct.js"></script>
     <script src="parser.js"></script>
     <script src="chart.js"></script>
+    <script src="labels.js"></script>
     <script src="main.js"></script>
 
 </body>

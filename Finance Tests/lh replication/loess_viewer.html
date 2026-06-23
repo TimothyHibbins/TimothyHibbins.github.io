@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LOESS Curve Viewer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0
+    }
+
+    html,
+    body {
+      height: 100%;
+      overflow: hidden
+    }
+
+    body {
+      background: #0a0e14;
+      color: #c9d4e3;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 12px;
+      display: flex;
+      flex-direction: column;
+      height: 100vh
+    }
+
+    .toolbar {
+      display: flex;
+      gap: .6rem;
+      align-items: center;
+      flex-wrap: wrap;
+      padding: 8px 12px;
+      border-bottom: 1px solid #1f2a3a;
+      flex-shrink: 0
+    }
+
+    .toolbar label {
+      font-size: 9px;
+      color: #5c6b80;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-right: 2px
+    }
+
+    input[type=text] {
+      background: #111722;
+      border: 1px solid #1f2a3a;
+      color: #c9d4e3;
+      font: inherit;
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 3px;
+      outline: none;
+      width: 140px
+    }
+
+    input[type=text]:focus {
+      border-color: #5ad1c8
+    }
+
+    .suggest {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 4px
+    }
+
+    .suggest-list {
+      position: absolute;
+      top: calc(100% + 2px);
+      left: 0;
+      background: #111722;
+      border: 1px solid #1f2a3a;
+      z-index: 20;
+      width: 160px;
+      max-height: 200px;
+      overflow-y: auto;
+      border-radius: 3px
+    }
+
+    .suggest-list div {
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 11px
+    }
+
+    .suggest-list div:hover,
+    .suggest-list div.sel {
+      background: #1f2a3a;
+      color: #e8eef7
+    }
+
+    button.btn {
+      background: transparent;
+      border: 1px solid #1f2a3a;
+      color: #5c6b80;
+      font: inherit;
+      font-size: 10px;
+      padding: 3px 8px;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: all .1s
+    }
+
+    button.btn:hover {
+      border-color: #5c6b80;
+      color: #c9d4e3
+    }
+
+    button.btn.on {
+      border-color: #5ad1c8;
+      color: #5ad1c8;
+      background: rgba(90, 209, 200, .07)
+    }
+
+    button.btn.yon {
+      border-color: #d9a441;
+      color: #d9a441;
+      background: rgba(217, 164, 65, .07)
+    }
+
+    .sep {
+      width: 1px;
+      height: 20px;
+      background: #1f2a3a;
+      margin: 0 2px
+    }
+
+    .stage {
+      flex: 1;
+      min-height: 0;
+      position: relative
+    }
+
+    canvas#cv {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair
+    }
+
+    .tip {
+      position: absolute;
+      pointer-events: none;
+      background: #111722;
+      border: 1px solid #1f2a3a;
+      padding: 6px 9px;
+      font-size: 10px;
+      line-height: 1.6;
+      border-radius: 3px;
+      opacity: 0;
+      transition: opacity .1s;
+      z-index: 10;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, .5)
+    }
+
+    .tip b {
+      color: #e8eef7
+    }
+
+    .tip .k {
+      color: #5c6b80
+    }
+
+    .eu-bar {
+      display: flex;
+      gap: 5px;
+      padding: 6px 12px;
+      flex-shrink: 0;
+      border-top: 1px solid #1f2a3a;
+      background: #0a0e14
+    }
+
+    .eu-card {
+      background: #111722;
+      border-radius: 3px;
+      padding: .3rem .55rem;
+      flex: 1
+    }
+
+    .eu-card .lbl {
+      font-size: 9px;
+      color: #5c6b80;
+      margin-bottom: 1px
+    }
+
+    .eu-card .num {
+      font-size: 12px;
+      font-weight: 500
+    }
+
+    .status {
+      font-size: 10px;
+      color: #5c6b80;
+      margin-left: auto;
+      align-self: center;
+      padding-right: 4px
+    }
+
+    .loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #5c6b80;
+      font-size: 11px
+    }
+  </style>
+</head>
+
+<body>
+  <div class="toolbar">
+    <label>Ticker</label>
+    <div class="suggest">
+      <input type="text" id="tk-input" placeholder="search..." autocomplete="off">
+      <div class="suggest-list" id="slist" style="display:none"></div>
+    </div>
+    <div class="sep"></div>
+    <label>Horizon</label>
+    <div id="h-tog">
+      <button class="btn on" data-h="1">1m</button>
+      <button class="btn" data-h="6">6m</button>
+      <button class="btn" data-h="12">12m</button>
+      <button class="btn" data-h="36">36m</button>
+      <button class="btn" data-h="60">60m</button>
+      <button class="btn" data-h="120">120m</button>
+    </div>
+    <div class="sep"></div>
+    <label>Y-axis</label>
+    <div id="v-tog">
+      <button class="btn yon" data-v="raw">raw</button>
+      <button class="btn" data-v="ann">annualised</button>
+      <button class="btn" data-v="dm">demeaned</button>
+    </div>
+    <div class="sep"></div>
+    <span class="status" id="status">loading...</span>
+  </div>
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="tip" id="tip"></div>
+    <div class="loading" id="loading">loading loess_curves.json...</div>
+  </div>
+  <div class="eu-bar" id="eu-bar" style="display:none">
+    <div class="eu-card">
+      <div class="lbl">CRRA γ=2</div>
+      <div class="num" id="eu0">—</div>
+    </div>
+    <div class="eu-card">
+      <div class="lbl">CRRA γ=3</div>
+      <div class="num" id="eu1">—</div>
+    </div>
+    <div class="eu-card">
+      <div class="lbl">CRRA γ=5</div>
+      <div class="num" id="eu2">—</div>
+    </div>
+    <div class="eu-card">
+      <div class="lbl">ProspectT</div>
+      <div class="num" id="eu3">—</div>
+    </div>
+    <div class="eu-card">
+      <div class="lbl">MeanVar γ=3</div>
+      <div class="num" id="eu4">—</div>
+    </div>
+    <div class="status" id="sel-label"></div>
+  </div>
+
+  <script>
+    const DATA_URL = 'loess_curves.json';
+    let D = null;
+    let cur_h = 1, cur_v = 'raw';
+    let hovered = null, selected = null;
+    let curves = [];   // [{tk, ys:[y per grid point]}] for current settings
+    let yLo = 0, yHi = 0;
+    const cv = document.getElementById('cv');
+    const ctx = cv.getContext('2d');
+    const tip = document.getElementById('tip');
+    const stage = document.getElementById('stage');
+
+    // ── data loading ──────────────────────────────────────────────────────────────
+    fetch(DATA_URL).then(r => { if (!r.ok) throw 0; return r.json(); }).then(d => {
+      D = d;
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('status').textContent =
+        d.tickers.length + ' stocks';
+      initSearch();
+      buildCurves();
+      resize(); draw();
+    }).catch(() => {
+      document.getElementById('loading').textContent =
+        'loess_curves.json not found — run export_loess_curves.py first.';
+    });
+
+    // ── curve building ────────────────────────────────────────────────────────────
+    function getY(hd) {
+      if (!hd) return null;
+      if (cur_v === 'raw') return hd.curve_y;
+      const af = 12 / cur_h;
+      const ann = hd.curve_y.map(y => Math.expm1(af * Math.log1p(Math.max(y, -0.9999))));
+      if (cur_v === 'ann') return ann;
+      const mean = ann.reduce((a, b) => a + b, 0) / ann.length;
+      return ann.map(y => y - mean);
+    }
+
+    function buildCurves() {
+      if (!D) return;
+      curves = [];
+      let lo = Infinity, hi = -Infinity;
+      for (const tk of D.tickers) {
+        const stk = D.data[tk];
+        if (!stk) continue;
+        const hd = stk[String(cur_h)];
+        if (!hd) continue;
+        const ys = getY(hd);
+        if (!ys) continue;
+        for (const y of ys) { if (y < lo) lo = y; if (y > hi) hi = y; }
+        curves.push({ tk, ys });
+      }
+      // symmetric y range with padding
+      const pad = (hi - lo) * 0.06 || 0.01;
+      yLo = lo - pad; yHi = hi + pad;
+    }
+
+    // ── layout helpers ────────────────────────────────────────────────────────────
+    const PAD = { l: 44, r: 12, t: 10, b: 28 };
+
+    function resize() {
+      const r = stage.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      cv.width = r.width * dpr;
+      cv.height = r.height * dpr;
+      cv.style.width = r.width + 'px';
+      cv.style.height = r.height + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function W() { return cv.getBoundingClientRect().width; }
+    function H() { return cv.getBoundingClientRect().height; }
+    function toX(pct) { return PAD.l + (pct / 100) * (W() - PAD.l - PAD.r); }
+    function toY(v) { return PAD.t + (1 - (v - yLo) / (yHi - yLo)) * (H() - PAD.t - PAD.b); }
+    function fromX(px) { return (px - PAD.l) / (W() - PAD.l - PAD.r) * 100; }
+    function fromY(py) { return yLo + (1 - (py - PAD.t) / (H() - PAD.t - PAD.b)) * (yHi - yLo); }
+
+    // ── drawing ───────────────────────────────────────────────────────────────────
+    function draw() {
+      const w = W(), h = H();
+      ctx.clearRect(0, 0, w, h);
+
+      // grid
+      ctx.strokeStyle = 'rgba(31,42,58,.5)'; ctx.lineWidth = 1;
+      for (let p = 0; p <= 100; p += 20) {
+        const x = toX(p);
+        ctx.beginPath(); ctx.moveTo(x, PAD.t); ctx.lineTo(x, h - PAD.b); ctx.stroke();
+      }
+      const ySteps = 5;
+      for (let i = 0; i <= ySteps; i++) {
+        const v = yLo + (yHi - yLo) * i / ySteps;
+        const y = toY(v);
+        ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(w - PAD.r, y); ctx.stroke();
+      }
+
+      // zero line
+      if (yLo < 0 && yHi > 0) {
+        const y0 = toY(0);
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath(); ctx.moveTo(PAD.l, y0); ctx.lineTo(w - PAD.r, y0); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // axes labels
+      ctx.fillStyle = '#5c6b80'; ctx.font = '9px ui-monospace,Menlo,monospace';
+      ctx.textAlign = 'right';
+      for (let i = 0; i <= ySteps; i++) {
+        const v = yLo + (yHi - yLo) * i / ySteps;
+        ctx.fillText((v * 100).toFixed(1) + '%', PAD.l - 4, toY(v) + 3);
+      }
+      ctx.textAlign = 'center';
+      for (let p = 0; p <= 100; p += 20)
+        ctx.fillText(p + '%', toX(p), h - PAD.b + 12);
+
+      // all curves — faint
+      const N = curves.length;
+      for (let ci = 0; ci < N; ci++) {
+        const c = curves[ci];
+        if (c.tk === selected || c.tk === hovered) continue;
+        drawCurve(c.ys, 'rgba(90,130,160,0.07)', 1);
+      }
+
+      // hovered — medium
+      if (hovered && hovered !== selected) {
+        const c = curves.find(x => x.tk === hovered);
+        if (c) drawCurve(c.ys, 'rgba(90,209,200,0.45)', 1.5);
+      }
+
+      // selected — bright
+      if (selected) {
+        const c = curves.find(x => x.tk === selected);
+        if (c) {
+          // also draw raw scatter for selected
+          drawRawScatter(selected);
+          drawCurve(c.ys, 'rgba(90,209,200,1)', 2.5);
+        }
+      }
+
+      // axis labels
+      ctx.fillStyle = '#3a4a5a'; ctx.font = '9px ui-monospace,Menlo,monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('market return percentile', PAD.l + (w - PAD.l - PAD.r) / 2, h - 2);
+    }
+
+    function drawCurve(ys, color, lw) {
+      ctx.strokeStyle = color; ctx.lineWidth = lw;
+      ctx.beginPath();
+      const n = ys.length;
+      for (let i = 0; i < n; i++) {
+        const x = toX(i / (n - 1) * 100);
+        const y = toY(ys[i]);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    function drawRawScatter(tk) {
+      const stk = D.data[tk]; if (!stk) return;
+      const hd = stk[String(cur_h)]; if (!hd) return;
+      const af = 12 / cur_h;
+      let raw_y = hd.raw_y;
+      if (cur_v === 'ann')
+        raw_y = raw_y.map(y => Math.expm1(af * Math.log1p(Math.max(y, -0.9999))));
+      else if (cur_v === 'dm') {
+        const a = raw_y.map(y => Math.expm1(af * Math.log1p(Math.max(y, -0.9999))));
+        const mn = a.reduce((s, v) => s + v, 0) / a.length;
+        raw_y = a.map(y => y - mn);
+      }
+      ctx.fillStyle = 'rgba(90,209,200,0.25)';
+      for (let i = 0; i < hd.raw_pct.length; i++) {
+        const x = toX(hd.raw_pct[i]);
+        const y = toY(raw_y[i]);
+        ctx.beginPath(); ctx.arc(x, y, 2, 0, 6.2832); ctx.fill();
+      }
+    }
+
+    // ── nearest curve ─────────────────────────────────────────────────────────────
+    function nearestCurve(mx, my) {
+      // find the curve closest to mouse at the mouse's x-percentile
+      const pct = fromX(mx);
+      if (pct < 0 || pct > 100) return null;
+      const n = curves.length;
+      if (!n) return null;
+      // which grid index?
+      const gi = Math.round(pct / 100 * (D.data[curves[0].tk][String(cur_h)]?.curve_pct.length - 1 || 99));
+      let best = null, bd = Infinity;
+      for (const c of curves) {
+        const yv = c.ys[Math.min(gi, c.ys.length - 1)];
+        const sy = toY(yv);
+        const d = Math.abs(sy - my);
+        if (d < bd) { bd = d; best = c.tk; }
+      }
+      return bd < 30 ? best : null;
+    }
+
+    // ── events ────────────────────────────────────────────────────────────────────
+    cv.addEventListener('mousemove', e => {
+      const r = stage.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      const tk = nearestCurve(mx, my);
+      if (tk !== hovered) { hovered = tk; draw(); }
+      if (tk) {
+        const stk = D.data[tk];
+        const hd = stk ? stk[String(cur_h)] : null;
+        const eu = hd?.eu || {};
+        tip.innerHTML = `<b>${tk}</b><br>` +
+          Object.entries(eu).map(([k, v]) =>
+            `<span class="k">${k}</span> ${v !== null ? v.toFixed(4) : 'n/a'}`
+          ).join('<br>');
+        tip.style.opacity = 1;
+        let tx = mx + 12, ty = my + 12;
+        if (tx > r.width - 160) tx = mx - 150;
+        if (ty > r.height - 100) ty = my - 100;
+        tip.style.left = tx + 'px'; tip.style.top = ty + 'px';
+      } else { tip.style.opacity = 0; }
+    });
+
+    cv.addEventListener('mouseleave', () => {
+      hovered = null; tip.style.opacity = 0; draw();
+    });
+
+    cv.addEventListener('click', e => {
+      const r = stage.getBoundingClientRect();
+      const tk = nearestCurve(e.clientX - r.left, e.clientY - r.top);
+      if (tk === selected) {
+        // deselect
+        selected = null;
+        document.getElementById('eu-bar').style.display = 'none';
+        document.getElementById('sel-label').textContent = '';
+        document.getElementById('tk-input').value = '';
+      } else {
+        selected = tk;
+        if (tk) updateEuBar(tk);
+      }
+      draw();
+    });
+
+    function updateEuBar(tk) {
+      const stk = D.data[tk];
+      const hd = stk ? stk[String(cur_h)] : null;
+      const eu = hd?.eu || {};
+      const vals = Object.values(eu);
+      const ids = ['eu0', 'eu1', 'eu2', 'eu3', 'eu4'];
+      Object.entries(eu).forEach(([k, v], i) => {
+        const el = document.getElementById(ids[i]);
+        if (!el) return;
+        el.textContent = v !== null ? v.toFixed(5) : 'n/a';
+        el.style.color = v < 0 ? '#5ad1c8' : '#e2614a';
+      });
+      document.getElementById('eu-bar').style.display = 'flex';
+      document.getElementById('sel-label').textContent = tk + ' · click again to deselect';
+      document.getElementById('tk-input').value = tk;
+    }
+
+    // ── search ────────────────────────────────────────────────────────────────────
+    function initSearch() {
+      const inp = document.getElementById('tk-input');
+      const lst = document.getElementById('slist');
+      let si = -1;
+      inp.addEventListener('input', () => {
+        const q = inp.value.trim().toUpperCase();
+        if (!q) { lst.style.display = 'none'; return; }
+        const m = D.tickers.filter(t => t.includes(q)).slice(0, 10);
+        if (!m.length) { lst.style.display = 'none'; return; }
+        lst.innerHTML = m.map((t, i) => `<div data-t="${t}"${i === 0 ? ' class="sel"' : ''}>${t}</div>`).join('');
+        lst.style.display = 'block'; si = 0;
+        lst.querySelectorAll('div').forEach(el => el.addEventListener('mousedown', e => {
+          e.preventDefault();
+          selected = el.dataset.t; inp.value = selected; lst.style.display = 'none';
+          updateEuBar(selected); draw();
+        }));
+      });
+      inp.addEventListener('keydown', e => {
+        const items = lst.querySelectorAll('div');
+        if (e.key === 'ArrowDown') { si = Math.min(si + 1, items.length - 1); }
+        else if (e.key === 'ArrowUp') { si = Math.max(si - 1, 0); }
+        else if (e.key === 'Enter') {
+          if (si >= 0 && items[si]) {
+            selected = items[si].dataset.t; inp.value = selected; lst.style.display = 'none';
+            updateEuBar(selected); draw();
+          }
+        } else if (e.key === 'Escape') { lst.style.display = 'none'; }
+        items.forEach((el, i) => el.classList.toggle('sel', i === si));
+      });
+      document.addEventListener('click', e => {
+        if (!e.target.closest('.suggest')) lst.style.display = 'none';
+      });
+    }
+
+    // ── toggles ───────────────────────────────────────────────────────────────────
+    document.querySelectorAll('#h-tog .btn').forEach(b => b.addEventListener('click', () => {
+      document.querySelectorAll('#h-tog .btn').forEach(x => x.classList.remove('on'));
+      b.classList.add('on'); cur_h = +b.dataset.h;
+      buildCurves(); draw();
+      if (selected) updateEuBar(selected);
+    }));
+    document.querySelectorAll('#v-tog .btn').forEach(b => b.addEventListener('click', () => {
+      document.querySelectorAll('#v-tog .btn').forEach(x => x.classList.remove('yon'));
+      b.classList.add('yon'); cur_v = b.dataset.v;
+      buildCurves(); draw();
+    }));
+
+    window.addEventListener('resize', () => { resize(); draw(); });
+  </script>
+</body>
+
+</html>

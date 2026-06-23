@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Risk Decomposition Map</title>
+<style>
+  :root{--ink:#0a0e14;--panel:#111722;--line:#1f2a3a;--txt:#c9d4e3;
+    --dim:#5c6b80;--hi:#e8eef7;--accent:#5ad1c8;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--ink);color:var(--txt);
+    font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+    overflow:hidden;display:flex;flex-direction:column}
+  header{padding:12px 18px 10px;border-bottom:1px solid var(--line);
+    display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  header h1{font-size:13px;font-weight:600;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--hi)}
+  header .sub{font-size:11px;color:var(--dim)}
+  .stage{flex:1;position:relative;overflow:hidden}
+  canvas{position:absolute;top:0;left:0;display:block;cursor:grab}
+  canvas:active{cursor:grabbing}
+  .tip{position:absolute;pointer-events:none;z-index:10;background:var(--panel);
+    border:1px solid var(--line);padding:8px 10px;font-size:11px;line-height:1.6;
+    border-radius:3px;opacity:0;transition:opacity .1s;
+    box-shadow:0 4px 20px rgba(0,0,0,.5);max-width:220px}
+  .tip b{color:var(--hi)} .tip .k{color:var(--dim)}
+  .legend{position:absolute;left:14px;top:12px;z-index:5;
+    background:rgba(17,23,34,.88);border:1px solid var(--line);
+    padding:9px 11px;font-size:10px;border-radius:3px;
+    backdrop-filter:blur(6px);max-width:200px}
+  .legend .lt{color:var(--dim);text-transform:uppercase;letter-spacing:.1em;
+    margin-bottom:6px;font-size:9px}
+  .lrow{display:flex;align-items:center;gap:6px;margin-bottom:3px;font-size:9px}
+  .lsw{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+  .transport{position:absolute;left:0;right:0;bottom:0;z-index:8;
+    background:linear-gradient(0deg,rgba(10,14,20,.97),transparent);
+    padding:22px 20px 14px;display:flex;align-items:center;gap:12px}
+  .date{font-size:19px;color:var(--hi);font-weight:600;letter-spacing:.04em;
+    min-width:100px;font-variant-numeric:tabular-nums}
+  .scrub{flex:1;display:flex;align-items:center}
+  input[type=range]{width:100%;-webkit-appearance:none;appearance:none;height:3px;
+    background:var(--line);border-radius:2px;outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;
+    height:13px;border-radius:50%;background:var(--accent);cursor:pointer;
+    box-shadow:0 0 0 3px rgba(90,209,200,.15)}
+  .speed{font-size:10px;color:var(--dim);display:flex;gap:4px}
+  .speed button,.play{background:transparent;border:1px solid var(--line);
+    color:var(--dim);font:inherit;font-size:11px;padding:4px 10px;
+    cursor:pointer;border-radius:2px;transition:all .15s}
+  .speed button:hover,.play:hover{border-color:var(--dim);color:var(--txt)}
+  .speed button.on,.play.on{border-color:var(--accent);color:var(--accent);
+    background:rgba(90,209,200,.07)}
+  .hint{position:absolute;right:14px;top:12px;z-index:5;
+    font-size:10px;color:var(--dim)}
+  .loading{position:absolute;inset:0;display:flex;align-items:center;
+    justify-content:center;color:var(--dim);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Risk Decomposition Map</h1>
+  <span class="sub" id="meta">loading...</span>
+</header>
+<div class="stage" id="stage">
+  <canvas id="cv"></canvas>
+  <div class="tip" id="tip"></div>
+  <div class="legend" id="legend">
+    <div class="lt">Risk components</div>
+    <div id="leg-rows"></div>
+  </div>
+  <div class="hint">scroll: zoom · drag: pan · pie = variance decomposition</div>
+  <div class="transport" id="transport">
+    <div class="date" id="date">—</div>
+    <div class="scrub"><input type="range" id="scrub" min="0" max="0" value="0"></div>
+    <button class="play" id="play">&#9654; play</button>
+    <div class="speed">
+      <button data-sp="0.5">0.5×</button>
+      <button data-sp="1" class="on">1×</button>
+      <button data-sp="2">2×</button>
+    </div>
+  </div>
+  <div class="loading" id="loading">loading...</div>
+</div>
+<script>
+const URL='cluster_pca_timeseries.json';
+let D=null, pos=0, playing=false, speed=1, lastT=0;
+let view={x:0,y:0,s:1}, drag=null;
+const FRAME_MS=900;
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const tip=document.getElementById('tip');
+const scrub=document.getElementById('scrub');
+const IDIO_COLOR='#2a3a50'; // same grey for all stocks' idiosyncratic slice
+
+// Component colours — golden-ratio spaced hues, muted saturation
+function compColor(k){
+  const h=(k*137.508+30)%360;
+  return`hsl(${h},52%,58%)`;
+}
+
+function buildLegend(K){
+  const rows=document.getElementById('leg-rows');
+  rows.innerHTML='';
+  for(let k=0;k<K;k++){
+    const d=document.createElement('div');d.className='lrow';
+    d.innerHTML=`<div class="lsw" style="background:${compColor(k)}"></div>component ${k+1}`;
+    rows.appendChild(d);
+  }
+  const d=document.createElement('div');d.className='lrow';
+  d.innerHTML=`<div class="lsw" style="background:${IDIO_COLOR};border:1px solid #3a4a5a"></div>idiosyncratic`;
+  rows.appendChild(d);
+}
+
+// frame interpolation
+let cache=new Map();
+function buildMap(fi){
+  const f=D.frames[fi],m=new Map();
+  for(let j=0;j<f.idx.length;j++)
+    m.set(f.idx[j],{x:f.xy[j][0],y:f.xy[j][1],fracs:f.fracs[j],K:f.K});
+  return m;
+}
+function getMap(fi){if(!cache.has(fi))cache.set(fi,buildMap(fi));return cache.get(fi);}
+
+let cur=[];
+function computePositions(){
+  const a=Math.floor(pos),b=Math.min(a+1,D.frames.length-1);
+  let u=pos-a; u=u*u*(3-2*u);
+  const ma=getMap(a),mb=getMap(b);
+  const out=[],seen=new Set();
+  for(const[ti,A] of ma){
+    const B=mb.get(ti);
+    if(B){
+      // interpolate position and fracs
+      const maxK=Math.max(A.fracs.length,B.fracs.length);
+      const fracs=[];
+      for(let k=0;k<maxK;k++){
+        const fa=A.fracs[k]??0, fb=B.fracs[k]??0;
+        fracs.push(fa+(fb-fa)*u);
+      }
+      out.push({ti,x:A.x+(B.x-A.x)*u,y:A.y+(B.y-A.y)*u,fracs,al:1});
+    } else {
+      out.push({ti,x:A.x,y:A.y,fracs:A.fracs,al:1-u});
+    }
+    seen.add(ti);
+  }
+  for(const[ti,B] of mb){
+    if(!seen.has(ti)) out.push({ti,x:B.x,y:B.y,fracs:B.fracs,al:u});
+  }
+  cur=out;
+}
+
+function resize(){
+  const r=document.getElementById('stage').getBoundingClientRect();
+  const dpr=window.devicePixelRatio||1;
+  cv.width=r.width*dpr;cv.height=r.height*dpr;
+  cv.style.width=r.width+'px';cv.style.height=r.height+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);render();
+}
+function base(){const r=document.getElementById('stage').getBoundingClientRect();
+  return Math.min(r.width,r.height)*0.42;}
+function w2s(x,y){const r=document.getElementById('stage').getBoundingClientRect();
+  return[r.width/2+x*base()*view.s+view.x,r.height/2+y*base()*view.s+view.y];}
+function s2w(sx,sy){const r=document.getElementById('stage').getBoundingClientRect();
+  return[(sx-r.width/2-view.x)/(base()*view.s),(sy-r.height/2-view.y)/(base()*view.s)];}
+
+function drawPie(ctx,cx,cy,r,fracs,alpha){
+  if(r<1) return;
+  const K=fracs.length-1; // last is idio
+  let angle=-Math.PI/2;
+  const slices=[...fracs];
+  // normalise
+  const total=slices.reduce((a,b)=>a+b,0);
+  if(total<0.001) return;
+  for(let k=0;k<=K;k++){
+    const sweep=(slices[k]/total)*2*Math.PI;
+    if(sweep<0.001){angle+=sweep;continue;}
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,r,angle,angle+sweep);
+    ctx.closePath();
+    ctx.fillStyle=k<K?compColor(k):IDIO_COLOR;
+    ctx.globalAlpha=alpha*0.88;
+    ctx.fill();
+    angle+=sweep;
+  }
+  // thin border
+  ctx.beginPath();ctx.arc(cx,cy,r,0,2*Math.PI);
+  ctx.strokeStyle='rgba(10,14,20,0.5)';ctx.lineWidth=0.5;
+  ctx.globalAlpha=alpha;ctx.stroke();
+}
+
+function render(){
+  if(!D)return;
+  const r=document.getElementById('stage').getBoundingClientRect();
+  ctx.clearRect(0,0,r.width,r.height);
+  ctx.strokeStyle='rgba(31,42,58,.25)';ctx.lineWidth=1;const st=60;
+  for(let gx=((view.x%st)+st)%st;gx<r.width;gx+=st){ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,r.height);ctx.stroke();}
+  for(let gy=((view.y%st)+st)%st;gy<r.height;gy+=st){ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(r.width,gy);ctx.stroke();}
+  const rad=Math.max(2.5,4*Math.sqrt(view.s));
+  ctx.globalAlpha=1;
+  for(const p of cur){
+    const[sx,sy]=w2s(p.x,p.y);
+    if(sx<-20||sy<-20||sx>r.width+20||sy>r.height+20)continue;
+    drawPie(ctx,sx,sy,rad*p.al,p.fracs,p.al);
+  }
+  ctx.globalAlpha=1;
+}
+
+function updateDate(){
+  const fi=Math.round(pos);
+  document.getElementById('date').textContent=D.frames[fi].date.slice(0,7);
+  scrub.value=fi;
+}
+
+function nearest(mx,my){let b=null,bd=1e9;
+  for(const p of cur){const[sx,sy]=w2s(p.x,p.y);const d=(sx-mx)**2+(sy-my)**2;
+    if(d<bd){bd=d;b=p;}}return bd<200?b:null;}
+
+cv.addEventListener('mousemove',e=>{
+  const r=document.getElementById('stage').getBoundingClientRect();
+  const mx=e.clientX-r.left,my=e.clientY-r.top;
+  if(drag){view.x+=mx-drag.x;view.y+=my-drag.y;drag={x:mx,y:my};render();return;}
+  const p=nearest(mx,my);
+  if(p){
+    const tk=D.tickers[p.ti];
+    const K=p.fracs.length-1;
+    let rows=`<b>${tk}</b><br>`;
+    for(let k=0;k<K;k++){
+      const pct=(p.fracs[k]*100).toFixed(1);
+      rows+=`<span class="k">comp ${k+1}</span> ${pct}%<br>`;
+    }
+    rows+=`<span class="k">idio</span> ${(p.fracs[K]*100).toFixed(1)}%`;
+    tip.innerHTML=rows;tip.style.opacity=1;
+    let tx=mx+12,ty=my+12;
+    if(tx>r.width-170)tx=mx-160;if(ty>r.height-90)ty=my-90;
+    tip.style.left=tx+'px';tip.style.top=ty+'px';
+  }else tip.style.opacity=0;
+});
+cv.addEventListener('mousedown',e=>{const r=document.getElementById('stage').getBoundingClientRect();drag={x:e.clientX-r.left,y:e.clientY-r.top};});
+window.addEventListener('mouseup',()=>drag=null);
+cv.addEventListener('mouseleave',()=>{tip.style.opacity=0;});
+cv.addEventListener('wheel',e=>{e.preventDefault();
+  const r=document.getElementById('stage').getBoundingClientRect();
+  const mx=e.clientX-r.left,my=e.clientY-r.top;
+  const[wx,wy]=s2w(mx,my);
+  const f=e.deltaY<0?1.12:1/1.12;
+  view.s=Math.max(.35,Math.min(16,view.s*f));
+  view.x=mx-r.width/2-wx*base()*view.s;
+  view.y=my-r.height/2-wy*base()*view.s;
+  render();},{passive:false});
+
+const transport=document.getElementById('transport');
+['mousedown','mousemove','mouseup','wheel'].forEach(ev=>transport.addEventListener(ev,e=>e.stopPropagation()));
+scrub.addEventListener('input',()=>{playing=false;document.getElementById('play').innerHTML='&#9654; play';
+  pos=+scrub.value;computePositions();render();updateDate();});
+const playBtn=document.getElementById('play');
+playBtn.addEventListener('click',()=>{if(playing){playing=false;playBtn.innerHTML='&#9654; play';}
+  else{if(pos>=D.frames.length-1)pos=0;playing=true;lastT=0;playBtn.innerHTML='&#10074;&#10074; pause';}});
+document.querySelectorAll('.speed button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.speed button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');speed=+b.dataset.sp;}));
+
+function tick(ts){if(D&&playing){if(!lastT)lastT=ts;const dt=ts-lastT;lastT=ts;
+  pos+=speed*dt/FRAME_MS;
+  if(pos>=D.frames.length-1){pos=D.frames.length-1;playing=false;playBtn.innerHTML='&#9654; play';}
+  computePositions();render();updateDate();}requestAnimationFrame(tick);}
+
+window.addEventListener('resize',resize);
+window.addEventListener('keydown',e=>{
+  if(e.key===' '){e.preventDefault();playBtn.click();}
+  if(e.key==='ArrowRight'){playing=false;pos=Math.min(D.frames.length-1,Math.round(pos)+1);computePositions();render();updateDate();}
+  if(e.key==='ArrowLeft'){playing=false;pos=Math.max(0,Math.round(pos)-1);computePositions();render();updateDate();}});
+
+fetch(URL).then(r=>{if(!r.ok)throw 0;return r.json();}).then(d=>{
+  if(!d.frames||!d.frames[0]||!d.frames[0].fracs){
+    document.getElementById('loading').textContent='Old format — re-run cluster_pca_export.py.';return;}
+  D=d;document.getElementById('loading').style.display='none';
+  document.getElementById('meta').textContent=
+    d.tickers.length+' stocks · '+d.n_frames+' windows · '+
+    d.window+'mo · up to '+d.n_components_max+' risk components';
+  scrub.max=d.n_frames-1;
+  buildLegend(d.n_components_max);
+  resize();computePositions();render();updateDate();
+  requestAnimationFrame(tick);
+}).catch(()=>{document.getElementById('loading').textContent=
+  'cluster_pca_timeseries.json not found — run cluster_pca_export.py first.';});
+</script>
+</body>
+</html>

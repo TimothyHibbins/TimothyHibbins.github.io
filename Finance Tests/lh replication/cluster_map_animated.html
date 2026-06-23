@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Correlation Map · Per Period</title>
+  <style>
+    :root {
+      --ink: #0a0e14;
+      --panel: #111722;
+      --line: #1f2a3a;
+      --txt: #c9d4e3;
+      --dim: #5c6b80;
+      --hi: #e8eef7;
+      --accent: #5ad1c8;
+      --warn: #e2614a;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0
+    }
+
+    html,
+    body {
+      height: 100%
+    }
+
+    body {
+      background: var(--ink);
+      color: var(--txt);
+      font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column
+    }
+
+    header {
+      padding: 13px 20px 11px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      flex-wrap: wrap
+    }
+
+    header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--hi)
+    }
+
+    header .sub {
+      font-size: 11px;
+      color: var(--dim)
+    }
+
+    .controls {
+      margin-left: auto;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap
+    }
+
+    .controls span.lbl {
+      font-size: 10px;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      margin-right: 2px
+    }
+
+    button.tog,
+    button.play {
+      background: transparent;
+      border: 1px solid var(--line);
+      color: var(--dim);
+      font: inherit;
+      font-size: 11px;
+      padding: 5px 11px;
+      cursor: pointer;
+      letter-spacing: .03em;
+      transition: all .15s;
+      border-radius: 2px
+    }
+
+    button.tog:hover,
+    button.play:hover {
+      border-color: var(--dim);
+      color: var(--txt)
+    }
+
+    button.tog.on,
+    button.play.on {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(90, 209, 200, .07)
+    }
+
+    .stage {
+      flex: 1;
+      position: relative;
+      overflow: hidden
+    }
+
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: block;
+      cursor: grab
+    }
+
+    canvas:active {
+      cursor: grabbing
+    }
+
+    .tip {
+      position: absolute;
+      pointer-events: none;
+      z-index: 10;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 8px 11px;
+      font-size: 11px;
+      line-height: 1.6;
+      border-radius: 3px;
+      opacity: 0;
+      transition: opacity .1s;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, .5);
+      max-width: 230px
+    }
+
+    .tip b {
+      color: var(--hi)
+    }
+
+    .tip .k {
+      color: var(--dim)
+    }
+
+    .tip .ret-pos {
+      color: var(--accent)
+    }
+
+    .tip .ret-neg {
+      color: var(--warn)
+    }
+
+    .legend {
+      position: absolute;
+      left: 16px;
+      top: 14px;
+      z-index: 5;
+      background: rgba(17, 23, 34, .82);
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      font-size: 10px;
+      border-radius: 3px;
+      backdrop-filter: blur(6px);
+      max-width: 220px;
+      max-height: 60vh;
+      overflow-y: auto
+    }
+
+    .legend .lt {
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      margin-bottom: 7px;
+      font-size: 9px
+    }
+
+    .legend .lrow {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 3px;
+      font-size: 9px;
+      color: var(--txt)
+    }
+
+    .legend .lsw {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0
+    }
+
+    .ramp {
+      height: 9px;
+      width: 180px;
+      border-radius: 2px;
+      margin: 4px 0 3px
+    }
+
+    .ramp-lbls {
+      display: flex;
+      justify-content: space-between;
+      color: var(--dim);
+      font-size: 9px
+    }
+
+    .note {
+      color: var(--dim);
+      font-size: 9px;
+      margin-top: 6px;
+      line-height: 1.5
+    }
+
+    .transport {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 8;
+      background: linear-gradient(0deg, rgba(10, 14, 20, .97), rgba(10, 14, 20, 0));
+      padding: 26px 22px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px
+    }
+
+    .date {
+      font-size: 20px;
+      color: var(--hi);
+      font-weight: 600;
+      letter-spacing: .04em;
+      min-width: 104px;
+      font-variant-numeric: tabular-nums
+    }
+
+    .scrub {
+      flex: 1;
+      display: flex;
+      align-items: center
+    }
+
+    input[type=range] {
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 3px;
+      background: var(--line);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      box-shadow: 0 0 0 4px rgba(90, 209, 200, .15)
+    }
+
+    .speed {
+      font-size: 10px;
+      color: var(--dim);
+      display: flex;
+      gap: 5px;
+      align-items: center
+    }
+
+    .speed button {
+      padding: 3px 7px;
+      font-size: 10px
+    }
+
+    .hint {
+      position: absolute;
+      right: 16px;
+      top: 14px;
+      z-index: 5;
+      font-size: 10px;
+      color: var(--dim)
+    }
+
+    .loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--dim);
+      font-size: 12px;
+      text-align: center;
+      padding: 20px
+    }
+
+    @media(max-width:640px) {
+      header {
+        flex-direction: column;
+        gap: 8px
+      }
+
+      .controls {
+        margin-left: 0
+      }
+
+      .date {
+        font-size: 16px;
+        min-width: 84px
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Correlation Map · Per Period</h1>
+    <span class="sub" id="meta">loading...</span>
+    <div class="controls">
+      <span class="lbl">Colour</span>
+      <button class="tog on" data-mode="cluster">Cluster</button>
+      <button class="tog" data-mode="ret">Return</button>
+      <button class="tog" data-mode="sector">Sector</button>
+    </div>
+  </header>
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="tip" id="tip"></div>
+    <div class="legend" id="legend"></div>
+    <div class="hint">scroll: zoom to cursor · drag: pan · grey = unclustered this window</div>
+    <div class="transport" id="transport">
+      <div class="date" id="date">-</div>
+      <div class="scrub"><input type="range" id="scrub" min="0" max="0" value="0"></div>
+      <button class="play" id="play">&#9654; play</button>
+      <div class="speed">
+        <button class="play" data-sp="0.5">0.5&times;</button>
+        <button class="play on" data-sp="1">1&times;</button>
+        <button class="play" data-sp="2">2&times;</button>
+      </div>
+    </div>
+    <div class="loading" id="loading">loading frames...</div>
+  </div>
+  <script>
+    const URL = 'cluster_embedding_timeseries.json';
+    let D = null, mode = 'cluster';
+    let view = { x: 0, y: 0, s: 1 }, drag = null;
+    let pos = 0, playing = false, speed = 1, lastT = 0;
+    const FRAME_MS = 900;
+    const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+    const tip = document.getElementById('tip');
+    const scrub = document.getElementById('scrub');
+
+    // sector -> colour
+    const SECTOR_PALETTE = {
+      'Technology': '#5ad1c8',
+      'Healthcare': '#7aa8e0',
+      'Financial Services': '#d9a441',
+      'Consumer Cyclical': '#e07ab0',
+      'Communication Services': '#9b8ce0',
+      'Industrials': '#6fc26f',
+      'Consumer Defensive': '#46b0a8',
+      'Energy': '#e2614a',
+      'Basic Materials': '#cf7d4a',
+      'Real Estate': '#5c8fd6',
+      'Utilities': '#b0a03a',
+      'Unknown': '#445566',
+    };
+    function sectorColor(s) { return SECTOR_PALETTE[s] || '#556677'; }
+    function clusterColor(id) {
+      if (id < 0) return null;
+      const h = (id * 137.508) % 360; return `hsl(${h},58%,60%)`;
+    }
+    function lerp3(a, b, t) {
+      return [a[0] + (b[0] - a[0]) * t | 0, a[1] + (b[1] - a[1]) * t | 0,
+      a[2] + (b[2] - a[2]) * t | 0];
+    }
+    function retColor(v) {
+      const t = Math.max(0, Math.min(1, (v + 15) / 30));
+      let c; if (t < .5) c = lerp3([226, 97, 74], [55, 66, 82], t / .5);
+      else c = lerp3([55, 66, 82], [90, 209, 200], (t - .5) / .5);
+      return `rgb(${c[0]},${c[1]},${c[2]})`;
+    }
+
+    let cache = new Map();
+    function buildMap(fi) {
+      const f = D.frames[fi], m = new Map();
+      for (let j = 0; j < f.idx.length; j++)
+        m.set(f.idx[j], { x: f.xy[j][0], y: f.xy[j][1], cl: f.cl[j], ret: f.ret[j] });
+      return m;
+    }
+    function getMap(fi) { if (!cache.has(fi)) cache.set(fi, buildMap(fi)); return cache.get(fi); }
+
+    let cur = [];
+    function computePositions() {
+      const a = Math.floor(pos), b = Math.min(a + 1, D.frames.length - 1);
+      let u = pos - a; u = u * u * (3 - 2 * u);
+      const ma = getMap(a), mb = getMap(b);
+      const out = [], seen = new Set();
+      for (const [ti, A] of ma) {
+        const B = mb.get(ti);
+        if (B) out.push({
+          ti, x: A.x + (B.x - A.x) * u, y: A.y + (B.y - A.y) * u,
+          cl: u < 0.5 ? A.cl : B.cl, ret: u < 0.5 ? A.ret : B.ret, al: 1
+        });
+        else out.push({ ti, x: A.x, y: A.y, cl: A.cl, ret: A.ret, al: 1 - u });
+        seen.add(ti);
+      }
+      for (const [ti, B] of mb) {
+        if (seen.has(ti)) continue;
+        out.push({ ti, x: B.x, y: B.y, cl: B.cl, ret: B.ret, al: u });
+      }
+      cur = out;
+    }
+
+    function colorFor(p) {
+      const tk = D.tickers[p.ti];
+      if (mode === 'cluster') {
+        const c = clusterColor(p.cl); return c || null;
+      }
+      if (mode === 'ret') {
+        if (p.ret == null) return null; return retColor(p.ret);
+      }
+      if (mode === 'sector') {
+        const sec = D.sectors && D.sectors[tk];
+        if (!sec || sec === 'Unknown') return null; return sectorColor(sec);
+      }
+      return null;
+    }
+
+    function resize() {
+      const r = document.getElementById('stage').getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      cv.width = r.width * dpr; cv.height = r.height * dpr;
+      cv.style.width = r.width + 'px'; cv.style.height = r.height + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); render();
+    }
+    function base() {
+      const r = document.getElementById('stage').getBoundingClientRect();
+      return Math.min(r.width, r.height) * 0.40;
+    }
+    function w2s(x, y) {
+      const r = document.getElementById('stage').getBoundingClientRect();
+      return [r.width / 2 + x * base() * view.s + view.x, r.height / 2 + y * base() * view.s + view.y];
+    }
+    function s2w(sx, sy) {
+      const r = document.getElementById('stage').getBoundingClientRect();
+      return [(sx - r.width / 2 - view.x) / (base() * view.s), (sy - r.height / 2 - view.y) / (base() * view.s)];
+    }
+
+    function render() {
+      if (!D) return;
+      const r = document.getElementById('stage').getBoundingClientRect();
+      ctx.clearRect(0, 0, r.width, r.height);
+      // grid
+      ctx.strokeStyle = 'rgba(31,42,58,.3)'; ctx.lineWidth = 1; const st = 60;
+      for (let gx = ((view.x % st) + st) % st; gx < r.width; gx += st) {
+        ctx.beginPath();
+        ctx.moveTo(gx, 0); ctx.lineTo(gx, r.height); ctx.stroke();
+      }
+      for (let gy = ((view.y % st) + st) % st; gy < r.height; gy += st) {
+        ctx.beginPath();
+        ctx.moveTo(0, gy); ctx.lineTo(r.width, gy); ctx.stroke();
+      }
+      const rad = Math.max(1.6, 2.6 * Math.sqrt(view.s));
+      // grey first
+      for (const p of cur) {
+        const c = colorFor(p); if (c) continue;
+        const [sx, sy] = w2s(p.x, p.y);
+        if (sx < -10 || sy < -10 || sx > r.width + 10 || sy > r.height + 10) continue;
+        ctx.beginPath(); ctx.fillStyle = '#1e2b3a'; ctx.globalAlpha = 0.4 * p.al;
+        ctx.arc(sx, sy, rad, 0, 6.2832); ctx.fill();
+      }
+      // coloured on top
+      for (const p of cur) {
+        const c = colorFor(p); if (!c) continue;
+        const [sx, sy] = w2s(p.x, p.y);
+        if (sx < -10 || sy < -10 || sx > r.width + 10 || sy > r.height + 10) continue;
+        ctx.beginPath(); ctx.fillStyle = c; ctx.globalAlpha = 0.85 * p.al;
+        ctx.arc(sx, sy, rad, 0, 6.2832); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function updateDate() {
+      const fi = Math.round(pos);
+      document.getElementById('date').textContent = D.frames[fi].date.slice(0, 7);
+      scrub.value = fi;
+    }
+
+    function buildLegend() {
+      const el = document.getElementById('legend');
+      if (mode === 'cluster') {
+        el.innerHTML = '<div class="lt">Live clusters (DBSCAN)</div>' +
+          '<div class="note">stocks within residual-correlation ' +
+          'distance ' + (D ? D.eps : 0.55) + ' (corr &ge; ' + (D ? (1 - D.eps ** 2 / 2).toFixed(2) : 0.85) +
+          '). colour persists via Jaccard linkage. grey = no dense neighbourhood.</div>';
+      } else if (mode === 'ret') {
+        el.innerHTML = '<div class="lt">This-window return %/mo</div>' +
+          '<div class="ramp" style="background:linear-gradient(90deg,rgb(226,97,74),' +
+          'rgb(55,66,82),rgb(90,209,200))"></div>' +
+          '<div class="ramp-lbls"><span>-15%</span><span>0</span><span>+15%</span></div>' +
+          '<div class="note">each stock\'s own return in that month. grey = no data.</div>';
+      } else {
+        // sector legend: only sectors present in data
+        const present = new Set(Object.values(D.sectors || {}));
+        let html = '<div class="lt">Sector</div>';
+        for (const [s, c] of Object.entries(SECTOR_PALETTE)) {
+          if (!present.has(s) || s === 'Unknown') continue;
+          html += `<div class="lrow"><div class="lsw" style="background:${c}"></div>${s}</div>`;
+        }
+        html += '<div class="note" style="margin-top:6px">grey = Unknown / no data</div>';
+        el.innerHTML = html;
+      }
+    }
+
+    function nearest(mx, my) {
+      let b = null, bd = 1e9; for (const p of cur) {
+        const [sx, sy] = w2s(p.x, p.y); const d = (sx - mx) ** 2 + (sy - my) ** 2;
+        if (d < bd) { bd = d; b = p; }
+      } return bd < 180 ? b : null;
+    }
+
+    cv.addEventListener('mousemove', e => {
+      const r = document.getElementById('stage').getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      if (drag) { view.x += mx - drag.x; view.y += my - drag.y; drag = { x: mx, y: my }; render(); return; }
+      const p = nearest(mx, my);
+      if (p) {
+        const tk = D.tickers[p.ti];
+        const sec = D.sectors && D.sectors[tk] || '?';
+        const rc = p.ret == null ? '<span class="k">n/a</span>' :
+          '<span class="' + (p.ret >= 0 ? 'ret-pos' : 'ret-neg') + '">' + (p.ret >= 0 ? '+' : '') + p.ret + '%</span>';
+        tip.innerHTML = '<b>' + tk + '</b><br><span class="k">sector</span> ' + sec +
+          '<br><span class="k">cluster</span> ' + (p.cl >= 0 ? p.cl : 'unclustered') +
+          '<br><span class="k">return</span> ' + rc;
+        tip.style.opacity = 1; let tx = mx + 14, ty = my + 14;
+        if (tx > r.width - 180) tx = mx - 170; if (ty > r.height - 90) ty = my - 90;
+        tip.style.left = tx + 'px'; tip.style.top = ty + 'px';
+      } else tip.style.opacity = 0;
+    });
+    cv.addEventListener('mousedown', e => {
+      const r = document.getElementById('stage').getBoundingClientRect();
+      drag = { x: e.clientX - r.left, y: e.clientY - r.top };
+    });
+    window.addEventListener('mouseup', () => drag = null);
+    cv.addEventListener('mouseleave', () => { tip.style.opacity = 0; });
+
+    cv.addEventListener('wheel', e => {
+      e.preventDefault();
+      const r = document.getElementById('stage').getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      const [wx, wy] = s2w(mx, my);
+      const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      view.s = Math.max(.35, Math.min(16, view.s * f));
+      view.x = mx - r.width / 2 - wx * base() * view.s;
+      view.y = my - r.height / 2 - wy * base() * view.s;
+      render();
+    }, { passive: false });
+
+    document.querySelectorAll('button.tog').forEach(b => b.addEventListener('click', () => {
+      document.querySelectorAll('button.tog').forEach(x => x.classList.remove('on'));
+      b.classList.add('on'); mode = b.dataset.mode; buildLegend(); render();
+    }));
+
+    const transport = document.getElementById('transport');
+    ['mousedown', 'mousemove', 'mouseup', 'wheel', 'touchstart', 'touchmove']
+      .forEach(ev => transport.addEventListener(ev, e => e.stopPropagation()));
+
+    scrub.addEventListener('input', () => {
+      playing = false;
+      document.getElementById('play').innerHTML = '&#9654; play';
+      pos = +scrub.value; computePositions(); render(); updateDate();
+    });
+
+    const playBtn = document.getElementById('play');
+    playBtn.addEventListener('click', () => {
+      if (playing) {
+        playing = false;
+        playBtn.innerHTML = '&#9654; play';
+      } else {
+        if (pos >= D.frames.length - 1) pos = 0;
+        playing = true; lastT = 0; playBtn.innerHTML = '&#10074;&#10074; pause';
+      }
+    });
+
+    document.querySelectorAll('.speed button').forEach(b => b.addEventListener('click', () => {
+      document.querySelectorAll('.speed button').forEach(x => x.classList.remove('on'));
+      b.classList.add('on'); speed = +b.dataset.sp;
+    }));
+
+    function tick(ts) {
+      if (D && playing) {
+        if (!lastT) lastT = ts;
+        const dt = ts - lastT; lastT = ts; pos += speed * dt / FRAME_MS;
+        if (pos >= D.frames.length - 1) {
+          pos = D.frames.length - 1; playing = false;
+          document.getElementById('play').innerHTML = '&#9654; play';
+        }
+        computePositions(); render(); updateDate();
+      } requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('resize', resize);
+    window.addEventListener('keydown', e => {
+      if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
+      if (e.key === 'ArrowRight') {
+        playing = false;
+        pos = Math.min(D.frames.length - 1, Math.round(pos) + 1);
+        computePositions(); render(); updateDate();
+      }
+      if (e.key === 'ArrowLeft') {
+        playing = false; pos = Math.max(0, Math.round(pos) - 1);
+        computePositions(); render(); updateDate();
+      }
+    });
+
+    fetch(URL).then(r => { if (!r.ok) throw new Error('not found'); return r.json(); })
+      .then(d => {
+        if (!d.frames || !d.frames[0] || !('cl' in d.frames[0])) {
+          document.getElementById('loading').textContent =
+            'Old JSON format. Re-run cluster_timeseries_export.py.'; return;
+        }
+        D = d; document.getElementById('loading').style.display = 'none';
+        const hasSectors = d.sectors && Object.values(d.sectors).some(s => s && s !== 'Unknown');
+        document.getElementById('meta').textContent =
+          d.tickers.length + ' stocks · ' + d.frames.length + ' windows · DBSCAN eps=' +
+          d.eps + (hasSectors ? ' · sectors loaded' : ' · run fetch_industries.py for sectors');
+        scrub.max = d.frames.length - 1;
+        buildLegend(); resize(); computePositions(); render(); updateDate();
+        requestAnimationFrame(tick);
+      }).catch(e => {
+        document.getElementById('loading').textContent =
+        'cluster_embedding_timeseries.json not found — run cluster_timeseries_export.py first.';
+      });
+  </script>
+</body>
+
+</html>

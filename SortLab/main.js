@@ -849,6 +849,104 @@ function decodeDeltaBucketSlots(cell, bucketIndex, bucketCount, predictiveBits, 
     const range = max - min;
     const anchorRel = getDeltaBucketAnchorRel(bucketIndex, bucketCount, range);
 
+    // New prefix-free encoding: pairBits = deltaBits + 2, modes packed as a
+    // prefix-free code in the top bits of each sub-slot word.
+    if (predictiveBits && predictiveBits.mode === 'deltaMicrobucket') {
+        // Only decode proper slot cells (bits 31-30 = 10, i.e. SENTINEL set, CT bit clear).
+        if (((cell >>> 0) >>> 30) !== 2) return [];
+
+        const pb = deltaBits + 2;
+        const pm = (1 << pb) - 1;
+        const longPayloadBits  = deltaBits;
+        const shortPayloadBits = deltaBits - 1;
+        const longPayloadMask  = (1 << longPayloadBits) - 1;
+        const shortPayloadMask = (1 << shortPayloadBits) - 1;
+        const MODE_IDEAL      = 0b00;
+        const MODE_PREV_CHAIN = 0b01;
+        const MODE_COUNT      = 0b100;
+        const MODE_DISP_RIGHT = 0b110;
+        const MODE_DISP_LEFT  = 0b111;
+
+        const getWord = (s) => { const sh = s * pb; return sh < 32 ? (((cell >>> 0) >>> sh) & pm) : 0; };
+        const isEmpty = (w) => (w & pm) === 0;
+        const isLong  = (w) => ((w >>> (pb - 1)) & 1) === 0;
+        const getMode = (w) => { const x = w & pm; return isLong(x) ? (x >>> longPayloadBits) & 3 : (x >>> shortPayloadBits) & 7; };
+        const getPayload = (w) => { const x = w & pm; return isLong(x) ? (x & longPayloadMask) : (x & shortPayloadMask); };
+        const unpackDEnc = (w) => getPayload(w) - 1;
+
+        const slots = [];
+        let prevRel = null;
+        let s = 0;
+        while (s < slotsPerCell) {
+            const word = getWord(s);
+            if (isEmpty(word)) {
+                slots.push({ slot: s, label: '', colorValue: min, isEmpty: true, deltaEnc: 0, delta: 0, count: 0, representedValue: null, valid: false });
+                s += 1; continue;
+            }
+            const mode = getMode(word);
+            if (mode === MODE_IDEAL) {
+                const dEnc  = unpackDEnc(word);
+                const delta = dEnc - deltaMax;
+                const rel   = anchorRel + delta;
+                const valid = rel >= 0 && rel <= range;
+                const absValue = rel + min;
+                // Peek at next slot for optional COUNT
+                let cnt = 1;
+                let hasCount = false;
+                if (s + 1 < slotsPerCell) {
+                    const nw = getWord(s + 1);
+                    if (!isEmpty(nw) && getMode(nw) === MODE_COUNT) { cnt = getPayload(nw) + 2; hasCount = true; }
+                }
+                const label = valid ? (cnt > 1 ? `${absValue} \u00d7${cnt}` : `${absValue}`) : '?';
+                slots.push({ slot: s, label, colorValue: valid ? absValue : min, isEmpty: false, deltaEnc: dEnc, delta, count: cnt, representedValue: valid ? absValue : null, valid });
+                if (prevRel === null || rel > prevRel) prevRel = rel;
+                if (hasCount) {
+                    slots.push({ slot: s + 1, label: '', colorValue: valid ? absValue : min, isEmpty: false, deltaEnc: dEnc, delta, count: cnt, representedValue: valid ? absValue : null, valid, isCountSlot: true });
+                    s += 2;
+                } else {
+                    s += 1;
+                }
+            } else if (mode === MODE_COUNT) {
+                // Orphan COUNT — should be consumed by IDEAL but handle defensively.
+                slots.push({ slot: s, label: '', colorValue: min, isEmpty: false, deltaEnc: 0, delta: 0, count: 0, representedValue: null, valid: false, isCountSlot: true });
+                s += 1;
+            } else if (mode === MODE_PREV_CHAIN) {
+                const chainDelta = getPayload(word);
+                const rel   = (prevRel !== null ? prevRel : anchorRel) + chainDelta;
+                const valid = rel >= 0 && rel <= range;
+                const absValue = rel + min;
+                slots.push({ slot: s, label: valid ? `${absValue}` : '?', colorValue: valid ? absValue : min, isEmpty: false, deltaEnc: 0, delta: chainDelta, count: 1, representedValue: valid ? absValue : null, valid });
+                if (prevRel === null || rel > prevRel) prevRel = rel;
+                s += 1;
+            } else if (mode === MODE_DISP_RIGHT || mode === MODE_DISP_LEFT) {
+                const d = getPayload(word);
+                const dispIdx = mode === MODE_DISP_RIGHT ? bucketIndex - d : bucketIndex + d;
+                const clampedDisp = Math.max(0, Math.min(bucketCount - 1, dispIdx));
+                const dispAnchor = getDeltaBucketAnchorRel(clampedDisp, bucketCount, range);
+                if (s + 1 < slotsPerCell) {
+                    const nw = getWord(s + 1);
+                    if (!isEmpty(nw) && getMode(nw) === MODE_IDEAL) {
+                        const dEnc  = unpackDEnc(nw);
+                        const delta = dEnc - deltaMax;
+                        const rel   = dispAnchor + delta;
+                        const valid = rel >= 0 && rel <= range;
+                        const absValue = rel + min;
+                        slots.push({ slot: s,     label: '',                          colorValue: valid ? absValue : min, isEmpty: false, deltaEnc: 0,    delta: d,     count: 0, representedValue: valid ? absValue : null, valid, isDispSlot: true });
+                        slots.push({ slot: s + 1, label: valid ? `${absValue}\u21a7` : '?', colorValue: valid ? absValue : min, isEmpty: false, deltaEnc: dEnc, delta: delta, count: 1, representedValue: valid ? absValue : null, valid });
+                        if (prevRel === null || rel > prevRel) prevRel = rel;
+                        s += 2; continue;
+                    }
+                }
+                slots.push({ slot: s, label: '', colorValue: min, isEmpty: true, deltaEnc: 0, delta: 0, count: 0, representedValue: null, valid: false });
+                s += 1;
+            } else {
+                slots.push({ slot: s, label: '', colorValue: min, isEmpty: true, deltaEnc: 0, delta: 0, count: 0, representedValue: null, valid: false });
+                s += 1;
+            }
+        }
+        return slots;
+    }
+
     const pairBits = flagMode ? (deltaBits + 1) : (deltaBits + countBits);
     const deltaMask = (1 << deltaBits) - 1;
     const pairMask = (1 << pairBits) - 1;

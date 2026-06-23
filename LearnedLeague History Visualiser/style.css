@@ -15,7 +15,7 @@ body {
 /* ── Header ──────────────────────────────────────────────────────────────── */
 header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 1.5rem;
     padding: 0.4rem 2rem;
     border-bottom: 1px solid #333;
@@ -60,27 +60,6 @@ input[type="file"] {
     font-size: 0.85rem;
     cursor: pointer;
     color: #ccc;
-}
-
-#load-btn {
-    padding: 0.5rem 1.6rem;
-    background: #293A55;
-    color: #fff;
-    border: none;
-    border-radius: 5px;
-    font-size: 0.95rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s;
-    flex-shrink: 0;
-}
-
-#load-btn:hover {
-    background: #1a2740;
-}
-
-#load-btn:active {
-    background: #111d2e;
 }
 
 .status {
@@ -155,6 +134,7 @@ input[type="file"] {
     flex: 1;
     overflow-y: visible;
     padding-bottom: 2px;
+    position: relative;
     /* Custom scrollbar */
     scrollbar-width: thin;
     scrollbar-color: #444 #222;
@@ -171,6 +151,41 @@ input[type="file"] {
 #chart-container::-webkit-scrollbar-thumb {
     background: #444;
     border-radius: 3px;
+}
+
+/* ── Label palette (annotation source strip) ────────────────────────────── */
+#label-palette {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 1rem;
+    border-bottom: 1px solid #2a2a2a;
+    background: #1a1a1a;
+}
+
+.label-palette-hint {
+    color: #555;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.label-template {
+    background: #fff;
+    color: #000;
+    border: 1px solid #aaa;
+    border-radius: 2px;
+    padding: 2px 10px;
+    font-size: 0.72rem;
+    font-family: 'Lato', 'Segoe UI', Arial, sans-serif;
+    font-weight: 600;
+    cursor: grab;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.label-template:active {
+    cursor: grabbing;
 }
 
 /* ── Individual subject group ────────────────────────────────────────────── */
@@ -334,18 +349,15 @@ input[type="file"] {
     display: flex;
     flex: 1;
     min-width: 0;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    padding: 0 4px;
+    align-content: flex-start;
+    gap: 5px;
+    padding: 3px 4px;
     margin: 0;
-    overflow-x: auto;
-    font-size: 0.78rem;
-    scrollbar-width: none;
-}
-
-#subject-tray::-webkit-scrollbar {
-    display: none;
+    max-height: 68px;
+    overflow-y: hidden;
+    font-size: 0.72rem;
 }
 
 #subject-tray.hidden {
@@ -393,14 +405,14 @@ input[type="file"] {
 }
 
 .tray-chip {
-    padding: 2px 8px;
-    border-radius: 12px;
+    padding: 1px 6px;
+    border-radius: 10px;
     border: 1.5px solid #444;
     background: #2a2a2a;
     color: #ccc;
     cursor: grab;
     user-select: none;
-    font-size: 0.72rem;
+    font-size: 0.67rem;
     white-space: nowrap;
     transition: opacity 0.12s, box-shadow 0.12s;
 }
@@ -425,12 +437,12 @@ input[type="file"] {
 }
 
 .tray-toggle-all {
-    padding: 2px 8px;
-    border-radius: 12px;
+    padding: 1px 6px;
+    border-radius: 10px;
     border: 1.5px solid #444;
     background: #2a2a2a;
     cursor: pointer;
-    font-size: 0.72rem;
+    font-size: 0.67rem;
     white-space: nowrap;
     color: #999;
     font-family: inherit;

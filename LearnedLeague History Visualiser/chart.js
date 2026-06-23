@@ -1446,6 +1446,16 @@ function renderGrid(questions, pctLookup, subjectOrder = null, titleCase = false
     for (const bin of bins) { bin.x = x; x += COL_W + COL_GAP; }
     const totalW = bins[bins.length - 1].x + COL_W + PAD_R;
 
+    // Expose column layout for annotation labels
+    window._gridColBounds = {
+        colW: COL_W,
+        headerH: HEADER_H,
+        bins: bins.map(b => ({
+            x: b.x,
+            rowH: (CHART_AREA - MINI_H * (b.cols.length - 1)) / b.totalQ,
+        })),
+    };
+
     // Subject spans (per bin) for header drag
     const subjectSpans = bins.map(bin => ({
         subject: bin.cols[0].subject,

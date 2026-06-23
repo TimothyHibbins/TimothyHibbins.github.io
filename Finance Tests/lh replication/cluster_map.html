@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Correlation Cluster Map</title>
+<style>
+  :root{
+    --ink:#0a0e14;
+    --panel:#111722;
+    --line:#1f2a3a;
+    --txt:#c9d4e3;
+    --dim:#5c6b80;
+    --hi:#e8eef7;
+    --accent:#5ad1c8;
+    --warn:#e2614a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--ink);
+    color:var(--txt);
+    font-family:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+  }
+  header{
+    padding:14px 20px 10px;
+    border-bottom:1px solid var(--line);
+    display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;
+  }
+  header h1{
+    font-size:15px;font-weight:600;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--hi);
+  }
+  header .sub{font-size:11px;color:var(--dim);letter-spacing:.04em}
+  .controls{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .controls span.lbl{font-size:10px;color:var(--dim);
+    text-transform:uppercase;letter-spacing:.1em;margin-right:4px}
+  button.tog{
+    background:transparent;border:1px solid var(--line);color:var(--dim);
+    font:inherit;font-size:11px;padding:5px 11px;cursor:pointer;
+    letter-spacing:.03em;transition:all .15s;border-radius:2px;
+  }
+  button.tog:hover{border-color:var(--dim);color:var(--txt)}
+  button.tog.on{border-color:var(--accent);color:var(--accent);
+    background:rgba(90,209,200,.07)}
+  .stage{flex:1;position:relative;overflow:hidden}
+  canvas{position:absolute;top:0;left:0;display:block}
+  .tip{
+    position:absolute;pointer-events:none;z-index:10;
+    background:var(--panel);border:1px solid var(--line);
+    padding:8px 11px;font-size:11px;line-height:1.55;
+    color:var(--txt);border-radius:3px;opacity:0;
+    transition:opacity .1s;max-width:240px;
+    box-shadow:0 6px 24px rgba(0,0,0,.5);
+  }
+  .tip b{color:var(--hi);font-weight:600}
+  .tip .k{color:var(--dim)}
+  .tip .ret-pos{color:var(--accent)}
+  .tip .ret-neg{color:var(--warn)}
+  .legend{
+    position:absolute;left:16px;bottom:16px;z-index:5;
+    background:rgba(17,23,34,.82);border:1px solid var(--line);
+    padding:11px 13px;font-size:10px;border-radius:3px;
+    backdrop-filter:blur(6px);max-width:230px;
+  }
+  .legend .lt{color:var(--dim);text-transform:uppercase;
+    letter-spacing:.1em;margin-bottom:7px;font-size:9px}
+  .ramp{height:9px;width:190px;border-radius:2px;margin:4px 0 3px}
+  .ramp-lbls{display:flex;justify-content:space-between;
+    color:var(--dim);font-size:9px}
+  .scale-note{color:var(--dim);font-size:9px;margin-top:7px;line-height:1.5}
+  .count{position:absolute;right:16px;bottom:16px;z-index:5;
+    font-size:10px;color:var(--dim);letter-spacing:.04em;text-align:right}
+  .hint{position:absolute;right:16px;top:14px;z-index:5;
+    font-size:10px;color:var(--dim);letter-spacing:.03em}
+  .loading{position:absolute;inset:0;display:flex;align-items:center;
+    justify-content:center;color:var(--dim);font-size:12px;
+    letter-spacing:.05em}
+  @media(max-width:640px){
+    header{flex-direction:column;gap:8px}
+    .controls{margin-left:0;flex-wrap:wrap}
+    .legend{max-width:170px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Correlation Cluster Map</h1>
+  <span class="sub" id="meta">loading…</span>
+  <div class="controls">
+    <span class="lbl">Colour</span>
+    <button class="tog on" data-mode="cluster">Cluster</button>
+    <button class="tog" data-mode="ret">Return</button>
+    <button class="tog" data-mode="wc">Tightness</button>
+  </div>
+</header>
+<div class="stage" id="stage">
+  <canvas id="cv"></canvas>
+  <div class="tip" id="tip"></div>
+  <div class="legend" id="legend"></div>
+  <div class="count" id="count"></div>
+  <div class="hint">scroll: zoom · drag: pan · hover: inspect</div>
+  <div class="loading" id="loading">loading embedding…</div>
+</div>
+
+<script>
+const DATA_URL = 'cluster_embedding.json';
+
+let pts=[], clusters=[], meta={};
+let mode='cluster';
+let view={x:0,y:0,s:1};
+let drag=null;
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const tip=document.getElementById('tip');
+const stage=document.getElementById('stage');
+
+// distinct, muted-but-separable palette for cluster identity
+const PALETTE=[
+  '#5ad1c8','#e2614a','#7aa8e0','#d9a441','#9b8ce0','#6fc26f',
+  '#e07ab0','#46b0a8','#c4694a','#5c8fd6','#b0a03a','#8a7ad0',
+  '#5aa85a','#d06a9c','#3f9a92','#cf7d4a','#6f86c0','#9a9030',
+  '#7a6ac0','#4f9a4f','#c25a8a','#39908a','#b86a45','#6378b0',
+  '#88842a','#6a5ab0','#458a45','#b04a7a','#2f807a','#a85a38'
+];
+
+function colorFor(p){
+  if(mode==='cluster'){
+    return PALETTE[p.c % PALETTE.length];
+  }
+  if(mode==='ret'){
+    if(p.ret==null||isNaN(p.ret)) return '#33404f';
+    return divergeColor(p.ret, -0.45, 0.45); // %/mo range
+  }
+  if(mode==='wc'){
+    if(p.wc==null||isNaN(p.wc)) return '#33404f';
+    return seqColor(p.wc, 0.08, 0.62); // within-corr range
+  }
+  return '#888';
+}
+// diverging red→grey→teal for returns
+function divergeColor(v,lo,hi){
+  const t=Math.max(0,Math.min(1,(v-lo)/(hi-lo)));
+  // 0 = warn red, .5 = neutral, 1 = accent teal
+  const neg=[226,97,74], mid=[60,72,90], pos=[90,209,200];
+  let c;
+  if(t<0.5){const u=t/0.5;c=lerp3(neg,mid,u);}
+  else{const u=(t-0.5)/0.5;c=lerp3(mid,pos,u);}
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+// sequential dim→bright for tightness
+function seqColor(v,lo,hi){
+  const t=Math.max(0,Math.min(1,(v-lo)/(hi-lo)));
+  const a=[40,56,74], b=[232,180,70];
+  const c=lerp3(a,b,t);
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+function lerp3(a,b,t){return [
+  Math.round(a[0]+(b[0]-a[0])*t),
+  Math.round(a[1]+(b[1]-a[1])*t),
+  Math.round(a[2]+(b[2]-a[2])*t)];}
+
+function resize(){
+  const r=stage.getBoundingClientRect();
+  const dpr=window.devicePixelRatio||1;
+  cv.width=r.width*dpr; cv.height=r.height*dpr;
+  cv.style.width=r.width+'px'; cv.style.height=r.height+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  draw();
+}
+
+function worldToScreen(x,y){
+  const r=stage.getBoundingClientRect();
+  const base=Math.min(r.width,r.height)*0.42;
+  return [
+    r.width/2 + (x*base*view.s) + view.x,
+    r.height/2 + (y*base*view.s) + view.y
+  ];
+}
+
+function draw(){
+  const r=stage.getBoundingClientRect();
+  ctx.clearRect(0,0,r.width,r.height);
+  // subtle grid
+  ctx.strokeStyle='rgba(31,42,58,0.35)';ctx.lineWidth=1;
+  const step=60;
+  for(let gx=(view.x%step);gx<r.width;gx+=step){
+    ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,r.height);ctx.stroke();}
+  for(let gy=(view.y%step);gy<r.height;gy+=step){
+    ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(r.width,gy);ctx.stroke();}
+
+  const rad=Math.max(1.6, 2.4*Math.sqrt(view.s));
+  for(const p of pts){
+    const [sx,sy]=worldToScreen(p.x,p.y);
+    if(sx<-10||sy<-10||sx>r.width+10||sy>r.height+10) continue;
+    ctx.beginPath();
+    ctx.fillStyle=colorFor(p);
+    ctx.globalAlpha=0.82;
+    ctx.arc(sx,sy,rad,0,6.2832);
+    ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+function buildLegend(){
+  const el=document.getElementById('legend');
+  if(mode==='cluster'){
+    el.innerHTML='<div class="lt">Clusters · '+clusters.length+'</div>'+
+      '<div class="scale-note">each colour is one persistent cluster. '+
+      'tight blobs = high within-correlation. hover any point for its '+
+      'cluster, return, and tightness.</div>';
+  }else if(mode==='ret'){
+    el.innerHTML='<div class="lt">Mean excess return %/mo</div>'+
+      '<div class="ramp" style="background:linear-gradient(90deg,'+
+      'rgb(226,97,74),rgb(60,72,90),rgb(90,209,200))"></div>'+
+      '<div class="ramp-lbls"><span>-0.45</span><span>0</span>'+
+      '<span>+0.45</span></div>'+
+      '<div class="scale-note">cluster return vs the rest of the market. '+
+      'grey = no data.</div>';
+  }else{
+    el.innerHTML='<div class="lt">Within-cluster correlation</div>'+
+      '<div class="ramp" style="background:linear-gradient(90deg,'+
+      'rgb(40,56,74),rgb(232,180,70))"></div>'+
+      '<div class="ramp-lbls"><span>0.08</span><span>0.62</span></div>'+
+      '<div class="scale-note">how internally correlated the point\'s '+
+      'cluster is. brighter = tighter lump.</div>';
+  }
+}
+
+// hover detection
+function nearest(mx,my){
+  let best=null,bd=1e9;
+  for(const p of pts){
+    const [sx,sy]=worldToScreen(p.x,p.y);
+    const d=(sx-mx)**2+(sy-my)**2;
+    if(d<bd){bd=d;best=p;}
+  }
+  return bd<140?best:null;
+}
+
+stage.addEventListener('mousemove',e=>{
+  const r=stage.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  if(drag){
+    view.x+=mx-drag.x; view.y+=my-drag.y;
+    drag={x:mx,y:my}; draw(); return;
+  }
+  const p=nearest(mx,my);
+  if(p){
+    const retCls=p.ret==null?'':(p.ret>=0?'ret-pos':'ret-neg');
+    const retStr=p.ret==null?'<span class="k">n/a</span>':
+      '<span class="'+retCls+'">'+(p.ret>=0?'+':'')+p.ret+'%/mo</span>';
+    const wcStr=p.wc==null?'<span class="k">n/a</span>':p.wc;
+    tip.innerHTML='<b>'+p.t+'</b><br>'+
+      '<span class="k">cluster</span> '+p.c+'<br>'+
+      '<span class="k">return</span> '+retStr+'<br>'+
+      '<span class="k">tightness</span> '+wcStr;
+    tip.style.opacity=1;
+    let tx=mx+14, ty=my+14;
+    if(tx>r.width-180) tx=mx-160;
+    if(ty>r.height-90) ty=my-90;
+    tip.style.left=tx+'px'; tip.style.top=ty+'px';
+  }else{
+    tip.style.opacity=0;
+  }
+});
+stage.addEventListener('mousedown',e=>{
+  const r=stage.getBoundingClientRect();
+  drag={x:e.clientX-r.left,y:e.clientY-r.top};
+});
+window.addEventListener('mouseup',()=>drag=null);
+stage.addEventListener('mouseleave',()=>{tip.style.opacity=0;drag=null;});
+stage.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=stage.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  const f=e.deltaY<0?1.12:0.893;
+  // zoom toward cursor
+  view.x=mx-(mx-view.x)*f;
+  view.y=my-(my-view.y)*f;
+  view.s*=f;
+  view.s=Math.max(0.4,Math.min(14,view.s));
+  draw();
+},{passive:false});
+
+// touch (basic pan + pinch)
+let pinch=null;
+stage.addEventListener('touchstart',e=>{
+  const r=stage.getBoundingClientRect();
+  if(e.touches.length===1){
+    drag={x:e.touches[0].clientX-r.left,y:e.touches[0].clientY-r.top};
+  }else if(e.touches.length===2){
+    const dx=e.touches[0].clientX-e.touches[1].clientX;
+    const dy=e.touches[0].clientY-e.touches[1].clientY;
+    pinch=Math.hypot(dx,dy);
+  }
+},{passive:true});
+stage.addEventListener('touchmove',e=>{
+  const r=stage.getBoundingClientRect();
+  if(e.touches.length===1&&drag){
+    const mx=e.touches[0].clientX-r.left, my=e.touches[0].clientY-r.top;
+    view.x+=mx-drag.x; view.y+=my-drag.y; drag={x:mx,y:my}; draw();
+  }else if(e.touches.length===2&&pinch){
+    const dx=e.touches[0].clientX-e.touches[1].clientX;
+    const dy=e.touches[0].clientY-e.touches[1].clientY;
+    const d=Math.hypot(dx,dy);
+    const f=d/pinch; view.s=Math.max(0.4,Math.min(14,view.s*f));
+    pinch=d; draw();
+  }
+},{passive:true});
+window.addEventListener('touchend',()=>{drag=null;pinch=null;});
+
+document.querySelectorAll('button.tog').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('button.tog').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    mode=b.dataset.mode;
+    buildLegend(); draw();
+  });
+});
+
+window.addEventListener('resize',resize);
+
+fetch(DATA_URL).then(r=>{
+  if(!r.ok) throw new Error('no data');
+  return r.json();
+}).then(d=>{
+  pts=d.points; clusters=d.clusters; meta=d;
+  document.getElementById('loading').style.display='none';
+  document.getElementById('meta').textContent=
+    d.n_points.toLocaleString()+' stocks · '+d.n_clusters+' clusters · '+
+    'distance = 1 − co-association';
+  document.getElementById('count').textContent=
+    d.n_points.toLocaleString()+' points';
+  buildLegend(); resize();
+}).catch(err=>{
+  document.getElementById('loading').textContent=
+    'cluster_embedding.json not found — run cluster_embedding_export.py '+
+    'and place the JSON next to this file.';
+});
+</script>
+</body>
+</html>

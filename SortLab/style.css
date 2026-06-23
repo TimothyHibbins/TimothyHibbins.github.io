@@ -154,6 +154,10 @@ h1 {
     cursor: pointer;
 }
 
+.list-chip .packed-word-root {
+    grid-template-columns: repeat(32, minmax(0, 1fr));
+}
+
 .interactive-list .list-chip {
     cursor: grab;
 }

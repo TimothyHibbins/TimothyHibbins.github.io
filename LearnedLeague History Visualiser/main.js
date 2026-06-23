@@ -2,9 +2,7 @@
 
 // ─── Persistent state ─────────────────────────────────────────────────────────
 let _data = null;      // { playerName, questions, pctLookup }
-let _view = 'grid'; // 'grid' | 'answers' | 'subjectseasons' | 'timeline' | 'subjects'
-let _axisFlipped = true;      // true = hard questions (low %) at top
-let _subjectOrder = null;      // ordered array of active subjects for Answers view
+let _subjectOrder = null;      // ordered array of active subjects
 let _titleCase = false;        // whether to render answer text in title case
 
 // ─── Shared profile loader ───────────────────────────────────────────────────
@@ -33,6 +31,7 @@ async function _loadProfileText(profileText, label) {
     const droppedSeasons = [...new Set(questions.map(q => q.season))]
         .filter(s => !seasonsWithAnswers.has(s));
 
+    clearLabels();
     _subjectOrder = null;  // reset when new data is loaded
     _data = { playerName, questions: filtered, pctLookup };
     renderView();
@@ -48,17 +47,11 @@ async function _loadProfileText(profileText, label) {
     setStatus(parts.join(' '), 'ok');
 }
 
-// ─── Load button ──────────────────────────────────────────────────────────────
-document.getElementById('load-btn').addEventListener('click', async () => {
+// ─── Auto-load on file selection ──────────────────────────────────────────────
+document.getElementById('profile-input').addEventListener('change', async () => {
     const profileInput = document.getElementById('profile-input');
-
-    if (!profileInput.files.length) {
-        setStatus('Please select a player profile HTML file.', 'error');
-        return;
-    }
-
-    setStatus('Parsing files…', '');
-
+    if (!profileInput.files.length) return;
+    setStatus('Parsing…', '');
     try {
         const profileText = await readFileAsText(profileInput.files[0]);
         await _loadProfileText(profileText, profileInput.files[0].name);
@@ -68,109 +61,26 @@ document.getElementById('load-btn').addEventListener('click', async () => {
     }
 });
 
-// ─── View toggle buttons ──────────────────────────────────────────────────────
-document.getElementById('btn-grid').addEventListener('click', () => {
-    if (_view === 'grid') return;
-    _view = 'grid';
-    updateToggleButtons();
-    if (_data) renderView();
-});
-
-document.getElementById('btn-answers').addEventListener('click', () => {
-    if (_view === 'answers') return;
-    _view = 'answers';
-    updateToggleButtons();
-    if (_data) renderView();
-});
-
-document.getElementById('btn-subjectseasons').addEventListener('click', () => {
-    if (_view === 'subjectseasons') return;
-    _view = 'subjectseasons';
-    updateToggleButtons();
-    if (_data) renderView();
-});
-
-document.getElementById('btn-timeline').addEventListener('click', () => {
-    if (_view === 'timeline') return;
-    _view = 'timeline';
-    updateToggleButtons();
-    if (_data) renderView();
-});
-
-document.getElementById('btn-subjects').addEventListener('click', () => {
-    if (_view === 'subjects') return;
-    _view = 'subjects';
-    updateToggleButtons();
-    if (_data) renderView();
-});
-
 // ─── Title case button ───────────────────────────────────────────────────────
 document.getElementById('btn-title-case').addEventListener('click', () => {
     _titleCase = !_titleCase;
-    updateToggleButtons();
-    if (_data && _view === 'grid') renderGrid(_data.questions, _data.pctLookup, _subjectOrder, _titleCase);
-});
-
-// ─── Flip axis button ─────────────────────────────────────────────────────────
-document.getElementById('btn-flip-axis').addEventListener('click', () => {
-    _axisFlipped = !_axisFlipped;
-    updateFlipButton();
-    if (_data && (_view === 'timeline' || _view === 'subjectseasons')) renderView();
+    document.getElementById('btn-title-case').classList.toggle('active', _titleCase);
+    if (_data) { renderGrid(_data.questions, _data.pctLookup, _subjectOrder, _titleCase); renderLabels(); }
 });
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 function renderView() {
     document.getElementById('chart-section').classList.remove('hidden');
     document.getElementById('view-toggle').classList.remove('hidden');
-    if (_view === 'grid' || _view === 'answers') {
-        renderSubjectTray();
-        if (_view === 'grid') {
-            renderGrid(_data.questions, _data.pctLookup, _subjectOrder, _titleCase);
-        } else {
-            renderAnswers(_data.questions, _data.pctLookup, _axisFlipped, _subjectOrder);
-        }
-    } else {
-        document.getElementById('subject-tray').classList.add('hidden');
-        if (_view === 'subjectseasons') {
-            renderBySubjectSeason(_data.questions, _data.pctLookup, _axisFlipped);
-        } else if (_view === 'timeline') {
-            renderTimeline(_data.questions, _data.pctLookup, _axisFlipped);
-        } else {
-            renderChart(_data.questions, _data.pctLookup);
-        }
-    }
-}
-
-function updateToggleButtons() {
-    document.getElementById('btn-grid').classList.toggle('active', _view === 'grid');
-    document.getElementById('btn-answers').classList.toggle('active', _view === 'answers');
-    document.getElementById('btn-subjectseasons').classList.toggle('active', _view === 'subjectseasons');
-    document.getElementById('btn-timeline').classList.toggle('active', _view === 'timeline');
-    document.getElementById('btn-subjects').classList.toggle('active', _view === 'subjects');
-    updateFlipButton();
-}
-
-function updateFlipButton() {
-    const tcBtn = document.getElementById('btn-title-case');
-    tcBtn.style.display = _view === 'grid' ? '' : 'none';
-    tcBtn.classList.toggle('active', _titleCase);
-
-    const btn = document.getElementById('btn-flip-axis');
-    const axisViews = _view === 'answers' || _view === 'timeline' || _view === 'subjectseasons'; // not grid
-    btn.style.display = axisViews ? '' : 'none';
-    btn.classList.toggle('active', !_axisFlipped); // active = "normal" (not flipped)
-    btn.title = _axisFlipped
-        ? 'Currently: hard questions at top — click to put easy questions at top'
-        : 'Currently: easy questions at top — click to put hard questions at top';
+    renderSubjectTray();
+    renderGrid(_data.questions, _data.pctLookup, _subjectOrder, _titleCase);
+    renderLabels();
 }
 
 // ─── Subject tray ─────────────────────────────────────────────────────────────
 function reRenderAnswers() {
-    if (_view === 'grid') {
-        renderGrid(_data.questions, _data.pctLookup, _subjectOrder, _titleCase);
-    } else {
-        renderAnswers(_data.questions, _data.pctLookup, _axisFlipped, _subjectOrder);
-    }
+    renderGrid(_data.questions, _data.pctLookup, _subjectOrder, _titleCase);
+    renderLabels();
 }
 
 function renderSubjectTray() {
