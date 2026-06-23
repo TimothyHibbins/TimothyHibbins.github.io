@@ -69,12 +69,14 @@ const N_CO2_INIT = 40;
 const MAX_GH = 500;
 const MAX_PHOTONS = 350;
 
-const SUN_PHOTON_INTERVAL = 5;
-const PHOTON_SPEED = 4;
+// Tunable parameters — exposed in the settings panel below. Kept as `let`
+// so sliders can update them at runtime.
+let SUN_PHOTON_INTERVAL = 5;
+let PHOTON_SPEED = 4;
 
 // Gravity tuned so the column spans ~3 scale heights → density visibly thins
 // toward the top.
-const GRAVITY = 0.003;
+let GRAVITY = 0.002;
 
 // --- Energy / temperature mapping ------------------------------------------
 
@@ -89,13 +91,13 @@ const KE_TO_KELVIN = 220;
 const VIBRATION_FRAMES = 30;
 // On collision involving a vibrating CO2: this fraction of its vibration
 // energy transfers to the partner's translational KE.
-const COLLISION_DEACTIVATION_FRAC = 0.85;
+let COLLISION_DEACTIVATION_FRAC = 0.85;
 // On collision involving CO2 with a sufficiently energetic partner, this is
 // the probability of thermally exciting the CO2's vibration (reverse
 // pathway — microscopic reversibility). Without this, the only emission
 // path would be the photon that just got absorbed; we need a way for
 // generic gas heat to eventually re-radiate as IR.
-const THERMAL_EXCITE_PROB = 0.18;
+let THERMAL_EXCITE_PROB = 0.18;
 // Energy quantum transferred from translational KE to CO2 vibration during a
 // thermal excitation event.
 const THERMAL_EXCITE_QUANTUM = 0.12;
@@ -118,15 +120,15 @@ const MAGNIFICATION = 2.8;
 // centre is absorbed. Smaller than the visual lens so a fraction of IR
 // always escapes — otherwise the rolling-average emission altitude is
 // undefined (everything stays trapped as KE).
-const ABSORPTION_R = 9;
+let ABSORPTION_R = 9;
 
 // Ground physics
 let groundTemp = 285;
 const GROUND_HEAT_CAPACITY = 80;
-const GROUND_EMIT_K = 5e-11;
-const GROUND_HEAT_LOSS_PER_EMIT = 1.2;
-const GROUND_ACCOMMODATION = 0.22;
-const GROUND_HEAT_GAIN_PER_PHOTON = 1.5;
+let GROUND_EMIT_K = 5e-11;
+let GROUND_HEAT_LOSS_PER_EMIT = 1.2;
+let GROUND_ACCOMMODATION = 0.22;
+let GROUND_HEAT_GAIN_PER_PHOTON = 1.5;
 
 // Spontaneous IR emission rate (per frame). Scales with molecule KE above a
 // threshold — hot molecules emit more often. This is the only way energy
@@ -135,7 +137,7 @@ const GROUND_HEAT_GAIN_PER_PHOTON = 1.5;
 // Spontaneous emission rate (per frame per unit vibrationEnergy). The
 // only way IR returns to the radiation field is via a vibrationally-excited
 // CO2 emitting before its next collision.
-const SPONT_EMIT_K = 0.06;
+let SPONT_EMIT_K = 0.06;
 
 const ROLLING_AVG_SIZE = 50;
 
@@ -811,17 +813,29 @@ function computeAtomPositions(m, scale, vibration) {
   return out;
 }
 
-// Base-scale rendering (small): all molecules drawn first so lens overlays
-// can sit on top.
+// Base-scale rendering. All molecules drawn first; CO2 also gets a bright
+// outline ring at this scale so it's always findable in the crowd.
+const CO2_OUTLINE_COLOR = '#16a34a';   // vivid green — distinct from KE
+                                       // (purple→yellow) and photon (rainbow)
+                                       // palettes
+const CO2_OUTLINE_R = 6;
 function drawMolecules() {
+  // First: outline rings around every CO2 at base scale.
+  noFill();
+  stroke(CO2_OUTLINE_COLOR);
+  strokeWeight(1.5);
+  for (const m of molecules) {
+    if (!m.isGreenhouse) continue;
+    circle(m.x, m.y, CO2_OUTLINE_R * 2);
+  }
+  // Then: the atoms themselves.
   for (const m of molecules) drawMoleculeAt(m, m.x, m.y, 1);
 }
 
-// Magnifying-lens overlay. For each CO2 we render a circular lens centred
-// on it. Inside the lens, every molecule and photon in the source patch
-// (radius LENS_R/MAGNIFICATION around the CO2) is drawn at MAGNIFICATION×
-// the normal scale, with positions remapped relative to the lens centre.
-// Clipping ensures content stays within the lens circle.
+// Magnifying lens — only rendered for CO2 that are currently vibrating
+// (i.e. holding absorbed photon energy that hasn't yet been re-emitted or
+// transferred to a neighbour). This focuses the user's attention on the
+// active interaction sites.
 function drawCO2Lenses() {
   textFont('Helvetica');
   textAlign(CENTER, CENTER);
@@ -833,6 +847,8 @@ function drawCO2Lenses() {
 
   for (const co2 of molecules) {
     if (!co2.isGreenhouse) continue;
+    // Only show the lens while the CO2 is excited or in its brief afterglow.
+    if (co2.vibrationEnergy <= 0 && co2.vibrationFlash <= 0) continue;
 
     // Slightly tinted background masks the base-scale rendering inside the lens
     noStroke();
@@ -861,17 +877,16 @@ function drawCO2Lenses() {
       const oy = p.y - co2.y;
       const d2 = ox * ox + oy * oy;
       if (d2 > sourceR2 * 1.6) continue;
-      noStroke();
-      fill(freqToColor(p.freq));
-      circle(co2.x + ox * MAGNIFICATION, co2.y + oy * MAGNIFICATION, 5 * MAGNIFICATION);
+      drawPhotonAt(p, co2.x + ox * MAGNIFICATION, co2.y + oy * MAGNIFICATION, MAGNIFICATION);
     }
 
     ctx.restore();
 
-    // Lens rim drawn after clipping is released.
+    // Lens rim drawn after clipping is released. Use the highlight green so
+    // the lens reads as "the same molecule as the outlined one".
     noFill();
-    stroke(60, 110);
-    strokeWeight(1);
+    stroke(CO2_OUTLINE_COLOR);
+    strokeWeight(1.5);
     circle(co2.x, co2.y, LENS_R * 2);
   }
   textStyle(NORMAL);
