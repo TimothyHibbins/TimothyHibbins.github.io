@@ -1,0 +1,409 @@
+/* =========================================================================
+   Paginated Essay Template
+   Used by: essays/<slug>/index.html
+   Author each essay with just:
+     <link rel="stylesheet" href="../shared/template.css">
+     <script src="../shared/template.js" defer></script>
+     <body>
+       <div class="slide-container">
+         <div class="slide active">
+           <div class="slide-left"><iframe src="sketches/foo.html"></iframe></div>
+           <div class="slide-right"><h1>...</h1><p>...</p></div>
+         </div>
+         ... more slides ...
+       </div>
+     </body>
+   The template injects: settings gear, fullscreen icon, swap-panes icon,
+   slide indicator, settings menu. Slide nav is by mouse wheel / trackpad
+   scroll and Left/Right arrow keys.
+   ========================================================================= */
+
+:root {
+  --canvas-bg: #f0f0f0;
+  --text-bg: #ffffff;
+  --text-color: #000000;
+  --border-color: rgba(0, 0, 0, 0.13);
+  --indicator-color: rgba(0, 0, 0, 0.6);
+  --mobile-canvas-height: 45vh;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden !important;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: fixed;
+  inset: 0;
+  font-family: "Garamond", serif;
+  color: var(--text-color);
+  background-color: var(--text-bg);
+}
+
+/* --- Slide container ---------------------------------------------------- */
+
+.slide-container {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.slide {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  transform: translateY(100%);
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.slide.above  { transform: translateY(-100%); }
+.slide.below  { transform: translateY(100%); }
+.slide.active {
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide { transition: none; }
+}
+
+body.panes-swapped .slide {
+  flex-direction: row-reverse;
+}
+
+.slide-left {
+  width: 50%;
+  height: 100vh;
+  box-sizing: border-box;
+  overflow: hidden;
+  background-color: var(--canvas-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.slide-left iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.slide-right {
+  width: 50%;
+  height: 100vh;
+  padding: 40px;
+  padding-bottom: 60px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background-color: var(--text-bg);
+}
+
+/* Typography in the text pane */
+
+.slide-right h1 {
+  font-family: "Menlo", monospace;
+  font-size: 36pt;
+  margin-top: 0;
+  line-height: 1.1;
+}
+
+.slide-right h2 {
+  font-family: "Menlo", monospace;
+  font-size: 24pt;
+  line-height: 1.15;
+}
+
+.slide-right p,
+.slide-right li {
+  font-size: 16pt;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  -moz-hyphens: auto;
+  -webkit-hyphens: auto;
+  -ms-hyphens: auto;
+  hyphens: auto;
+  text-align: justify;
+  text-justify: inter-word;
+}
+
+.slide-right p {
+  margin-bottom: 24px;
+}
+
+/* Hidden-message reveal system (triggered via postMessage from iframes) */
+.message {
+  opacity: 0;
+  transition: opacity 2s ease;
+}
+
+.message:not([hidden]) {
+  opacity: 1;
+}
+
+/* --- Floating chrome ---------------------------------------------------- */
+/* All chrome buttons share a common minimal-icon style: ~40px square,
+   currentColor SVG, semi-transparent, brighter on hover. */
+
+.chrome-icon-btn {
+  position: fixed;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  color: currentColor;
+  opacity: 0.35;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.chrome-icon-btn:hover {
+  opacity: 0.85;
+}
+
+.chrome-icon-btn svg {
+  width: 24px;
+  height: 24px;
+  color: currentColor;
+}
+
+#settingsGear {
+  top: 20px;
+  right: 20px;
+  /* gear glyph is busier than the others, scale up slightly */
+}
+#settingsGear svg {
+  width: 28px;
+  height: 28px;
+}
+
+#settingsGear.menu-open { opacity: 1; }
+#settingsGear.spin { animation: spinGear 0.6s ease-in-out; }
+#settingsGear.spin-reverse { animation: spinGearReverse 0.6s ease-in-out; }
+
+@keyframes spinGear {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spinGearReverse {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+#fullscreenBtn {
+  top: 20px;
+  right: 64px;
+}
+
+/* Swap-panes icon: anchored on the boundary between the two panes.
+   Desktop = vertical boundary (center of viewport).
+   Mobile  = horizontal boundary (top of text pane, below canvas). */
+#swapPanesBtn {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+#swapPanesBtn:hover {
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+/* --- Slide indicator (floating, bottom-center) ------------------------- */
+
+.slide-indicator {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: "Menlo", monospace;
+  font-size: 12px;
+  color: var(--text-color);
+  opacity: 0.4;
+  z-index: 999;
+  pointer-events: none;
+  letter-spacing: 0.05em;
+}
+
+/* --- Settings menu ----------------------------------------------------- */
+
+#settingsMenu {
+  position: fixed;
+  top: 70px;
+  right: 20px;
+  background-color: var(--text-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  z-index: 999;
+  overflow: visible;
+  transform-origin: top center;
+  transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s ease, background-color 0.3s ease;
+  opacity: 0;
+  transform: scaleY(0);
+  pointer-events: none;
+  visibility: hidden;
+}
+
+#settingsMenu.show {
+  opacity: 1;
+  transform: scaleY(1);
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.theme-btn, .color-btn {
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+  white-space: nowrap;
+  text-align: center;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  color: currentColor;
+}
+
+.theme-btn:hover, .color-btn:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.theme-btn.active, .color-btn.active {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.icon-svg {
+  width: 20px;
+  height: 20px;
+  color: currentColor;
+}
+
+.theme-btn-label, .color-btn-label {
+  position: absolute;
+  right: 100%;
+  margin-right: 8px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+  font-weight: 500;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.theme-btn:hover .theme-btn-label,
+.color-btn:hover .color-btn-label { opacity: 1; }
+
+.menu-separator {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 4px 0;
+}
+
+.color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+/* --- Dark mode --------------------------------------------------------- */
+
+body.dark-mode {
+  --canvas-bg: #161616;
+  --text-bg: #161616;
+  --text-color: #ffffff;
+  --border-color: rgba(255, 255, 255, 0.13);
+  --indicator-color: #aaa;
+  background-color: #161616 !important;
+}
+
+body.dark-mode .theme-btn:hover,
+body.dark-mode .color-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .theme-btn.active,
+body.dark-mode .color-btn.active {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+body.dark-mode .color-swatch {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* --- Mobile / narrow viewports ---------------------------------------- */
+
+@media (max-width: 900px) {
+  .slide {
+    flex-direction: column;
+  }
+
+  body.panes-swapped .slide {
+    flex-direction: column-reverse;
+  }
+
+  .slide-left {
+    width: 100%;
+    height: var(--mobile-canvas-height);
+    flex: 0 0 var(--mobile-canvas-height);
+  }
+
+  .slide-right {
+    width: 100%;
+    height: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 24px 20px;
+    padding-bottom: 50px;
+  }
+
+  .slide-right h1 { font-size: 28pt; }
+  .slide-right h2 { font-size: 20pt; }
+  .slide-right p,
+  .slide-right li { font-size: 14pt; }
+
+  /* Swap icon sits on the horizontal boundary between canvas and text. */
+  #swapPanesBtn {
+    top: var(--mobile-canvas-height);
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+  #swapPanesBtn:hover {
+    transform: translate(-50%, -50%) scale(1.1);
+  }
+  /* Rotate the swap arrows to indicate vertical swap on mobile. */
+  #swapPanesBtn svg {
+    transform: rotate(90deg);
+  }
+}
