@@ -28,8 +28,8 @@ const MOL_TYPES = {
     isGreenhouse: true,
     atoms: [
       { dx: -1.18, dy: 0, label: 'O' },
-      { dx:  0,    dy: 0, label: 'C' },
-      { dx:  1.18, dy: 0, label: 'O' },
+      { dx: 0, dy: 0, label: 'C' },
+      { dx: 1.18, dy: 0, label: 'O' },
     ],
     bonds: [[0, 1], [1, 2]],
     atomRadius: 1.1,
@@ -39,7 +39,7 @@ const MOL_TYPES = {
     isGreenhouse: false,
     atoms: [
       { dx: -0.63, dy: 0, label: 'N' },
-      { dx:  0.63, dy: 0, label: 'N' },
+      { dx: 0.63, dy: 0, label: 'N' },
     ],
     bonds: [[0, 1]],
     atomRadius: 1.0,
@@ -49,7 +49,7 @@ const MOL_TYPES = {
     isGreenhouse: false,
     atoms: [
       { dx: -0.63, dy: 0, label: 'O' },
-      { dx:  0.63, dy: 0, label: 'O' },
+      { dx: 0.63, dy: 0, label: 'O' },
     ],
     bonds: [[0, 1]],
     atomRadius: 1.0,
@@ -152,36 +152,36 @@ let ABSORPTION_R = 4.2;
 let groundAtoms = [];            // active surface oscillators (built at setup).
 let groundStartX = 0;            // x of the first surface atom (lattice origin).
 let groundTemp = 287;            // DERIVED each step from the atoms' mean KE;
-                                 // kept as a variable so sky-tint / stats code
-                                 // can read it unchanged.
+// kept as a variable so sky-tint / stats code
+// can read it unchanged.
 const GROUND_ATOM_MASS = 2;      // close to a gas molecule (mass 1) so a single
-                                 // bounce exchanges a good fraction of energy —
-                                 // i.e. the gas and ground thermally couple, as
-                                 // a real surface and the air do.
+// bounce exchanges a good fraction of energy —
+// i.e. the gas and ground thermally couple, as
+// a real surface and the air do.
 const GROUND_ATOM_R = 1.4;       // collision + draw radius — same size as the
-                                 // atoms that make up the gas molecules.
+// atoms that make up the gas molecules.
 const GROUND_ATOM_SPACING = 3.0; // close-packed: a continuous solid surface.
 const GROUND_CELL_H = 1.0;       // horizontal half-range of the cell each
 const GROUND_CELL_V = 1.0;       // surface atom rattles within. TIGHT cells
-                                 // mean strongly-bonded atoms with only a small
-                                 // vibration — the visible effect of a stiff
-                                 // bond — and, crucially, the cell walls are
-                                 // FIXED, so they can do no net work and the
-                                 // ground stays strictly energy-conserving. (A
-                                 // literal spring, by contrast, resonantly
-                                 // pumps energy out of the gas collisions and
-                                 // the whole column runs away to millions of
-                                 // degrees — so we bind the atoms this way
-                                 // instead.)
+// mean strongly-bonded atoms with only a small
+// vibration — the visible effect of a stiff
+// bond — and, crucially, the cell walls are
+// FIXED, so they can do no net work and the
+// ground stays strictly energy-conserving. (A
+// literal spring, by contrast, resonantly
+// pumps energy out of the gas collisions and
+// the whole column runs away to millions of
+// degrees — so we bind the atoms this way
+// instead.)
 let GROUND_EMIT_RATE = 0.014;    // per-atom IR emission probability per unit KE
-                                 // per step — the ground's only energy sink,
-                                 // balanced against the incoming sunlight.
-                                 // (Scaled down vs a coarse lattice because the
-                                 // close-packed surface has many more atoms.)
+// per step — the ground's only energy sink,
+// balanced against the incoming sunlight.
+// (Scaled down vs a coarse lattice because the
+// close-packed surface has many more atoms.)
 const GROUND_INIT_KE = 0.6;      // seed kinetic energy per surface atom — set
-                                 // near the equilibrium value so the ground
-                                 // starts at roughly the right temperature
-                                 // instead of cooling down from a hot transient.
+// near the equilibrium value so the ground
+// starts at roughly the right temperature
+// instead of cooling down from a hot transient.
 
 // Spontaneous IR emission rate (per frame). Scales with molecule KE above a
 // threshold — hot molecules emit more often. This is the only way energy
@@ -319,12 +319,12 @@ function hslToRgb(h, s, l) {
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
   const m = l - c / 2;
   let r, g, b;
-  if      (h <  60) { r = c; g = x; b = 0; }
+  if (h < 60) { r = c; g = x; b = 0; }
   else if (h < 120) { r = x; g = c; b = 0; }
   else if (h < 180) { r = 0; g = c; b = x; }
   else if (h < 240) { r = 0; g = x; b = c; }
   else if (h < 300) { r = x; g = 0; b = c; }
-  else              { r = c; g = 0; b = x; }
+  else { r = c; g = 0; b = x; }
   return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
 }
 
@@ -426,7 +426,7 @@ function setup() {
 // draw call.
 
 const PLAYBACK_SPEEDS = [
-  { label: '⏸',  value: 0 },
+  { label: '⏸', value: 0 },
   { label: '⅛×', value: 0.125 },
   { label: '¼×', value: 0.25 },
   { label: '½×', value: 0.5 },
@@ -564,21 +564,21 @@ function buildSettingsPanel() {
   const fi = v => String(Math.round(v));
   const fSci = v => v.toExponential(1);
 
-  addParam('Gravity',           0,     0.012, 0.0001,
-    () => GRAVITY,                    v => GRAVITY = v,                    f3);
-  addParam('Sun emission rate', 1,     30,    1,
-    () => 60 / SUN_PHOTON_INTERVAL,   v => SUN_PHOTON_INTERVAL = Math.max(1, Math.round(60 / v)),
-                                                                            v => fi(v) + '/s');
-  addParam('Absorption radius (px)', 2, 24,   1,
-    () => ABSORPTION_R,               v => ABSORPTION_R = v,                fi);
+  addParam('Gravity', 0, 0.012, 0.0001,
+    () => GRAVITY, v => GRAVITY = v, f3);
+  addParam('Sun emission rate', 1, 30, 1,
+    () => 60 / SUN_PHOTON_INTERVAL, v => SUN_PHOTON_INTERVAL = Math.max(1, Math.round(60 / v)),
+    v => fi(v) + '/s');
+  addParam('Absorption radius (px)', 2, 24, 1,
+    () => ABSORPTION_R, v => ABSORPTION_R = v, fi);
   addParam('Spont. emission (aloft)', 0.1, 8, 0.1,
-    () => SPONT_EMIT_HIGH,            v => SPONT_EMIT_HIGH = v,             f2);
+    () => SPONT_EMIT_HIGH, v => SPONT_EMIT_HIGH = v, f2);
   addParam('Thermal excite prob.', 0, 1, 0.01,
-    () => THERMAL_EXCITE_PROB,        v => THERMAL_EXCITE_PROB = v,         f2);
+    () => THERMAL_EXCITE_PROB, v => THERMAL_EXCITE_PROB = v, f2);
   addParam('Collision deactivation', 0, 1, 0.01,
     () => COLLISION_DEACTIVATION_FRAC, v => COLLISION_DEACTIVATION_FRAC = v, f2);
   addParam('Ground emit rate', 0.005, 0.30, 0.005,
-    () => GROUND_EMIT_RATE,           v => GROUND_EMIT_RATE = v,            f3);
+    () => GROUND_EMIT_RATE, v => GROUND_EMIT_RATE = v, f3);
 
   // --- Visibility toggles ---
   const visHeader = createDiv('Visibility');
@@ -609,10 +609,10 @@ function buildSettingsPanel() {
     });
   }
 
-  addToggle('Show IR light',           () => showIRLight,         v => showIRLight = v);
-  addToggle('Show visible/UV light',   () => showVisibleLight,    v => showVisibleLight = v);
-  addToggle('Show non-greenhouse gas', () => showNonGHGases,      v => showNonGHGases = v);
-  addToggle('Show heat colouring',     () => showHeatColouring,   v => showHeatColouring = v);
+  addToggle('Show IR light', () => showIRLight, v => showIRLight = v);
+  addToggle('Show visible/UV light', () => showVisibleLight, v => showVisibleLight = v);
+  addToggle('Show non-greenhouse gas', () => showNonGHGases, v => showNonGHGases = v);
+  addToggle('Show heat colouring', () => showHeatColouring, v => showHeatColouring = v);
 
   const note = createDiv('Changes apply live. Click the gear to close.');
   note.parent(panel);
@@ -732,9 +732,9 @@ function stepGroundAtoms(dt) {
   for (const g of groundAtoms) {
     g.x += g.vx * dt;
     g.y += g.vy * dt;
-    if (g.x < g.homeX - GROUND_CELL_H)      { g.x = g.homeX - GROUND_CELL_H; g.vx = -g.vx; }
+    if (g.x < g.homeX - GROUND_CELL_H) { g.x = g.homeX - GROUND_CELL_H; g.vx = -g.vx; }
     else if (g.x > g.homeX + GROUND_CELL_H) { g.x = g.homeX + GROUND_CELL_H; g.vx = -g.vx; }
-    if (g.y < g.homeY - GROUND_CELL_V)      { g.y = g.homeY - GROUND_CELL_V; g.vy = -g.vy; }
+    if (g.y < g.homeY - GROUND_CELL_V) { g.y = g.homeY - GROUND_CELL_V; g.vy = -g.vy; }
     else if (g.y > g.homeY + GROUND_CELL_V) { g.y = g.homeY + GROUND_CELL_V; g.vy = -g.vy; }
 
     const ke = 0.5 * GROUND_ATOM_MASS * (g.vx * g.vx + g.vy * g.vy);
@@ -841,11 +841,11 @@ const DT_MAX = 1.0;
 // Visibility toggles — controlled from the settings panel.
 let showIRLight = true;
 let showVisibleLight = false;     // off by default: visible light is just a
-                                  // pass-through, distracting from the IR story
+// pass-through, distracting from the IR story
 let showNonGHGases = true;
 let showHeatColouring = true;
 let stepCounter = 0;  // internal frame counter for physics, separate from p5's
-                      // frameCount so it doesn't tick while paused
+// frameCount so it doesn't tick while paused
 // Continuous cadence accumulators (replace the old `stepCounter % N` checks so
 // emission timing scales correctly with a variable dt).
 let sunPhotonClock = 0;
@@ -996,9 +996,9 @@ function updateMolecule(m, dt) {
   }
 
   const cr = MOL_TYPES[m.type].collisionRadius;
-  if (m.x < columnLeft + cr)  { m.x = columnLeft + cr;  m.vx = -m.vx; }
+  if (m.x < columnLeft + cr) { m.x = columnLeft + cr; m.vx = -m.vx; }
   if (m.x > columnRight - cr) { m.x = columnRight - cr; m.vx = -m.vx; }
-  if (m.y < columnTop + cr)   { m.y = columnTop + cr;   m.vy = -m.vy; }
+  if (m.y < columnTop + cr) { m.y = columnTop + cr; m.vy = -m.vy; }
   // Hard floor: gas can't fall through the surface line. When it strikes, it
   // thermalises with the nearest surface atom through one elastic collision
   // (exchangeWithGround), so accommodation is emergent and energy-conserving.
@@ -1079,11 +1079,11 @@ function handleVibrationCoupling(a, b, vrel) {
   // Pathway 2: thermal excitation of CO2 by an energetic non-excited collision.
   if (vrel * vrel < THERMAL_EXCITE_VREL2) return;
   if (a.isGreenhouse && a.vibrationEnergy === 0
-      && Math.random() < THERMAL_EXCITE_PROB) {
+    && Math.random() < THERMAL_EXCITE_PROB) {
     thermallyExciteCO2(a, b);
   }
   if (b.isGreenhouse && b.vibrationEnergy === 0
-      && Math.random() < THERMAL_EXCITE_PROB) {
+    && Math.random() < THERMAL_EXCITE_PROB) {
     thermallyExciteCO2(b, a);
   }
 }
@@ -1153,7 +1153,7 @@ function emitGroundAtomPhoton(x, E) {
 function updatePhoton(p, dt) {
   p.x += p.vx * dt; p.y += p.vy * dt;
 
-  if (p.x < columnLeft)  { p.x = columnLeft;  p.vx = -p.vx; }
+  if (p.x < columnLeft) { p.x = columnLeft; p.vx = -p.vx; }
   if (p.x > columnRight) { p.x = columnRight; p.vx = -p.vx; }
 
   if (p.y < columnTop - 4) {
@@ -1566,20 +1566,20 @@ function vibrationOffset(n, mode, i, vib) {
     if (mode === 0) {
       // Symmetric stretch: outer O atoms move outward in unison
       if (i === 0) return { dx: -vib, dy: 0 };
-      if (i === 2) return { dx:  vib, dy: 0 };
+      if (i === 2) return { dx: vib, dy: 0 };
       return { dx: 0, dy: 0 };
     }
     if (mode === 1) {
       // Asymmetric stretch: both O move +x, C moves -x
-      if (i === 0) return { dx:  vib, dy: 0 };
+      if (i === 0) return { dx: vib, dy: 0 };
       if (i === 1) return { dx: -vib * 0.7, dy: 0 };
-      if (i === 2) return { dx:  vib, dy: 0 };
+      if (i === 2) return { dx: vib, dy: 0 };
     }
     if (mode === 2) {
       // Bending: O atoms move +y, C moves -y (in-plane bend)
-      if (i === 0) return { dx: 0, dy:  vib };
+      if (i === 0) return { dx: 0, dy: vib };
       if (i === 1) return { dx: 0, dy: -vib * 0.7 };
-      if (i === 2) return { dx: 0, dy:  vib };
+      if (i === 2) return { dx: 0, dy: vib };
     }
   }
   if (n === 2) {
@@ -1630,7 +1630,7 @@ function drawStats() {
   const gT = physKToDisplayC(groundTemp);
   const ghCount = molecules.filter(m => m.isGreenhouse).length;
   text(`Ground: ${gT.toFixed(0)}\u00b0C   |   Emission altitude: ${avgAlt.toFixed(1)} km   |   CO\u2082: ${ghCount}`,
-       columnLeft, 4);
+    columnLeft, 4);
   if (emissionAltitudes.length > 4) {
     const y = altKmToY(avgAlt);
     stroke('#d34a4a');
