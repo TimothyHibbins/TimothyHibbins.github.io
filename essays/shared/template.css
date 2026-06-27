@@ -1,21 +1,27 @@
 /* =========================================================================
-   Paginated Essay Template
+   Essay Template
    Used by: essays/<slug>/index.html
    Author each essay with just:
      <link rel="stylesheet" href="../shared/template.css">
      <script src="../shared/template.js" defer></script>
      <body>
-       <div class="slide-container">
-         <div class="slide active">
-           <div class="slide-left"><iframe src="sketches/foo.html"></iframe></div>
-           <div class="slide-right"><h1>...</h1><p>...</p></div>
+       <div class="essay">
+         <div class="sketch-pane" id="sketchPane"></div>
+         <div class="text-pane" id="textPane">
+           <article class="prose">
+             <section data-sketch="sketches/foo.html"><h1>...</h1><p>...</p></section>
+             <section data-sketch=""><p>...</p></section>   <!-- empty = no sketch -->
+             ... more sections ...
+           </article>
          </div>
-         ... more slides ...
        </div>
      </body>
-   The template injects: settings gear, fullscreen icon, swap-panes icon,
-   slide indicator, settings menu. Slide nav is by mouse wheel / trackpad
-   scroll and Left/Right arrow keys.
+   The text flows as one continuous column that scrolls line-by-line (smoothly,
+   but snapping to the line grid so the reading line stays put). Each <section>
+   names the sketch shown in the left pane while it is being read; the template
+   mounts those sketches and crossfades to the active section's one.
+   The template also injects: settings gear, fullscreen icon, swap-panes icon,
+   section indicator, settings menu.
    ========================================================================= */
 
 :root {
@@ -24,10 +30,11 @@
   --text-color: #000000;
   --border-color: rgba(0, 0, 0, 0.13);
   --indicator-color: rgba(0, 0, 0, 0.6);
-  --mobile-canvas-height: 45vh;
+  --mobile-canvas-height: 45dvh;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   width: 100%;
   overflow: hidden !important;
@@ -39,6 +46,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;   /* track the *visible* viewport on mobile (URL-bar aware) */
   position: fixed;
   inset: 0;
   font-family: "Garamond", serif;
@@ -46,94 +54,138 @@ body {
   background-color: var(--text-bg);
 }
 
-/* --- Slide container ---------------------------------------------------- */
+/* --- Essay layout -------------------------------------------------------
+   Two panes side by side. The left (sketch) pane is fixed and crossfades to
+   the sketch tied to whichever section is currently being read. The right
+   (text) pane is one continuous, line-scrolled column of prose. */
 
-.slide-container {
+.essay {
   position: fixed;
   inset: 0;
   width: 100%;
   height: 100vh;
-  overflow: hidden;
-}
-
-.slide {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 100%;
-  padding: 0;
-  box-sizing: border-box;
-  overflow: hidden;
+  height: 100dvh;
   display: flex;
-  transform: translateY(100%);
-  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none;
-  will-change: transform;
+  overflow: hidden;
 }
 
-.slide.above  { transform: translateY(-100%); }
-.slide.below  { transform: translateY(100%); }
-.slide.active {
-  transform: translateY(0);
-  pointer-events: auto;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .slide { transition: none; }
-}
-
-body.panes-swapped .slide {
+body.panes-swapped .essay {
   flex-direction: row-reverse;
 }
 
-.slide-left {
+/* --- Sketch pane (left) ------------------------------------------------- */
+
+.sketch-pane {
   width: 50%;
   height: 100vh;
+  height: 100dvh;
   box-sizing: border-box;
   overflow: hidden;
   background-color: var(--canvas-bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  flex: 0 0 50%;
 }
 
-.slide-left iframe {
+/* Every section's sketch is mounted once and stacked; only the active one is
+   faded in, so switching sections never reloads (and never resets) a sketch. */
+.sketch-frame {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   border: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.5s ease;
 }
 
-.slide-right {
+.sketch-frame.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Placeholder shown for sections whose interactive sketch isn't built yet. */
+.sketch-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8% 12%;
+  box-sizing: border-box;
+  background-color: var(--canvas-bg);
+}
+
+.sketch-placeholder-inner {
+  max-width: 22em;
+  text-align: center;
+  font-family: "Menlo", monospace;
+  font-size: 13pt;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--indicator-color);
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sketch-frame {
+    transition: none;
+  }
+}
+
+/* --- Text pane (right) -------------------------------------------------- */
+
+.text-pane {
   width: 50%;
   height: 100vh;
-  padding: 40px;
-  padding-bottom: 60px;
+  height: 100dvh;
   box-sizing: border-box;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
+  /* iOS momentum scrolling + allow vertical touch panning of this container. */
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   position: relative;
   background-color: var(--text-bg);
+  flex: 0 0 50%;
+  /* JS drives scrolling discretely line-by-line; hide the native bar so the
+     custom smooth animation reads as the single source of motion. */
+  scrollbar-width: none;
+}
+
+.text-pane::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.prose {
+  padding: 40px;
+  /* Trailing space so the final lines can rise to the reading position. */
+  padding-bottom: 70vh;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.prose section {
+  margin: 0;
 }
 
 /* Typography in the text pane */
 
-.slide-right h1 {
+.prose h1 {
   font-family: "Menlo", monospace;
   font-size: 36pt;
   margin-top: 0;
   line-height: 1.1;
 }
 
-.slide-right h2 {
+.prose h2 {
   font-family: "Menlo", monospace;
   font-size: 24pt;
   line-height: 1.15;
+  margin-top: 1.4em;
 }
 
-.slide-right p,
-.slide-right li {
+.prose p,
+.prose li {
   font-size: 16pt;
   line-height: 1.5;
   overflow-wrap: break-word;
@@ -145,7 +197,7 @@ body.panes-swapped .slide {
   text-justify: inter-word;
 }
 
-.slide-right p {
+.prose p {
   margin-bottom: 24px;
 }
 
@@ -195,23 +247,42 @@ body.panes-swapped .slide {
   right: 20px;
   /* gear glyph is busier than the others, scale up slightly */
 }
+
 #settingsGear svg {
   width: 28px;
   height: 28px;
 }
 
-#settingsGear.menu-open { opacity: 1; }
-#settingsGear.spin { animation: spinGear 0.6s ease-in-out; }
-#settingsGear.spin-reverse { animation: spinGearReverse 0.6s ease-in-out; }
+#settingsGear.menu-open {
+  opacity: 1;
+}
+
+#settingsGear.spin {
+  animation: spinGear 0.6s ease-in-out;
+}
+
+#settingsGear.spin-reverse {
+  animation: spinGearReverse 0.6s ease-in-out;
+}
 
 @keyframes spinGear {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes spinGearReverse {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(-360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(-360deg);
+  }
 }
 
 #fullscreenBtn {
@@ -277,7 +348,8 @@ body.panes-swapped .slide {
   visibility: visible;
 }
 
-.theme-btn, .color-btn {
+.theme-btn,
+.color-btn {
   padding: 8px 12px;
   border: none;
   background: transparent;
@@ -295,11 +367,33 @@ body.panes-swapped .slide {
   color: currentColor;
 }
 
-.theme-btn:hover, .color-btn:hover {
+.scroll-btn {
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+  white-space: nowrap;
+  text-align: center;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  color: currentColor;
+}
+
+.theme-btn:hover,
+.color-btn:hover,
+.scroll-btn:hover {
   background-color: rgba(0, 0, 0, 0.05);
 }
 
-.theme-btn.active, .color-btn.active {
+.theme-btn.active,
+.color-btn.active,
+.scroll-btn.active {
   background-color: rgba(0, 0, 0, 0.1);
 }
 
@@ -309,7 +403,9 @@ body.panes-swapped .slide {
   color: currentColor;
 }
 
-.theme-btn-label, .color-btn-label {
+.theme-btn-label,
+.color-btn-label,
+.scroll-btn-label {
   position: absolute;
   right: 100%;
   margin-right: 8px;
@@ -322,7 +418,10 @@ body.panes-swapped .slide {
 }
 
 .theme-btn:hover .theme-btn-label,
-.color-btn:hover .color-btn-label { opacity: 1; }
+.color-btn:hover .color-btn-label,
+.scroll-btn:hover .scroll-btn-label {
+  opacity: 1;
+}
 
 .menu-separator {
   height: 1px;
@@ -349,12 +448,14 @@ body.dark-mode {
 }
 
 body.dark-mode .theme-btn:hover,
-body.dark-mode .color-btn:hover {
+body.dark-mode .color-btn:hover,
+body.dark-mode .scroll-btn:hover {
   background-color: rgba(255, 255, 255, 0.1);
 }
 
 body.dark-mode .theme-btn.active,
-body.dark-mode .color-btn.active {
+body.dark-mode .color-btn.active,
+body.dark-mode .scroll-btn.active {
   background-color: rgba(255, 255, 255, 0.15);
 }
 
@@ -365,33 +466,50 @@ body.dark-mode .color-swatch {
 /* --- Mobile / narrow viewports ---------------------------------------- */
 
 @media (max-width: 900px) {
-  .slide {
+  .essay {
     flex-direction: column;
   }
 
-  body.panes-swapped .slide {
+  body.panes-swapped .essay {
     flex-direction: column-reverse;
   }
 
-  .slide-left {
+  .sketch-pane {
     width: 100%;
     height: var(--mobile-canvas-height);
     flex: 0 0 var(--mobile-canvas-height);
   }
 
-  .slide-right {
+  .text-pane {
     width: 100%;
+    /* Fill the remaining height below the canvas and own the scroll. A zero
+       flex-basis with min-height:0 makes the pane reliably bounded (so it
+       actually overflows and scrolls) instead of growing to its content. */
     height: auto;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-height: 0;
-    padding: 24px 20px;
-    padding-bottom: 50px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
   }
 
-  .slide-right h1 { font-size: 28pt; }
-  .slide-right h2 { font-size: 20pt; }
-  .slide-right p,
-  .slide-right li { font-size: 14pt; }
+  .prose {
+    padding: 24px 20px;
+    padding-bottom: 70vh;
+  }
+
+  .prose h1 {
+    font-size: 28pt;
+  }
+
+  .prose h2 {
+    font-size: 20pt;
+  }
+
+  .prose p,
+  .prose li {
+    font-size: 14pt;
+  }
 
   /* Swap icon sits on the horizontal boundary between canvas and text. */
   #swapPanesBtn {
@@ -399,9 +517,11 @@ body.dark-mode .color-swatch {
     left: 50%;
     transform: translate(-50%, -50%);
   }
+
   #swapPanesBtn:hover {
     transform: translate(-50%, -50%) scale(1.1);
   }
+
   /* Rotate the swap arrows to indicate vertical swap on mobile. */
   #swapPanesBtn svg {
     transform: rotate(90deg);

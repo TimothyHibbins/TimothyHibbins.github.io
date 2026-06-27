@@ -3,6 +3,9 @@
 
 <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Atmosphere Column</title>
     <style>
         html,
@@ -17,7 +20,16 @@
 
 <body>
     <main></main>
-    <script src="js/Atmosphere_Column.js" charset="UTF-8"></script>
+    <script>
+      // Cache-bust the sketch JS so iterative edits always show up. The
+      // ?_t= query string forces the browser to refetch.
+      (function(){
+        const s = document.createElement('script');
+        s.src = 'js/Atmosphere_Column.js?_t=' + Date.now();
+        s.charset = 'UTF-8';
+        document.body.appendChild(s);
+      })();
+    </script>
 </body>
 
 </html>

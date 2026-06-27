@@ -1,9 +1,14 @@
 /* =========================================================================
-   Paginated Essay Template — runtime
-   Injects: settings gear, fullscreen icon, swap-panes icon, slide indicator,
+   Essay Template — runtime
+   Injects: settings gear, fullscreen icon, swap-panes icon, section indicator,
             settings menu.
-   Slide navigation: mouse wheel / trackpad (respecting text-pane scroll
-                     boundaries) and Left/Right arrow keys.
+   Reading model: one continuous text column that scrolls line-by-line —
+                  smoothly animated but snapped to the line grid so the current
+                  line keeps a constant on-screen position (mouse wheel /
+                  trackpad and Up/Down/PgUp/PgDn/Space/Home/End keys).
+   Sketch panel: each <section data-sketch="..."> names a sketch; the active
+                 section (the one at the reading position) owns the left pane,
+                 which crossfades between mounted sketches.
    Other features: theme + bg-color persistence, fullscreen, postMessage
                    reveal bus for iframe-driven narrative reveals.
    ========================================================================= */
@@ -53,11 +58,17 @@
     <path d="M17 12.79A5 5 0 1 1 11.21 7 3.5 3.5 0 0 0 17 12.79z"></path>
   </svg>`;
 
+  const LINES_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="icon-svg">
+    <line x1="4" y1="6" x2="20" y2="6"></line>
+    <line x1="4" y1="12" x2="20" y2="12"></line>
+    <line x1="4" y1="18" x2="20" y2="18"></line>
+  </svg>`;
+
   const BG_COLORS = [
-    { id: 'colorWhite',    value: '#FFFFFF', label: 'White' },
+    { id: 'colorWhite', value: '#FFFFFF', label: 'White' },
     { id: 'colorOffwhite', value: '#F8F8F8', label: 'Off-white' },
-    { id: 'colorSepia',    value: '#FDF6E3', label: 'Solarised' },
-    { id: 'colorCream',    value: '#FFF1E5', label: 'Financial Times' },
+    { id: 'colorSepia', value: '#FDF6E3', label: 'Solarised' },
+    { id: 'colorCream', value: '#FFF1E5', label: 'Financial Times' },
   ];
 
   // ----- Builders -------------------------------------------------------
@@ -85,8 +96,8 @@
 
     const themeButtons = [
       { id: 'themeLight', title: 'Light Mode', label: 'Light', value: 'light', svg: SUN_SVG },
-      { id: 'themeDark',  title: 'Dark Mode',  label: 'Dark',  value: 'dark',  svg: MOON_SVG },
-      { id: 'themeAuto',  title: 'Auto Mode',  label: 'Auto',  value: 'auto',  svg: AUTO_SVG },
+      { id: 'themeDark', title: 'Dark Mode', label: 'Dark', value: 'dark', svg: MOON_SVG },
+      { id: 'themeAuto', title: 'Auto Mode', label: 'Auto', value: 'auto', svg: AUTO_SVG },
     ];
 
     themeButtons.forEach(t => {
@@ -114,24 +125,38 @@
       menu.appendChild(b);
     });
 
+    const sep2 = document.createElement('div');
+    sep2.className = 'menu-separator';
+    menu.appendChild(sep2);
+
+    const snapBtn = document.createElement('button');
+    snapBtn.className = 'scroll-btn';
+    snapBtn.id = 'lineSnapToggle';
+    snapBtn.title = 'Line-by-line scrolling';
+    snapBtn.innerHTML = `<span class="scroll-btn-label">Line-by-line scrolling</span>${LINES_SVG}`;
+    menu.appendChild(snapBtn);
+
     return menu;
   }
 
   // ----- Init -----------------------------------------------------------
 
   function init() {
-    const slides = document.querySelectorAll('.slide');
-    if (!slides.length) return;
-    const totalSlides = slides.length;
-    let currentSlide = 0;
+    const textPane = document.getElementById('textPane');
+    const sketchPane = document.getElementById('sketchPane');
+    if (!textPane || !sketchPane) return;
+
+    const sections = Array.from(textPane.querySelectorAll('section'));
+    if (!sections.length) return;
+    const totalSlides = sections.length;
     let panesSwapped = false;
 
     // Inject chrome
-    const gear       = buildIconBtn('settingsGear',  'Settings',     GEAR_SVG, 'Settings');
+    const gear = buildIconBtn('settingsGear', 'Settings', GEAR_SVG, 'Settings');
     const fullscreen = buildIconBtn('fullscreenBtn', 'Toggle fullscreen', FULLSCREEN_SVG, 'Fullscreen');
-    const swap       = buildIconBtn('swapPanesBtn',  'Swap panes',   SWAP_SVG, 'Swap panes');
-    const indicator  = buildIndicator(totalSlides);
-    const menu       = buildSettingsMenu();
+    const swap = buildIconBtn('swapPanesBtn', 'Swap panes', SWAP_SVG, 'Swap panes');
+    const indicator = buildIndicator(totalSlides);
+    const menu = buildSettingsMenu();
     document.body.appendChild(gear);
     document.body.appendChild(fullscreen);
     document.body.appendChild(swap);
@@ -140,67 +165,208 @@
 
     const slideNumberEl = document.getElementById('slideNumber');
 
-    // --- Slide nav ---
-    function showSlide(n, scrollToBottom = false) {
-      slides.forEach((s, i) => {
-        s.classList.remove('above', 'active', 'below');
-        if (i < n) s.classList.add('above');
-        else if (i > n) s.classList.add('below');
-        else s.classList.add('active');
-      });
-      slideNumberEl.textContent = n + 1;
+    // --- Sketch panel: mount one frame per section, crossfade the active one ---
+    // Distinct sketch sources are mounted once and reused, so a sketch keeps its
+    // state even if two sections point at the same file.
+    const frameBySrc = new Map();
 
-      // Reset (or jump to bottom of) the new slide's text pane.
-      const textPane = slides[n].querySelector('.slide-right');
-      if (textPane) {
-        textPane.scrollTop = scrollToBottom ? textPane.scrollHeight : 0;
+    // Sections whose sketch isn't built yet (empty data-sketch) share a single
+    // placeholder panel so the sketch pane is never just blank.
+    let placeholderFrame = null;
+    function getPlaceholderFrame() {
+      if (!placeholderFrame) {
+        placeholderFrame = document.createElement('div');
+        placeholderFrame.className = 'sketch-frame sketch-placeholder';
+        const inner = document.createElement('div');
+        inner.className = 'sketch-placeholder-inner';
+        inner.textContent = 'Explorable interactive simulation for this section will go here';
+        placeholderFrame.appendChild(inner);
+        sketchPane.appendChild(placeholderFrame);
       }
+      return placeholderFrame;
     }
 
-    function changeSlide(direction) {
-      const next = Math.max(0, Math.min(totalSlides - 1, currentSlide + direction));
-      if (next === currentSlide) return;
-      currentSlide = next;
-      // Going backwards lands you at the bottom of the prior slide so you
-      // can keep reading without an awkward jump.
-      showSlide(currentSlide, /*scrollToBottom=*/direction < 0);
+    const sketchForSection = sections.map((sec) => {
+      const src = (sec.dataset.sketch || '').trim();
+      if (!src) return getPlaceholderFrame();
+      if (!frameBySrc.has(src)) {
+        const f = document.createElement('iframe');
+        f.className = 'sketch-frame';
+        f.src = src;
+        f.setAttribute('title', sec.querySelector('h1, h2')?.textContent || 'Sketch');
+        sketchPane.appendChild(f);
+        frameBySrc.set(src, f);
+      }
+      return frameBySrc.get(src);
+    });
+
+    let activeFrame = null;
+    function showSketch(frame) {
+      if (frame === activeFrame) return;
+      if (activeFrame) activeFrame.classList.remove('active');
+      if (frame) frame.classList.add('active');
+      activeFrame = frame;
     }
 
-    // --- Wheel-driven slide nav ---
-    // Scroll within the text pane until it hits the boundary, then one
-    // more wheel "click" advances the slide. Throttled so a single
-    // touchpad flick doesn't skip multiple slides.
-    const NAV_THROTTLE_MS = 700;
-    const NAV_DELTA_THRESHOLD = 6;
-    let lastNavAt = 0;
+    // --- Active-section tracking -----------------------------------------
+    // The "reading line" sits a third of the way down the text pane; whichever
+    // section spans that point owns the sketch panel and the indicator.
+    const READING_ANCHOR = 0.33;
+    let activeIndex = -1;
 
-    document.addEventListener('wheel', (e) => {
-      if (Math.abs(e.deltaY) < NAV_DELTA_THRESHOLD) return;
+    function updateActiveSection() {
+      const paneRect = textPane.getBoundingClientRect();
+      const anchorY = paneRect.top + paneRect.height * READING_ANCHOR;
 
-      const activeSlide = document.querySelector('.slide.active');
-      if (!activeSlide) return;
-      const textPane = activeSlide.querySelector('.slide-right');
-      const insideText = textPane && textPane.contains(e.target);
-
-      if (insideText) {
-        const atTop    = textPane.scrollTop <= 0;
-        const atBottom = textPane.scrollTop + textPane.clientHeight >= textPane.scrollHeight - 1;
-        if (e.deltaY < 0 && !atTop)    return; // let native scroll
-        if (e.deltaY > 0 && !atBottom) return;
+      let idx = 0;
+      for (let i = 0; i < sections.length; i++) {
+        if (sections[i].getBoundingClientRect().top <= anchorY) idx = i;
+        else break;
       }
+      if (idx === activeIndex) return;
+      activeIndex = idx;
+      showSketch(sketchForSection[idx]);
+      if (slideNumberEl) slideNumberEl.textContent = idx + 1;
+    }
 
-      const now = Date.now();
-      if (now - lastNavAt < NAV_THROTTLE_MS) return;
-      lastNavAt = now;
-      changeSlide(e.deltaY > 0 ? 1 : -1);
+    // --- Discrete-but-smooth line scrolling ------------------------------
+    // Wheel/key input accumulates into a raw target; the animation eases the
+    // scroll position toward that target snapped to the line grid, so the line
+    // you are reading always settles at the same on-screen height.
+    function lineStep() {
+      const probe = textPane.querySelector('p') || textPane.querySelector('section');
+      const lh = probe ? parseFloat(getComputedStyle(probe).lineHeight) : 32;
+      return (Number.isFinite(lh) && lh > 0) ? lh : 32;
+    }
+
+    const maxScroll = () => Math.max(0, textPane.scrollHeight - textPane.clientHeight);
+    const clamp = (v) => Math.max(0, Math.min(v, maxScroll()));
+    const snap = (v) => {
+      const step = lineStep();
+      return clamp(Math.round(v / step) * step);
+    };
+
+    let rawTarget = textPane.scrollTop;
+    let snapTarget = rawTarget;
+    let animating = false;
+
+    // Line-snap scrolling is opt-in (toggled in the settings menu). When off,
+    // the text pane scrolls natively and we just track the active section.
+    let lineSnapEnabled = localStorage.getItem('lineSnapScroll') === 'true';
+
+    function animateTo(target) {
+      snapTarget = target;
+      if (animating) return;
+      animating = true;
+      requestAnimationFrame(tick);
+    }
+
+    function tick() {
+      const cur = textPane.scrollTop;
+      const diff = snapTarget - cur;
+      if (Math.abs(diff) < 0.5) {
+        textPane.scrollTop = snapTarget;
+        animating = false;
+        updateActiveSection();
+        return;
+      }
+      textPane.scrollTop = cur + diff * 0.22;
+      updateActiveSection();
+      requestAnimationFrame(tick);
+    }
+
+    function scrollByPixels(px) {
+      rawTarget = clamp(rawTarget + px);
+      animateTo(snap(rawTarget));
+    }
+    // Advance a whole number of lines from the current (snapped) target, so
+    // every line move lands crisply on the grid regardless of any sub-line
+    // remainder left over from pixel-precise trackpad scrolling.
+    function scrollByLines(n) {
+      const step = lineStep();
+      const baseLine = Math.round(snapTarget / step);
+      const target = clamp((baseLine + n) * step);
+      rawTarget = target;
+      animateTo(target);
+    }
+
+    // Wheel handling. A notched mouse fires isolated events whose deltaY can be
+    // far smaller than a line — so per discrete notch we move exactly one line.
+    // Trackpads emit a rapid stream of small pixel deltas; those we accumulate
+    // so the gesture still scrolls multiple lines smoothly.
+    const WHEEL_GAP_MS = 60; // gap above which a wheel event counts as a fresh notch
+    let wheelAccum = 0;
+    let lastWheelAt = 0;
+
+    textPane.addEventListener('wheel', (e) => {
+      if (!lineSnapEnabled) return; // native scroll
+      e.preventDefault();
+      const step = lineStep();
+
+      // Normalise to pixels (some mice/OSes report lines or pages).
+      let px = e.deltaY;
+      if (e.deltaMode === 1) px *= step;
+      else if (e.deltaMode === 2) px *= textPane.clientHeight;
+      if (!px) return;
+
+      const now = performance.now();
+      const discrete = (now - lastWheelAt) > WHEEL_GAP_MS;
+      lastWheelAt = now;
+      if (discrete) wheelAccum = 0; // drop stale remainder between deliberate notches
+
+      wheelAccum += px;
+      let lines = Math.trunc(wheelAccum / step);
+      if (lines === 0 && discrete) {
+        // Isolated notch too small to fill a line: still advance one line.
+        lines = Math.sign(px);
+        wheelAccum = 0;
+      } else {
+        wheelAccum -= lines * step;
+      }
+      if (lines) scrollByLines(lines);
+    }, { passive: false });
+
+    // --- Keyboard nav ----------------------------------------------------
+    document.addEventListener('keydown', (e) => {
+      if (!lineSnapEnabled) return; // let the browser handle scroll keys
+      if (e.target.matches('input, textarea, [contenteditable]')) return;
+      const page = () => Math.max(1, Math.floor(textPane.clientHeight / lineStep()) - 1);
+      switch (e.key) {
+        case 'ArrowDown': e.preventDefault(); scrollByLines(1); break;
+        case 'ArrowUp': e.preventDefault(); scrollByLines(-1); break;
+        case 'PageDown': e.preventDefault(); scrollByLines(page()); break;
+        case 'PageUp': e.preventDefault(); scrollByLines(-page()); break;
+        case ' ': e.preventDefault(); scrollByLines(e.shiftKey ? -page() : page()); break;
+        case 'Home': e.preventDefault(); rawTarget = 0; animateTo(0); break;
+        case 'End': e.preventDefault(); rawTarget = maxScroll(); animateTo(snap(rawTarget)); break;
+      }
+    });
+
+    // Keep targets sane when the viewport (and therefore line grid) changes.
+    window.addEventListener('resize', () => {
+      rawTarget = clamp(textPane.scrollTop);
+      snapTarget = rawTarget;
+      updateActiveSection();
+    });
+
+    // Native scrolling (line-snap disabled) still needs the sketch panel to
+    // follow the reading position. Also keep the snap targets in sync so that
+    // re-enabling line-snap picks up from wherever native scrolling left off.
+    textPane.addEventListener('scroll', () => {
+      if (!animating) {
+        rawTarget = textPane.scrollTop;
+        snapTarget = rawTarget;
+      }
+      updateActiveSection();
     }, { passive: true });
 
-    // --- Keyboard nav (Left/Right) ---
-    document.addEventListener('keydown', (e) => {
-      if (e.target.matches('input, textarea, [contenteditable]')) return;
-      if (e.key === 'ArrowLeft') changeSlide(-1);
-      if (e.key === 'ArrowRight') changeSlide(1);
-    });
+    function setLineSnap(enabled) {
+      lineSnapEnabled = enabled;
+      localStorage.setItem('lineSnapScroll', String(enabled));
+      rawTarget = clamp(textPane.scrollTop);
+      snapTarget = rawTarget;
+      updateScrollButtons();
+    }
 
     // --- Swap panes ---
     swap.addEventListener('click', () => {
@@ -315,6 +481,16 @@
       btn.addEventListener('click', () => applyBgColor(btn.dataset.bgcolor));
     });
 
+    // --- Scroll mode toggle ---
+    const snapToggle = document.getElementById('lineSnapToggle');
+    function updateScrollButtons() {
+      if (snapToggle) snapToggle.classList.toggle('active', lineSnapEnabled);
+    }
+    if (snapToggle) {
+      snapToggle.addEventListener('click', () => setLineSnap(!lineSnapEnabled));
+    }
+    updateScrollButtons();
+
     // --- Initial state ---
     applyTheme(localStorage.getItem('theme') || 'auto');
     applyBgColor(localStorage.getItem('bgColor') || '#FFFFFF', /*persist=*/false);
@@ -328,13 +504,13 @@
       msg.hidden = false;
       msg.dataset.shown = 'true';
       requestAnimationFrame(() => {
-        const container = msg.closest('.slide-right');
+        const container = msg.closest('.text-pane');
         if (container) container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
       });
     });
 
     // --- Boot ---
-    showSlide(0);
+    updateActiveSection();
   }
 
   if (document.readyState === 'loading') {
