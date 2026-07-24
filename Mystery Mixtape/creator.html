@@ -1,55 +1,61 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mystery Mixtape Creator</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mystery Mixtape Creator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=IBM+Plex+Mono:wght@400;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
 </head>
+
 <body class="mm-body creator-page">
-  <main class="creator-shell">
-    <section class="segment segment-head">
-      <div class="head-title-wrap">
-        <p class="eyebrow">Builder Tool</p>
-        <h1>Mystery Mixtape Creator</h1>
-      </div>
+    <main class="creator-shell">
+        <section class="segment segment-head">
+            <div class="head-title-wrap">
+                <p class="eyebrow">Builder Tool</p>
+                <h1>Mystery Mixtape Creator</h1>
+            </div>
 
-      <div class="head-fields">
-        <label>Clue
-          <input id="theme-clue" type="text" placeholder="What place is referenced in all six song titles?">
-        </label>
-        <label>Answer
-          <input id="theme-answer" type="text" placeholder="New York">
-        </label>
-      </div>
+            <div class="head-fields">
+                <label>Clue
+                    <input id="theme-clue" type="text" placeholder="What place is referenced in all six song titles?">
+                </label>
+                <label>Answer
+                    <input id="theme-answer" type="text" placeholder="New York">
+                </label>
+            </div>
 
-      <div class="head-actions">
-        <p class="muted mini-note">Tracks complete: <span id="song-count">0</span>/6</p>
-        <label id="upload-all-btn" class="small-btn upload-all-label" for="upload-all-input" tabindex="0">Upload 6 Tracks</label>
-        <input id="upload-all-input" type="file" accept="audio/*" multiple class="hidden-file-input">
-        <button id="combined-preview-btn" class="small-btn" type="button">Play Selected (Space)</button>
-        <button id="clear-selection-btn" class="small-btn" type="button">Clear Selection</button>
-        <button id="download-package-btn" class="primary-btn" type="button">Download Package</button>
-        <button id="clear-all-btn" class="danger-btn" type="button">Reset</button>
-        <a class="ghost-link" href="index.html">Play</a>
-        <a class="ghost-link" href="../index.html">Home</a>
-      </div>
+            <div class="head-actions">
+                <p class="muted mini-note">Tracks complete: <span id="song-count">0</span>/6</p>
+                <label id="upload-all-btn" class="small-btn upload-all-label" for="upload-all-input" tabindex="0">Upload
+                    6 Tracks</label>
+                <input id="upload-all-input" type="file" accept="audio/*" multiple class="hidden-file-input">
+                <button id="combined-preview-btn" class="small-btn" type="button">Play Selected (Space)</button>
+                <button id="clear-selection-btn" class="small-btn" type="button">Clear Selection</button>
+                <button id="download-package-btn" class="primary-btn" type="button">Download Package</button>
+                <button id="clear-all-btn" class="danger-btn" type="button">Reset</button>
+                <a class="ghost-link" href="index.html">Play</a>
+                <a class="ghost-link" href="../index.html">Home</a>
+            </div>
 
-      <p id="builder-status" class="status-message"></p>
-    </section>
+            <p id="builder-status" class="status-message"></p>
+        </section>
 
-    <section class="segment segment-strip">
-      <div class="selected-editor-canvases">
-        <canvas id="selected-clip-canvas" class="spectrogram selected-spectrogram"></canvas>
-        <canvas id="selected-file-canvas" class="spectrogram selected-spectrogram"></canvas>
-      </div>
-      <div id="segments-strip" class="segments-strip"></div>
-    </section>
-  </main>
+        <section class="segment segment-strip">
+            <div class="selected-editor-canvases">
+                <canvas id="selected-clip-canvas" class="spectrogram selected-spectrogram"></canvas>
+                <canvas id="selected-file-canvas" class="spectrogram selected-spectrogram"></canvas>
+            </div>
+            <div id="segments-strip" class="segments-strip"></div>
+        </section>
+    </main>
 
-  <script type="module" src="js/creator.js"></script>
+    <script type="module" src="js/creator.js"></script>
 </body>
+
 </html>

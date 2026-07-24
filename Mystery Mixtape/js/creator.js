@@ -9,130 +9,42 @@ const TIME_STEP = 0.01;
 const WAV_RATE = 44100;
 
 const els = {
-  themeClue: document.getElementById("theme-clue"),
-  themeAnswer: document.getElementById("theme-answer"),
-  segmentsStrip: document.getElementById("segments-strip"),
-  selectedClipCanvas: document.getElementById("selected-clip-canvas"),
-  selectedFileCanvas: document.getElementById("selected-file-canvas"),
-  songCount: document.getElementById("song-count"),
-  uploadAllBtn: document.getElementById("upload-all-btn"),
-  uploadAllInput: document.getElementById("upload-all-input"),
-  combinedPreviewBtn: document.getElementById("combined-preview-btn"),
-  clearSelectionBtn: document.getElementById("clear-selection-btn"),
-  downloadPackageBtn: document.getElementById("download-package-btn"),
-  clearAllBtn: document.getElementById("clear-all-btn"),
-  builderStatus: document.getElementById("builder-status")
+    themeClue: document.getElementById("theme-clue"),
+    themeAnswer: document.getElementById("theme-answer"),
+    segmentsStrip: document.getElementById("segments-strip"),
+    selectedClipCanvas: document.getElementById("selected-clip-canvas"),
+    selectedFileCanvas: document.getElementById("selected-file-canvas"),
+    songCount: document.getElementById("song-count"),
+    uploadAllBtn: document.getElementById("upload-all-btn"),
+    uploadAllInput: document.getElementById("upload-all-input"),
+    combinedPreviewBtn: document.getElementById("combined-preview-btn"),
+    clearSelectionBtn: document.getElementById("clear-selection-btn"),
+    downloadPackageBtn: document.getElementById("download-package-btn"),
+    clearAllBtn: document.getElementById("clear-all-btn"),
+    builderStatus: document.getElementById("builder-status")
 };
 
 const audioContext = new AudioContext();
 
 const state = {
-  tracks: createEmptyTracks(),
-  selectedTrackId: "",
-  dragSourceId: "",
-  hoverSec: null,
-  dragClip: null
+    tracks: createEmptyTracks(),
+    selectedTrackId: "",
+    dragSourceId: "",
+    hoverSec: null,
+    dragClip: null
 };
 
 function createEmptyTracks() {
-  return Array.from({ length: TRACK_COUNT }, (_, index) => ({
-    id: `track-${index + 1}`,
-    title: "",
-    artist: "",
-    sourceFileName: "",
-    sourceFile: null,
-    arrayBuffer: null,
-    decoded: null,
-    durationSec: 0,
-    startSec: 0,
-    previewPlayheadSec: null,
-    previewOffsetSec: 0,
-    previewStartCtxTime: 0,
-    previewOffsetAtStart: 0,
-    previewStopTimer: null,
-    previewSource: null,
-    spectrogramImage: null,
-    spectrogramCanvas: null,
-    sourceCanvasW: 720,
-    sourceCanvasH: 92
-  }));
-}
-
-function todayAestDate() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Australia/Melbourne",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(new Date());
-}
-
-function setStatus(text, tone = "") {
-  els.builderStatus.textContent = text;
-  els.builderStatus.classList.remove("ok", "warn", "bad");
-  if (tone) {
-    els.builderStatus.classList.add(tone);
-  }
-}
-
-function sanitizeFileBaseName(value) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 52) || "track";
-}
-
-function inferTitleFromFileName(fileName = "") {
-  return fileName
-    .replace(/\.[^/.]+$/, "")
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function saveDraft() {
-  const payload = {
-    themeClue: els.themeClue.value,
-    themeAnswer: els.themeAnswer.value,
-    selectedTrackId: state.selectedTrackId,
-    tracks: state.tracks.map((track) => ({
-      id: track.id,
-      title: track.title,
-      artist: track.artist,
-      sourceFileName: track.sourceFileName,
-      startSec: track.startSec
-    }))
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-}
-
-function restoreDraft() {
-  const serialized = localStorage.getItem(STORAGE_KEY);
-  if (!serialized) {
-    return;
-  }
-
-  try {
-    const payload = JSON.parse(serialized);
-    if (!payload || typeof payload !== "object") {
-      return;
-    }
-
-    els.themeClue.value = payload.themeClue || "";
-    els.themeAnswer.value = payload.themeAnswer || "";
-
-    if (Array.isArray(payload.tracks) && payload.tracks.length === TRACK_COUNT) {
-      state.tracks = payload.tracks.map((stored, index) => ({
-        id: stored.id || `track-${index + 1}`,
-        title: stored.title || "",
-        artist: stored.artist || "",
-        sourceFileName: stored.sourceFileName || "",
+    return Array.from({ length: TRACK_COUNT }, (_, index) => ({
+        id: `track-${index + 1}`,
+        title: "",
+        artist: "",
+        sourceFileName: "",
         sourceFile: null,
         arrayBuffer: null,
         decoded: null,
         durationSec: 0,
-        startSec: Number.isFinite(Number(stored.startSec)) ? quantizeTime(Math.max(0, Number(stored.startSec))) : 0,
+        startSec: 0,
         previewPlayheadSec: null,
         previewOffsetSec: 0,
         previewStartCtxTime: 0,
@@ -143,1228 +55,1316 @@ function restoreDraft() {
         spectrogramCanvas: null,
         sourceCanvasW: 720,
         sourceCanvasH: 92
-      }));
+    }));
+}
+
+function todayAestDate() {
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Australia/Melbourne",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+    }).format(new Date());
+}
+
+function setStatus(text, tone = "") {
+    els.builderStatus.textContent = text;
+    els.builderStatus.classList.remove("ok", "warn", "bad");
+    if (tone) {
+        els.builderStatus.classList.add(tone);
+    }
+}
+
+function sanitizeFileBaseName(value) {
+    return value
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 52) || "track";
+}
+
+function inferTitleFromFileName(fileName = "") {
+    return fileName
+        .replace(/\.[^/.]+$/, "")
+        .replace(/[_-]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function saveDraft() {
+    const payload = {
+        themeClue: els.themeClue.value,
+        themeAnswer: els.themeAnswer.value,
+        selectedTrackId: state.selectedTrackId,
+        tracks: state.tracks.map((track) => ({
+            id: track.id,
+            title: track.title,
+            artist: track.artist,
+            sourceFileName: track.sourceFileName,
+            startSec: track.startSec
+        }))
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+}
+
+function restoreDraft() {
+    const serialized = localStorage.getItem(STORAGE_KEY);
+    if (!serialized) {
+        return;
     }
 
-    if (payload.selectedTrackId && state.tracks.some((track) => track.id === payload.selectedTrackId)) {
-      state.selectedTrackId = payload.selectedTrackId;
+    try {
+        const payload = JSON.parse(serialized);
+        if (!payload || typeof payload !== "object") {
+            return;
+        }
+
+        els.themeClue.value = payload.themeClue || "";
+        els.themeAnswer.value = payload.themeAnswer || "";
+
+        if (Array.isArray(payload.tracks) && payload.tracks.length === TRACK_COUNT) {
+            state.tracks = payload.tracks.map((stored, index) => ({
+                id: stored.id || `track-${index + 1}`,
+                title: stored.title || "",
+                artist: stored.artist || "",
+                sourceFileName: stored.sourceFileName || "",
+                sourceFile: null,
+                arrayBuffer: null,
+                decoded: null,
+                durationSec: 0,
+                startSec: Number.isFinite(Number(stored.startSec)) ? quantizeTime(Math.max(0, Number(stored.startSec))) : 0,
+                previewPlayheadSec: null,
+                previewOffsetSec: 0,
+                previewStartCtxTime: 0,
+                previewOffsetAtStart: 0,
+                previewStopTimer: null,
+                previewSource: null,
+                spectrogramImage: null,
+                spectrogramCanvas: null,
+                sourceCanvasW: 720,
+                sourceCanvasH: 92
+            }));
+        }
+
+        if (payload.selectedTrackId && state.tracks.some((track) => track.id === payload.selectedTrackId)) {
+            state.selectedTrackId = payload.selectedTrackId;
+        }
+    } catch (error) {
+        setStatus("Stored draft could not be restored.", "warn");
     }
-  } catch (error) {
-    setStatus("Stored draft could not be restored.", "warn");
-  }
 }
 
 function completeTrackCount() {
-  return state.tracks.filter((track) => track.title && track.artist && track.decoded).length;
+    return state.tracks.filter((track) => track.title && track.artist && track.decoded).length;
 }
 
 function updateSongCount() {
-  els.songCount.textContent = String(completeTrackCount());
+    els.songCount.textContent = String(completeTrackCount());
 }
 
 function getTrackIndexById(id) {
-  return state.tracks.findIndex((track) => track.id === id);
+    return state.tracks.findIndex((track) => track.id === id);
 }
 
 function getSelectedTrack() {
-  return state.tracks.find((track) => track.id === state.selectedTrackId) || null;
+    return state.tracks.find((track) => track.id === state.selectedTrackId) || null;
 }
 
 function quantizeTime(value) {
-  return Math.round(value / TIME_STEP) * TIME_STEP;
+    return Math.round(value / TIME_STEP) * TIME_STEP;
 }
 
 function trackMaxStart(track) {
-  return Math.max(0, track.durationSec - CLIP_SECONDS);
+    return Math.max(0, track.durationSec - CLIP_SECONDS);
 }
 
 function clampTrackStart(track) {
-  track.startSec = quantizeTime(Math.max(0, Math.min(track.startSec, trackMaxStart(track))));
+    track.startSec = quantizeTime(Math.max(0, Math.min(track.startSec, trackMaxStart(track))));
 }
 
 function stopPreview(track, { stopSource = true } = {}) {
-  if (track.previewStopTimer) {
-    clearInterval(track.previewStopTimer);
-    track.previewStopTimer = null;
-  }
-
-  if (stopSource && track.previewSource) {
-    try {
-      track.previewSource.stop();
-    } catch (error) {
-      // Source may already be stopped.
+    if (track.previewStopTimer) {
+        clearInterval(track.previewStopTimer);
+        track.previewStopTimer = null;
     }
-  }
 
-  track.previewSource = null;
-  track.previewPlayheadSec = null;
+    if (stopSource && track.previewSource) {
+        try {
+            track.previewSource.stop();
+        } catch (error) {
+            // Source may already be stopped.
+        }
+    }
+
+    track.previewSource = null;
+    track.previewPlayheadSec = null;
 }
 
 function resetPreviewPosition(track) {
-  track.previewOffsetSec = 0;
-  track.previewPlayheadSec = null;
-  track.previewStartCtxTime = 0;
-  track.previewOffsetAtStart = 0;
+    track.previewOffsetSec = 0;
+    track.previewPlayheadSec = null;
+    track.previewStartCtxTime = 0;
+    track.previewOffsetAtStart = 0;
 }
 
 function pausePreview(track) {
-  if (!track.previewSource) {
-    return;
-  }
+    if (!track.previewSource) {
+        return;
+    }
 
-  const elapsed = Math.max(0, audioContext.currentTime - track.previewStartCtxTime);
-  track.previewOffsetSec = Math.max(0, Math.min(CLIP_SECONDS, track.previewOffsetAtStart + elapsed));
-  stopPreview(track);
-  track.previewPlayheadSec = track.startSec + track.previewOffsetSec;
+    const elapsed = Math.max(0, audioContext.currentTime - track.previewStartCtxTime);
+    track.previewOffsetSec = Math.max(0, Math.min(CLIP_SECONDS, track.previewOffsetAtStart + elapsed));
+    stopPreview(track);
+    track.previewPlayheadSec = track.startSec + track.previewOffsetSec;
 }
 
 function stopAllPreviews(exceptTrackId = "") {
-  for (const track of state.tracks) {
-    if (!exceptTrackId || track.id !== exceptTrackId) {
-      stopPreview(track);
-      resetPreviewPosition(track);
+    for (const track of state.tracks) {
+        if (!exceptTrackId || track.id !== exceptTrackId) {
+            stopPreview(track);
+            resetPreviewPosition(track);
+        }
     }
-  }
 }
 
 function updateCombinedPreviewButton() {
-  const selectedTrack = getSelectedTrack();
-  if (!els.combinedPreviewBtn) {
-    return;
-  }
-  if (!selectedTrack || !selectedTrack.decoded) {
-    els.combinedPreviewBtn.textContent = "Play Selected (Space)";
-    els.combinedPreviewBtn.disabled = true;
-    if (els.clearSelectionBtn) {
-      els.clearSelectionBtn.disabled = !selectedTrack;
+    const selectedTrack = getSelectedTrack();
+    if (!els.combinedPreviewBtn) {
+        return;
     }
-    return;
-  }
-  els.combinedPreviewBtn.disabled = false;
-  if (els.clearSelectionBtn) {
-    els.clearSelectionBtn.disabled = false;
-  }
-  els.combinedPreviewBtn.textContent = selectedTrack.previewSource ? "Pause Selected (Space)" : "Play Selected (Space)";
+    if (!selectedTrack || !selectedTrack.decoded) {
+        els.combinedPreviewBtn.textContent = "Play Selected (Space)";
+        els.combinedPreviewBtn.disabled = true;
+        if (els.clearSelectionBtn) {
+            els.clearSelectionBtn.disabled = !selectedTrack;
+        }
+        return;
+    }
+    els.combinedPreviewBtn.disabled = false;
+    if (els.clearSelectionBtn) {
+        els.clearSelectionBtn.disabled = false;
+    }
+    els.combinedPreviewBtn.textContent = selectedTrack.previewSource ? "Pause Selected (Space)" : "Play Selected (Space)";
 }
 
 function clearSelection() {
-  state.selectedTrackId = "";
-  state.hoverSec = null;
-  saveDraft();
-  renderCanvases();
+    state.selectedTrackId = "";
+    state.hoverSec = null;
+    saveDraft();
+    renderCanvases();
 }
 
 function scrubTrackToSec(track, sec, { restartIfPlaying = true } = {}) {
-  const clipEnd = Math.min(track.durationSec || CLIP_SECONDS, track.startSec + CLIP_SECONDS);
-  const clampedSec = Math.max(track.startSec, Math.min(clipEnd, sec));
-  track.previewOffsetSec = Math.max(0, Math.min(CLIP_SECONDS, clampedSec - track.startSec));
-  track.previewPlayheadSec = clampedSec;
+    const clipEnd = Math.min(track.durationSec || CLIP_SECONDS, track.startSec + CLIP_SECONDS);
+    const clampedSec = Math.max(track.startSec, Math.min(clipEnd, sec));
+    track.previewOffsetSec = Math.max(0, Math.min(CLIP_SECONDS, clampedSec - track.startSec));
+    track.previewPlayheadSec = clampedSec;
 
-  if (track.previewSource && restartIfPlaying) {
-    pausePreview(track);
-    startPreview(track);
-    return;
-  }
+    if (track.previewSource && restartIfPlaying) {
+        pausePreview(track);
+        startPreview(track);
+        return;
+    }
 
-  renderCanvases();
-  updateCombinedPreviewButton();
+    renderCanvases();
+    updateCombinedPreviewButton();
 }
 
 function getClipWindow(track) {
-  const desiredSpan = CLIP_SECONDS + CLIP_CONTEXT_SECONDS * 2;
-  if (!track.durationSec) {
-    return { start: 0, end: desiredSpan };
-  }
+    const desiredSpan = CLIP_SECONDS + CLIP_CONTEXT_SECONDS * 2;
+    if (!track.durationSec) {
+        return { start: 0, end: desiredSpan };
+    }
 
-  let start = track.startSec - CLIP_CONTEXT_SECONDS;
-  let end = track.startSec + CLIP_SECONDS + CLIP_CONTEXT_SECONDS;
+    let start = track.startSec - CLIP_CONTEXT_SECONDS;
+    let end = track.startSec + CLIP_SECONDS + CLIP_CONTEXT_SECONDS;
 
-  if (start < 0) {
-    end = Math.min(track.durationSec, end - start);
-    start = 0;
-  }
+    if (start < 0) {
+        end = Math.min(track.durationSec, end - start);
+        start = 0;
+    }
 
-  if (end > track.durationSec) {
-    const overshoot = end - track.durationSec;
-    start = Math.max(0, start - overshoot);
-    end = track.durationSec;
-  }
+    if (end > track.durationSec) {
+        const overshoot = end - track.durationSec;
+        start = Math.max(0, start - overshoot);
+        end = track.durationSec;
+    }
 
-  if (end - start < Math.min(desiredSpan, track.durationSec)) {
-    end = Math.min(track.durationSec, start + desiredSpan);
-    start = Math.max(0, end - desiredSpan);
-  }
+    if (end - start < Math.min(desiredSpan, track.durationSec)) {
+        end = Math.min(track.durationSec, start + desiredSpan);
+        start = Math.max(0, end - desiredSpan);
+    }
 
-  return { start, end };
+    return { start, end };
 }
 
 function computeWaveformImage(track) {
-  if (!track.decoded) {
-    track.spectrogramImage = null;
-    track.spectrogramCanvas = null;
-    return;
-  }
-
-  const channel = track.decoded.getChannelData(0);
-  const width = track.sourceCanvasW;
-  const height = track.sourceCanvasH;
-  const sourceCanvas = document.createElement("canvas");
-  sourceCanvas.width = width;
-  sourceCanvas.height = height;
-  const sourceCtx = sourceCanvas.getContext("2d");
-  if (sourceCtx) {
-    sourceCtx.fillStyle = "#111827";
-    sourceCtx.fillRect(0, 0, width, height);
-
-    const midY = Math.floor(height / 2);
-    sourceCtx.strokeStyle = "rgba(148,163,184,0.45)";
-    sourceCtx.lineWidth = 1;
-    sourceCtx.beginPath();
-    sourceCtx.moveTo(0, midY + 0.5);
-    sourceCtx.lineTo(width, midY + 0.5);
-    sourceCtx.stroke();
-
-    const samplesPerPixel = Math.max(1, Math.floor(channel.length / width));
-    sourceCtx.strokeStyle = "rgba(125,211,252,0.95)";
-    sourceCtx.lineWidth = 1;
-
-    for (let x = 0; x < width; x += 1) {
-      const start = x * samplesPerPixel;
-      const end = Math.min(channel.length, start + samplesPerPixel);
-      let min = 1;
-      let max = -1;
-
-      for (let i = start; i < end; i += 1) {
-        const sample = channel[i];
-        if (sample < min) {
-          min = sample;
-        }
-        if (sample > max) {
-          max = sample;
-        }
-      }
-
-      const y1 = Math.floor((1 - (max + 1) / 2) * (height - 1));
-      const y2 = Math.floor((1 - (min + 1) / 2) * (height - 1));
-      sourceCtx.beginPath();
-      sourceCtx.moveTo(x + 0.5, y1);
-      sourceCtx.lineTo(x + 0.5, y2 + 1);
-      sourceCtx.stroke();
+    if (!track.decoded) {
+        track.spectrogramImage = null;
+        track.spectrogramCanvas = null;
+        return;
     }
-  }
 
-  track.spectrogramImage = null;
-  track.spectrogramCanvas = sourceCanvas;
+    const channel = track.decoded.getChannelData(0);
+    const width = track.sourceCanvasW;
+    const height = track.sourceCanvasH;
+    const sourceCanvas = document.createElement("canvas");
+    sourceCanvas.width = width;
+    sourceCanvas.height = height;
+    const sourceCtx = sourceCanvas.getContext("2d");
+    if (sourceCtx) {
+        sourceCtx.fillStyle = "#111827";
+        sourceCtx.fillRect(0, 0, width, height);
+
+        const midY = Math.floor(height / 2);
+        sourceCtx.strokeStyle = "rgba(148,163,184,0.45)";
+        sourceCtx.lineWidth = 1;
+        sourceCtx.beginPath();
+        sourceCtx.moveTo(0, midY + 0.5);
+        sourceCtx.lineTo(width, midY + 0.5);
+        sourceCtx.stroke();
+
+        const samplesPerPixel = Math.max(1, Math.floor(channel.length / width));
+        sourceCtx.strokeStyle = "rgba(125,211,252,0.95)";
+        sourceCtx.lineWidth = 1;
+
+        for (let x = 0; x < width; x += 1) {
+            const start = x * samplesPerPixel;
+            const end = Math.min(channel.length, start + samplesPerPixel);
+            let min = 1;
+            let max = -1;
+
+            for (let i = start; i < end; i += 1) {
+                const sample = channel[i];
+                if (sample < min) {
+                    min = sample;
+                }
+                if (sample > max) {
+                    max = sample;
+                }
+            }
+
+            const y1 = Math.floor((1 - (max + 1) / 2) * (height - 1));
+            const y2 = Math.floor((1 - (min + 1) / 2) * (height - 1));
+            sourceCtx.beginPath();
+            sourceCtx.moveTo(x + 0.5, y1);
+            sourceCtx.lineTo(x + 0.5, y2 + 1);
+            sourceCtx.stroke();
+        }
+    }
+
+    track.spectrogramImage = null;
+    track.spectrogramCanvas = sourceCanvas;
 }
 
 function fillEmptySpectrogram(ctx, width, height, text) {
-  ctx.fillStyle = "#111827";
-  ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = "#9ca3af";
-  ctx.font = "11px IBM Plex Mono";
-  ctx.fillText(text, 8, Math.floor(height / 2));
+    ctx.fillStyle = "#111827";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "11px IBM Plex Mono";
+    ctx.fillText(text, 8, Math.floor(height / 2));
 }
 
 function secToCanvasX(sec, rangeStart, rangeEnd, width) {
-  if (rangeEnd <= rangeStart) {
-    return 0;
-  }
-  const ratio = (sec - rangeStart) / (rangeEnd - rangeStart);
-  return Math.max(0, Math.min(width, Math.floor(ratio * width)));
+    if (rangeEnd <= rangeStart) {
+        return 0;
+    }
+    const ratio = (sec - rangeStart) / (rangeEnd - rangeStart);
+    return Math.max(0, Math.min(width, Math.floor(ratio * width)));
 }
 
 function pointerToSec(canvas, event, rangeStart, rangeEnd) {
-  const rect = canvas.getBoundingClientRect();
-  const ratio = (event.clientX - rect.left) / rect.width;
-  const clamped = Math.max(0, Math.min(1, ratio));
-  return rangeStart + clamped * (rangeEnd - rangeStart);
+    const rect = canvas.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    const clamped = Math.max(0, Math.min(1, ratio));
+    return rangeStart + clamped * (rangeEnd - rangeStart);
 }
 
 function drawWindowedSpectrogram(track, canvas, windowStart, windowEnd, labelText = "", options = {}) {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return;
-  }
-
-  const width = canvas.width;
-  const height = canvas.height;
-  ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#111827";
-  ctx.fillRect(0, 0, width, height);
-
-  if (!track.decoded || !track.spectrogramCanvas || !track.durationSec) {
-    fillEmptySpectrogram(ctx, width, height, "Use Upload 6 Tracks above");
-    return;
-  }
-
-  const sourceStartX = secToCanvasX(windowStart, 0, track.durationSec, track.sourceCanvasW);
-  const sourceEndX = secToCanvasX(windowEnd, 0, track.durationSec, track.sourceCanvasW);
-  const sourceWidth = Math.max(1, sourceEndX - sourceStartX);
-
-  ctx.drawImage(track.spectrogramCanvas, sourceStartX, 0, sourceWidth, track.sourceCanvasH, 0, 0, width, height);
-
-  const clipStart = track.startSec;
-  const clipEnd = Math.min(track.durationSec, track.startSec + CLIP_SECONDS);
-  const clipStartX = secToCanvasX(clipStart, windowStart, windowEnd, width);
-  const clipEndX = secToCanvasX(clipEnd, windowStart, windowEnd, width);
-
-  ctx.fillStyle = "rgba(255,255,255,0.10)";
-  ctx.fillRect(clipStartX, 0, Math.max(1, clipEndX - clipStartX), height);
-
-  if (Number.isFinite(state.hoverSec) && state.hoverSec >= windowStart && state.hoverSec <= windowEnd) {
-    const hoverX = secToCanvasX(state.hoverSec, windowStart, windowEnd, width);
-    ctx.strokeStyle = "rgba(251,191,36,0.95)";
-    ctx.beginPath();
-    ctx.moveTo(hoverX + 0.5, 0);
-    ctx.lineTo(hoverX + 0.5, height);
-    ctx.stroke();
-  }
-
-  if (Number.isFinite(track.previewPlayheadSec) && track.previewPlayheadSec >= windowStart && track.previewPlayheadSec <= windowEnd) {
-    const playX = secToCanvasX(track.previewPlayheadSec, windowStart, windowEnd, width);
-    ctx.strokeStyle = "rgba(34,197,94,0.98)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(playX, 0);
-    ctx.lineTo(playX, height);
-    ctx.stroke();
-  }
-
-  if (labelText) {
-    ctx.fillStyle = "rgba(17,24,39,0.75)";
-    ctx.fillRect(3, 3, 120, 14);
-    ctx.fillStyle = "#e5e7eb";
-    ctx.font = "10px IBM Plex Mono";
-    ctx.fillText(labelText, 7, 13);
-  }
-}
-
-function drawCombinedSpectrogram(canvas, labelText = "Combined 60s mixtape") {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return;
-  }
-
-  const width = canvas.width;
-  const height = canvas.height;
-  const segWidth = width / TRACK_COUNT;
-
-  ctx.fillStyle = "#111827";
-  ctx.fillRect(0, 0, width, height);
-
-  for (let i = 0; i < TRACK_COUNT; i += 1) {
-    const track = state.tracks[i];
-    const x = i * segWidth;
-
-    if (track.decoded && track.spectrogramCanvas && track.durationSec) {
-      const clipStartX = secToCanvasX(track.startSec, 0, track.durationSec, track.sourceCanvasW);
-      const clipEndX = secToCanvasX(Math.min(track.durationSec, track.startSec + CLIP_SECONDS), 0, track.durationSec, track.sourceCanvasW);
-      const clipWidth = Math.max(1, clipEndX - clipStartX);
-      ctx.drawImage(track.spectrogramCanvas, clipStartX, 0, clipWidth, track.sourceCanvasH, x, 0, segWidth, height);
-    } else {
-      ctx.fillStyle = "#1f2937";
-      ctx.fillRect(x, 0, segWidth, height);
-      ctx.fillStyle = "#9ca3af";
-      ctx.font = "10px IBM Plex Mono";
-      ctx.fillText("Upload", x + 8, Math.floor(height / 2));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+        return;
     }
 
-    if (state.selectedTrackId === track.id) {
-      ctx.fillStyle = "rgba(255,255,255,0.06)";
-      ctx.fillRect(x, 0, segWidth, height);
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = "#111827";
+    ctx.fillRect(0, 0, width, height);
+
+    if (!track.decoded || !track.spectrogramCanvas || !track.durationSec) {
+        fillEmptySpectrogram(ctx, width, height, "Use Upload 6 Tracks above");
+        return;
     }
 
-    if (Number.isFinite(track.previewPlayheadSec) && track.durationSec) {
-      const clipStart = track.startSec;
-      const clipEnd = Math.min(track.durationSec, clipStart + CLIP_SECONDS);
-      if (track.previewPlayheadSec >= clipStart && track.previewPlayheadSec <= clipEnd) {
-        const local = (track.previewPlayheadSec - clipStart) / CLIP_SECONDS;
-        const playX = x + local * segWidth;
+    const sourceStartX = secToCanvasX(windowStart, 0, track.durationSec, track.sourceCanvasW);
+    const sourceEndX = secToCanvasX(windowEnd, 0, track.durationSec, track.sourceCanvasW);
+    const sourceWidth = Math.max(1, sourceEndX - sourceStartX);
+
+    ctx.drawImage(track.spectrogramCanvas, sourceStartX, 0, sourceWidth, track.sourceCanvasH, 0, 0, width, height);
+
+    const clipStart = track.startSec;
+    const clipEnd = Math.min(track.durationSec, track.startSec + CLIP_SECONDS);
+    const clipStartX = secToCanvasX(clipStart, windowStart, windowEnd, width);
+    const clipEndX = secToCanvasX(clipEnd, windowStart, windowEnd, width);
+
+    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.fillRect(clipStartX, 0, Math.max(1, clipEndX - clipStartX), height);
+
+    if (Number.isFinite(state.hoverSec) && state.hoverSec >= windowStart && state.hoverSec <= windowEnd) {
+        const hoverX = secToCanvasX(state.hoverSec, windowStart, windowEnd, width);
+        ctx.strokeStyle = "rgba(251,191,36,0.95)";
+        ctx.beginPath();
+        ctx.moveTo(hoverX + 0.5, 0);
+        ctx.lineTo(hoverX + 0.5, height);
+        ctx.stroke();
+    }
+
+    if (Number.isFinite(track.previewPlayheadSec) && track.previewPlayheadSec >= windowStart && track.previewPlayheadSec <= windowEnd) {
+        const playX = secToCanvasX(track.previewPlayheadSec, windowStart, windowEnd, width);
         ctx.strokeStyle = "rgba(34,197,94,0.98)";
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(playX, 0);
         ctx.lineTo(playX, height);
         ctx.stroke();
-      }
     }
 
-    if (i > 0) {
-      ctx.strokeStyle = "rgba(255,255,255,0.3)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x + 0.5, 0);
-      ctx.lineTo(x + 0.5, height);
-      ctx.stroke();
+    if (labelText) {
+        ctx.fillStyle = "rgba(17,24,39,0.75)";
+        ctx.fillRect(3, 3, 120, 14);
+        ctx.fillStyle = "#e5e7eb";
+        ctx.font = "10px IBM Plex Mono";
+        ctx.fillText(labelText, 7, 13);
     }
-  }
+}
 
-  ctx.fillStyle = "rgba(17,24,39,0.75)";
-  ctx.fillRect(3, 3, 170, 14);
-  ctx.fillStyle = "#e5e7eb";
-  ctx.font = "10px IBM Plex Mono";
-  ctx.fillText(labelText, 7, 13);
+function drawCombinedSpectrogram(canvas, labelText = "Combined 60s mixtape") {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+        return;
+    }
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const segWidth = width / TRACK_COUNT;
+
+    ctx.fillStyle = "#111827";
+    ctx.fillRect(0, 0, width, height);
+
+    for (let i = 0; i < TRACK_COUNT; i += 1) {
+        const track = state.tracks[i];
+        const x = i * segWidth;
+
+        if (track.decoded && track.spectrogramCanvas && track.durationSec) {
+            const clipStartX = secToCanvasX(track.startSec, 0, track.durationSec, track.sourceCanvasW);
+            const clipEndX = secToCanvasX(Math.min(track.durationSec, track.startSec + CLIP_SECONDS), 0, track.durationSec, track.sourceCanvasW);
+            const clipWidth = Math.max(1, clipEndX - clipStartX);
+            ctx.drawImage(track.spectrogramCanvas, clipStartX, 0, clipWidth, track.sourceCanvasH, x, 0, segWidth, height);
+        } else {
+            ctx.fillStyle = "#1f2937";
+            ctx.fillRect(x, 0, segWidth, height);
+            ctx.fillStyle = "#9ca3af";
+            ctx.font = "10px IBM Plex Mono";
+            ctx.fillText("Upload", x + 8, Math.floor(height / 2));
+        }
+
+        if (state.selectedTrackId === track.id) {
+            ctx.fillStyle = "rgba(255,255,255,0.06)";
+            ctx.fillRect(x, 0, segWidth, height);
+        }
+
+        if (Number.isFinite(track.previewPlayheadSec) && track.durationSec) {
+            const clipStart = track.startSec;
+            const clipEnd = Math.min(track.durationSec, clipStart + CLIP_SECONDS);
+            if (track.previewPlayheadSec >= clipStart && track.previewPlayheadSec <= clipEnd) {
+                const local = (track.previewPlayheadSec - clipStart) / CLIP_SECONDS;
+                const playX = x + local * segWidth;
+                ctx.strokeStyle = "rgba(34,197,94,0.98)";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(playX, 0);
+                ctx.lineTo(playX, height);
+                ctx.stroke();
+            }
+        }
+
+        if (i > 0) {
+            ctx.strokeStyle = "rgba(255,255,255,0.3)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x + 0.5, 0);
+            ctx.lineTo(x + 0.5, height);
+            ctx.stroke();
+        }
+    }
+
+    ctx.fillStyle = "rgba(17,24,39,0.75)";
+    ctx.fillRect(3, 3, 170, 14);
+    ctx.fillStyle = "#e5e7eb";
+    ctx.font = "10px IBM Plex Mono";
+    ctx.fillText(labelText, 7, 13);
 }
 
 function sizeCanvas(canvas) {
-  const rect = canvas.getBoundingClientRect();
-  const width = Math.max(10, Math.floor(rect.width));
-  const height = Math.max(10, Math.floor(rect.height));
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width;
-    canvas.height = height;
-    return true;
-  }
-  return false;
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(10, Math.floor(rect.width));
+    const height = Math.max(10, Math.floor(rect.height));
+    if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        return true;
+    }
+    return false;
 }
 
 function renderCanvases() {
-  renderSelectedEditor();
-  renderRowMeta();
-  updateCombinedPreviewButton();
+    renderSelectedEditor();
+    renderRowMeta();
+    updateCombinedPreviewButton();
 }
 
 function selectTrack(trackId) {
-  if (!state.tracks.some((track) => track.id === trackId)) {
-    return;
-  }
-  state.selectedTrackId = trackId;
-  state.hoverSec = null;
-  saveDraft();
-  renderCanvases();
+    if (!state.tracks.some((track) => track.id === trackId)) {
+        return;
+    }
+    state.selectedTrackId = trackId;
+    state.hoverSec = null;
+    saveDraft();
+    renderCanvases();
 }
 
 function syncTrackStart(track, nextValue) {
-  const playing = Boolean(track.previewSource);
-  if (playing) {
-    pausePreview(track);
-  }
+    const playing = Boolean(track.previewSource);
+    if (playing) {
+        pausePreview(track);
+    }
 
-  const value = quantizeTime(Math.max(0, Number(nextValue) || 0));
-  track.startSec = value;
-  clampTrackStart(track);
+    const value = quantizeTime(Math.max(0, Number(nextValue) || 0));
+    track.startSec = value;
+    clampTrackStart(track);
 
-  const clipEnd = Math.min(track.durationSec || CLIP_SECONDS, track.startSec + CLIP_SECONDS);
-  const playheadCandidate = track.startSec + track.previewOffsetSec;
-  if (playheadCandidate > clipEnd) {
-    track.previewOffsetSec = CLIP_SECONDS;
-  }
-  if (playheadCandidate < track.startSec) {
-    track.previewOffsetSec = 0;
-  }
+    const clipEnd = Math.min(track.durationSec || CLIP_SECONDS, track.startSec + CLIP_SECONDS);
+    const playheadCandidate = track.startSec + track.previewOffsetSec;
+    if (playheadCandidate > clipEnd) {
+        track.previewOffsetSec = CLIP_SECONDS;
+    }
+    if (playheadCandidate < track.startSec) {
+        track.previewOffsetSec = 0;
+    }
 
-  if (!track.previewSource) {
-    track.previewPlayheadSec = track.startSec + track.previewOffsetSec;
-  }
+    if (!track.previewSource) {
+        track.previewPlayheadSec = track.startSec + track.previewOffsetSec;
+    }
 
-  if (playing) {
-    stopPreview(track);
-    resetPreviewPosition(track);
-  }
+    if (playing) {
+        stopPreview(track);
+        resetPreviewPosition(track);
+    }
 
-  saveDraft();
+    saveDraft();
 
-  renderCanvases();
+    renderCanvases();
 }
 
 function clearTrackAudio(track) {
-  stopPreview(track);
-  resetPreviewPosition(track);
-  track.sourceFileName = "";
-  track.sourceFile = null;
-  track.arrayBuffer = null;
-  track.decoded = null;
-  track.durationSec = 0;
-  track.startSec = 0;
-  track.spectrogramImage = null;
-  track.spectrogramCanvas = null;
+    stopPreview(track);
+    resetPreviewPosition(track);
+    track.sourceFileName = "";
+    track.sourceFile = null;
+    track.arrayBuffer = null;
+    track.decoded = null;
+    track.durationSec = 0;
+    track.startSec = 0;
+    track.spectrogramImage = null;
+    track.spectrogramCanvas = null;
 }
 
 async function loadTrackFile(track, file) {
-  stopPreview(track);
-  track.sourceFile = file;
-  track.sourceFileName = file.name;
-  track.title = inferTitleFromFileName(file.name);
-  track.arrayBuffer = await file.arrayBuffer();
-  track.decoded = await audioContext.decodeAudioData(track.arrayBuffer.slice(0));
-  track.durationSec = track.decoded.duration;
-  clampTrackStart(track);
-  resetPreviewPosition(track);
-  computeWaveformImage(track);
+    stopPreview(track);
+    track.sourceFile = file;
+    track.sourceFileName = file.name;
+    track.title = inferTitleFromFileName(file.name);
+    track.arrayBuffer = await file.arrayBuffer();
+    track.decoded = await audioContext.decodeAudioData(track.arrayBuffer.slice(0));
+    track.durationSec = track.decoded.duration;
+    clampTrackStart(track);
+    resetPreviewPosition(track);
+    computeWaveformImage(track);
 }
 
 function renderSelectedEditor() {
-  const track = getSelectedTrack();
+    const track = getSelectedTrack();
 
-  sizeCanvas(els.selectedClipCanvas);
-  sizeCanvas(els.selectedFileCanvas);
+    sizeCanvas(els.selectedClipCanvas);
+    sizeCanvas(els.selectedFileCanvas);
 
-  if (!track) {
-    const wrap = els.selectedClipCanvas.parentElement;
-    wrap.classList.remove("empty");
-    wrap.classList.add("overview");
-    drawCombinedSpectrogram(els.selectedClipCanvas, "Combined 60s waveform overview");
-    drawCombinedSpectrogram(els.selectedFileCanvas, "Combined 60s waveform overview");
-    return;
-  }
-
-  const hasDecodedAudio = Boolean(track.decoded && track.spectrogramCanvas && track.durationSec);
-  const wrap = els.selectedClipCanvas.parentElement;
-  wrap.classList.toggle("empty", !hasDecodedAudio);
-  wrap.classList.remove("overview");
-
-  if (!hasDecodedAudio) {
-    drawWindowedSpectrogram(track, els.selectedClipCanvas, 0, CLIP_SECONDS, track.sourceFileName ? "Re-upload to restore audio" : "No audio loaded");
-    const fileCtx = els.selectedFileCanvas.getContext("2d");
-    if (fileCtx) {
-      fileCtx.clearRect(0, 0, els.selectedFileCanvas.width, els.selectedFileCanvas.height);
+    if (!track) {
+        const wrap = els.selectedClipCanvas.parentElement;
+        wrap.classList.remove("empty");
+        wrap.classList.add("overview");
+        drawCombinedSpectrogram(els.selectedClipCanvas, "Combined 60s waveform overview");
+        drawCombinedSpectrogram(els.selectedFileCanvas, "Combined 60s waveform overview");
+        return;
     }
-    return;
-  }
 
-  const clipWindow = getClipWindow(track);
-  drawWindowedSpectrogram(
-    track,
-    els.selectedClipCanvas,
-    clipWindow.start,
-    clipWindow.end,
-    `Clip +/-2s | Start ${track.startSec.toFixed(2)}s`,
-    { showDragHandles: true }
-  );
-  drawWindowedSpectrogram(
-    track,
-    els.selectedFileCanvas,
-    0,
-    Math.max(1, track.durationSec || CLIP_SECONDS),
-    `Full file | Start ${track.startSec.toFixed(2)}s`,
-    { showDragHandles: true }
-  );
+    const hasDecodedAudio = Boolean(track.decoded && track.spectrogramCanvas && track.durationSec);
+    const wrap = els.selectedClipCanvas.parentElement;
+    wrap.classList.toggle("empty", !hasDecodedAudio);
+    wrap.classList.remove("overview");
+
+    if (!hasDecodedAudio) {
+        drawWindowedSpectrogram(track, els.selectedClipCanvas, 0, CLIP_SECONDS, track.sourceFileName ? "Re-upload to restore audio" : "No audio loaded");
+        const fileCtx = els.selectedFileCanvas.getContext("2d");
+        if (fileCtx) {
+            fileCtx.clearRect(0, 0, els.selectedFileCanvas.width, els.selectedFileCanvas.height);
+        }
+        return;
+    }
+
+    const clipWindow = getClipWindow(track);
+    drawWindowedSpectrogram(
+        track,
+        els.selectedClipCanvas,
+        clipWindow.start,
+        clipWindow.end,
+        `Clip +/-2s | Start ${track.startSec.toFixed(2)}s`,
+        { showDragHandles: true }
+    );
+    drawWindowedSpectrogram(
+        track,
+        els.selectedFileCanvas,
+        0,
+        Math.max(1, track.durationSec || CLIP_SECONDS),
+        `Full file | Start ${track.startSec.toFixed(2)}s`,
+        { showDragHandles: true }
+    );
 }
 
 function renderRowMeta() {
-  const cards = els.segmentsStrip.querySelectorAll(".segment-card");
-  cards.forEach((card) => {
-    const track = state.tracks.find((item) => item.id === card.dataset.trackId);
-    if (!track) {
-      return;
-    }
+    const cards = els.segmentsStrip.querySelectorAll(".segment-card");
+    cards.forEach((card) => {
+        const track = state.tracks.find((item) => item.id === card.dataset.trackId);
+        if (!track) {
+            return;
+        }
 
-    card.classList.toggle("selected", track.id === state.selectedTrackId);
-    card.classList.toggle("playing", Boolean(track.previewSource));
-  });
+        card.classList.toggle("selected", track.id === state.selectedTrackId);
+        card.classList.toggle("playing", Boolean(track.previewSource));
+    });
 }
 
 async function handleFileSelection(track, file) {
-  if (!file) {
-    return;
-  }
+    if (!file) {
+        return;
+    }
 
-  try {
-    await loadTrackFile(track, file);
+    try {
+        await loadTrackFile(track, file);
+        updateSongCount();
+        saveDraft();
+        renderSegmentsStrip();
+        renderCanvases();
+        setStatus(`Loaded ${track.sourceFileName}.`, "ok");
+    } catch (error) {
+        track.sourceFile = null;
+        track.arrayBuffer = null;
+        track.decoded = null;
+        track.spectrogramImage = null;
+        track.spectrogramCanvas = null;
+        track.durationSec = 0;
+        renderSegmentsStrip();
+        renderCanvases();
+        setStatus("Audio file could not be decoded.", "bad");
+    }
+}
+
+async function handleBulkFiles(fileList) {
+    const files = Array.from(fileList || []).slice(0, TRACK_COUNT);
+    if (!files.length) {
+        return;
+    }
+
+    setStatus("Loading audio files...", "warn");
+    stopAllPreviews();
+
+    for (const track of state.tracks) {
+        clearTrackAudio(track);
+    }
+
+    const failures = [];
+    for (let index = 0; index < files.length; index += 1) {
+        const track = state.tracks[index];
+        const file = files[index];
+        try {
+            await loadTrackFile(track, file);
+        } catch (error) {
+            clearTrackAudio(track);
+            failures.push(file.name);
+        }
+    }
+
     updateSongCount();
     saveDraft();
     renderSegmentsStrip();
     renderCanvases();
-    setStatus(`Loaded ${track.sourceFileName}.`, "ok");
-  } catch (error) {
-    track.sourceFile = null;
-    track.arrayBuffer = null;
-    track.decoded = null;
-    track.spectrogramImage = null;
-    track.spectrogramCanvas = null;
-    track.durationSec = 0;
-    renderSegmentsStrip();
-    renderCanvases();
-    setStatus("Audio file could not be decoded.", "bad");
-  }
-}
 
-async function handleBulkFiles(fileList) {
-  const files = Array.from(fileList || []).slice(0, TRACK_COUNT);
-  if (!files.length) {
-    return;
-  }
-
-  setStatus("Loading audio files...", "warn");
-  stopAllPreviews();
-
-  for (const track of state.tracks) {
-    clearTrackAudio(track);
-  }
-
-  const failures = [];
-  for (let index = 0; index < files.length; index += 1) {
-    const track = state.tracks[index];
-    const file = files[index];
-    try {
-      await loadTrackFile(track, file);
-    } catch (error) {
-      clearTrackAudio(track);
-      failures.push(file.name);
+    if (failures.length) {
+        setStatus(`Some files could not be decoded: ${failures.join(", ")}.`, "bad");
+        return;
     }
-  }
 
-  updateSongCount();
-  saveDraft();
-  renderSegmentsStrip();
-  renderCanvases();
+    if (files.length !== TRACK_COUNT) {
+        setStatus(`Loaded ${files.length} file(s). Expected 6 for a full mixtape.`, "warn");
+        return;
+    }
 
-  if (failures.length) {
-    setStatus(`Some files could not be decoded: ${failures.join(", ")}.`, "bad");
-    return;
-  }
-
-  if (files.length !== TRACK_COUNT) {
-    setStatus(`Loaded ${files.length} file(s). Expected 6 for a full mixtape.`, "warn");
-    return;
-  }
-
-  setStatus("Loaded 6 tracks.", "ok");
+    setStatus("Loaded 6 tracks.", "ok");
 }
 
 function startPreview(track) {
-  if (!track.decoded) {
-    setStatus("Load audio before preview.", "warn");
-    return;
-  }
-
-  stopAllPreviews(track.id);
-  stopPreview(track);
-  audioContext.resume();
-
-  const source = audioContext.createBufferSource();
-  const gainNode = audioContext.createGain();
-  source.buffer = track.decoded;
-  source.connect(gainNode);
-  gainNode.connect(audioContext.destination);
-  track.previewSource = source;
-
-  const clipOffset = Math.max(0, Math.min(CLIP_SECONDS, track.previewOffsetSec));
-  const startedAt = audioContext.currentTime;
-  const remaining = Math.max(0.05, CLIP_SECONDS - clipOffset);
-  const startOffset = track.startSec + clipOffset;
-  const fadeDuration = Math.min(FADE_SECONDS, remaining / 2);
-  track.previewStartCtxTime = startedAt;
-  track.previewOffsetAtStart = clipOffset;
-  track.previewPlayheadSec = startOffset;
-
-  gainNode.gain.setValueAtTime(0, startedAt);
-  gainNode.gain.linearRampToValueAtTime(1, startedAt + fadeDuration);
-  gainNode.gain.setValueAtTime(1, Math.max(startedAt + fadeDuration, startedAt + remaining - fadeDuration));
-  gainNode.gain.linearRampToValueAtTime(0, startedAt + remaining);
-
-  source.start(0, startOffset, remaining);
-
-  track.previewStopTimer = setInterval(() => {
-    const elapsed = audioContext.currentTime - startedAt;
-    const nextOffset = clipOffset + elapsed;
-    if (nextOffset >= CLIP_SECONDS) {
-      stopPreview(track);
-      resetPreviewPosition(track);
-      renderCanvases();
-      renderSegmentsStrip();
-      updateCombinedPreviewButton();
-      return;
+    if (!track.decoded) {
+        setStatus("Load audio before preview.", "warn");
+        return;
     }
 
-    track.previewOffsetSec = nextOffset;
-    track.previewPlayheadSec = track.startSec + nextOffset;
+    stopAllPreviews(track.id);
+    stopPreview(track);
+    audioContext.resume();
+
+    const source = audioContext.createBufferSource();
+    const gainNode = audioContext.createGain();
+    source.buffer = track.decoded;
+    source.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    track.previewSource = source;
+
+    const clipOffset = Math.max(0, Math.min(CLIP_SECONDS, track.previewOffsetSec));
+    const startedAt = audioContext.currentTime;
+    const remaining = Math.max(0.05, CLIP_SECONDS - clipOffset);
+    const startOffset = track.startSec + clipOffset;
+    const fadeDuration = Math.min(FADE_SECONDS, remaining / 2);
+    track.previewStartCtxTime = startedAt;
+    track.previewOffsetAtStart = clipOffset;
+    track.previewPlayheadSec = startOffset;
+
+    gainNode.gain.setValueAtTime(0, startedAt);
+    gainNode.gain.linearRampToValueAtTime(1, startedAt + fadeDuration);
+    gainNode.gain.setValueAtTime(1, Math.max(startedAt + fadeDuration, startedAt + remaining - fadeDuration));
+    gainNode.gain.linearRampToValueAtTime(0, startedAt + remaining);
+
+    source.start(0, startOffset, remaining);
+
+    track.previewStopTimer = setInterval(() => {
+        const elapsed = audioContext.currentTime - startedAt;
+        const nextOffset = clipOffset + elapsed;
+        if (nextOffset >= CLIP_SECONDS) {
+            stopPreview(track);
+            resetPreviewPosition(track);
+            renderCanvases();
+            renderSegmentsStrip();
+            updateCombinedPreviewButton();
+            return;
+        }
+
+        track.previewOffsetSec = nextOffset;
+        track.previewPlayheadSec = track.startSec + nextOffset;
+        renderCanvases();
+    }, 30);
+
+    source.onended = () => {
+        if (track.previewSource === source) {
+            stopPreview(track, { stopSource: false });
+            resetPreviewPosition(track);
+            renderCanvases();
+            updateCombinedPreviewButton();
+        }
+    };
+
     renderCanvases();
-  }, 30);
-
-  source.onended = () => {
-    if (track.previewSource === source) {
-      stopPreview(track, { stopSource: false });
-      resetPreviewPosition(track);
-      renderCanvases();
-      updateCombinedPreviewButton();
-    }
-  };
-
-  renderCanvases();
 }
 
 function togglePreview(track, { fromBeginning = false } = {}) {
-  if (track.previewSource) {
-    pausePreview(track);
-    renderCanvases();
-    return;
-  }
-  if (fromBeginning) {
-    track.previewOffsetSec = 0;
-    track.previewPlayheadSec = track.startSec;
-  }
-  startPreview(track);
+    if (track.previewSource) {
+        pausePreview(track);
+        renderCanvases();
+        return;
+    }
+    if (fromBeginning) {
+        track.previewOffsetSec = 0;
+        track.previewPlayheadSec = track.startSec;
+    }
+    startPreview(track);
 }
 
 function toggleSelectedPreview(options = {}) {
-  const selectedTrack = getSelectedTrack();
-  if (!selectedTrack) {
-    return;
-  }
-  togglePreview(selectedTrack, options);
+    const selectedTrack = getSelectedTrack();
+    if (!selectedTrack) {
+        return;
+    }
+    togglePreview(selectedTrack, options);
 }
 
 function reorderTracks(sourceId, targetId) {
-  if (!sourceId || !targetId || sourceId === targetId) {
-    return;
-  }
+    if (!sourceId || !targetId || sourceId === targetId) {
+        return;
+    }
 
-  const sourceIndex = getTrackIndexById(sourceId);
-  const targetIndex = getTrackIndexById(targetId);
-  if (sourceIndex < 0 || targetIndex < 0) {
-    return;
-  }
+    const sourceIndex = getTrackIndexById(sourceId);
+    const targetIndex = getTrackIndexById(targetId);
+    if (sourceIndex < 0 || targetIndex < 0) {
+        return;
+    }
 
-  const reordered = [...state.tracks];
-  const [moved] = reordered.splice(sourceIndex, 1);
-  reordered.splice(targetIndex, 0, moved);
-  state.tracks = reordered;
+    const reordered = [...state.tracks];
+    const [moved] = reordered.splice(sourceIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+    state.tracks = reordered;
 
-  saveDraft();
-  renderSegmentsStrip();
-  renderCanvases();
+    saveDraft();
+    renderSegmentsStrip();
+    renderCanvases();
 }
 
 function renderSegmentsStrip() {
-  els.segmentsStrip.innerHTML = "";
+    els.segmentsStrip.innerHTML = "";
 
-  const header = document.createElement("div");
-  header.className = "segments-table-head";
-  ["", "#", "Song Title", "Artist(s)"].forEach((label, idx) => {
-    const cell = document.createElement("div");
-    cell.className = "segments-table-head-cell";
-    if (idx === 0) {
-      cell.classList.add("segments-table-head-spacer");
-    }
-    cell.textContent = label;
-    header.appendChild(cell);
-  });
-  els.segmentsStrip.appendChild(header);
+    const header = document.createElement("div");
+    header.className = "segments-table-head";
+    ["", "#", "Song Title", "Artist(s)"].forEach((label, idx) => {
+        const cell = document.createElement("div");
+        cell.className = "segments-table-head-cell";
+        if (idx === 0) {
+            cell.classList.add("segments-table-head-spacer");
+        }
+        cell.textContent = label;
+        header.appendChild(cell);
+    });
+    els.segmentsStrip.appendChild(header);
 
-  state.tracks.forEach((track, index) => {
-    const card = document.createElement("article");
-    const rowStates = [];
-    if (track.id === state.selectedTrackId) {
-      rowStates.push("selected");
-    }
-    if (track.previewSource) {
-      rowStates.push("playing");
-    }
-    card.className = `segment-card${rowStates.length ? ` ${rowStates.join(" ")}` : ""}`;
-    card.dataset.trackId = track.id;
+    state.tracks.forEach((track, index) => {
+        const card = document.createElement("article");
+        const rowStates = [];
+        if (track.id === state.selectedTrackId) {
+            rowStates.push("selected");
+        }
+        if (track.previewSource) {
+            rowStates.push("playing");
+        }
+        card.className = `segment-card${rowStates.length ? ` ${rowStates.join(" ")}` : ""}`;
+        card.dataset.trackId = track.id;
 
-    card.addEventListener("click", (event) => {
-      if (event.target.closest("input, button, a, label")) {
-        return;
-      }
-      if (state.selectedTrackId === track.id) {
-        state.selectedTrackId = "";
-        saveDraft();
-        renderCanvases();
-        return;
-      }
-      selectTrack(track.id);
+        card.addEventListener("click", (event) => {
+            if (event.target.closest("input, button, a, label")) {
+                return;
+            }
+            if (state.selectedTrackId === track.id) {
+                state.selectedTrackId = "";
+                saveDraft();
+                renderCanvases();
+                return;
+            }
+            selectTrack(track.id);
+        });
+
+        card.addEventListener("dragover", (event) => {
+            event.preventDefault();
+        });
+
+        card.addEventListener("drop", (event) => {
+            event.preventDefault();
+            reorderTracks(state.dragSourceId, track.id);
+        });
+
+        const grip = document.createElement("div");
+        grip.className = "segment-grip";
+        grip.draggable = true;
+        grip.title = "Drag to reorder";
+
+        grip.addEventListener("dragstart", () => {
+            state.dragSourceId = track.id;
+        });
+
+        const indexChip = document.createElement("span");
+        indexChip.className = "segment-index";
+        indexChip.textContent = `#${index + 1}`;
+
+        const indexCell = document.createElement("div");
+        indexCell.className = "segment-cell segment-index-cell";
+        indexCell.appendChild(indexChip);
+
+        const titleCell = document.createElement("div");
+        titleCell.className = "segment-cell segment-title-cell";
+
+        const artistCell = document.createElement("div");
+        artistCell.className = "segment-cell segment-artist-cell";
+
+        const titleInput = document.createElement("input");
+        titleInput.type = "text";
+        titleInput.placeholder = "Song";
+        titleInput.value = track.title;
+        titleInput.addEventListener("mousedown", (event) => event.stopPropagation());
+        titleInput.addEventListener("click", (event) => event.stopPropagation());
+        titleInput.addEventListener("input", () => {
+            track.title = titleInput.value.trim();
+            updateSongCount();
+            saveDraft();
+        });
+        titleInput.className = "segment-inline-input";
+        titleCell.appendChild(titleInput);
+
+        const artistInput = document.createElement("input");
+        artistInput.type = "text";
+        artistInput.placeholder = "Artist";
+        artistInput.value = track.artist;
+        artistInput.addEventListener("mousedown", (event) => event.stopPropagation());
+        artistInput.addEventListener("click", (event) => event.stopPropagation());
+        artistInput.addEventListener("input", () => {
+            track.artist = artistInput.value.trim();
+            updateSongCount();
+            saveDraft();
+        });
+        artistInput.className = "segment-inline-input";
+        artistCell.appendChild(artistInput);
+
+        card.title = track.sourceFileName || "";
+        card.append(grip, indexCell, titleCell, artistCell);
+        els.segmentsStrip.appendChild(card);
     });
 
-    card.addEventListener("dragover", (event) => {
-      event.preventDefault();
-    });
-
-    card.addEventListener("drop", (event) => {
-      event.preventDefault();
-      reorderTracks(state.dragSourceId, track.id);
-    });
-
-    const grip = document.createElement("div");
-    grip.className = "segment-grip";
-    grip.draggable = true;
-    grip.title = "Drag to reorder";
-
-    grip.addEventListener("dragstart", () => {
-      state.dragSourceId = track.id;
-    });
-
-    const indexChip = document.createElement("span");
-    indexChip.className = "segment-index";
-    indexChip.textContent = `#${index + 1}`;
-
-    const indexCell = document.createElement("div");
-    indexCell.className = "segment-cell segment-index-cell";
-    indexCell.appendChild(indexChip);
-
-    const titleCell = document.createElement("div");
-    titleCell.className = "segment-cell segment-title-cell";
-
-    const artistCell = document.createElement("div");
-    artistCell.className = "segment-cell segment-artist-cell";
-
-    const titleInput = document.createElement("input");
-    titleInput.type = "text";
-    titleInput.placeholder = "Song";
-    titleInput.value = track.title;
-    titleInput.addEventListener("mousedown", (event) => event.stopPropagation());
-    titleInput.addEventListener("click", (event) => event.stopPropagation());
-    titleInput.addEventListener("input", () => {
-      track.title = titleInput.value.trim();
-      updateSongCount();
-      saveDraft();
-    });
-    titleInput.className = "segment-inline-input";
-    titleCell.appendChild(titleInput);
-
-    const artistInput = document.createElement("input");
-    artistInput.type = "text";
-    artistInput.placeholder = "Artist";
-    artistInput.value = track.artist;
-    artistInput.addEventListener("mousedown", (event) => event.stopPropagation());
-    artistInput.addEventListener("click", (event) => event.stopPropagation());
-    artistInput.addEventListener("input", () => {
-      track.artist = artistInput.value.trim();
-      updateSongCount();
-      saveDraft();
-    });
-    artistInput.className = "segment-inline-input";
-    artistCell.appendChild(artistInput);
-
-    card.title = track.sourceFileName || "";
-    card.append(grip, indexCell, titleCell, artistCell);
-    els.segmentsStrip.appendChild(card);
-  });
-
-  updateSongCount();
+    updateSongCount();
 }
 
 function isTypingContext() {
-  const active = document.activeElement;
-  if (!active) {
-    return false;
-  }
-  const tag = active.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || active.isContentEditable;
+    const active = document.activeElement;
+    if (!active) {
+        return false;
+    }
+    const tag = active.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || active.isContentEditable;
 }
 
 function openFilePicker(input) {
-  if (!input) {
-    return;
-  }
-
-  try {
-    if (typeof input.showPicker === "function") {
-      input.showPicker();
-      return;
+    if (!input) {
+        return;
     }
-  } catch (error) {
-    // Fall back to click() when showPicker is unsupported or blocked.
-  }
 
-  input.click();
+    try {
+        if (typeof input.showPicker === "function") {
+            input.showPicker();
+            return;
+        }
+    } catch (error) {
+        // Fall back to click() when showPicker is unsupported or blocked.
+    }
+
+    input.click();
 }
 
 function bindCanvasInteractions() {
-  function setSelectedCursor(track, canvas, sec, mode) {
-    const clipStart = track.startSec;
-    const clipEnd = Math.min(track.durationSec, clipStart + CLIP_SECONDS);
-    if (mode === "clip") {
-      canvas.style.cursor = sec >= clipStart && sec <= clipEnd ? "grab" : "ew-resize";
-      return;
+    function setSelectedCursor(track, canvas, sec, mode) {
+        const clipStart = track.startSec;
+        const clipEnd = Math.min(track.durationSec, clipStart + CLIP_SECONDS);
+        if (mode === "clip") {
+            canvas.style.cursor = sec >= clipStart && sec <= clipEnd ? "grab" : "ew-resize";
+            return;
+        }
+
+        const nearLeft = Math.abs(sec - clipStart) <= 0.5;
+        const nearRight = Math.abs(sec - clipEnd) <= 0.5;
+        const inClip = sec >= clipStart && sec <= clipEnd;
+        canvas.style.cursor = nearLeft || nearRight || inClip ? "grab" : "pointer";
     }
 
-    const nearLeft = Math.abs(sec - clipStart) <= 0.5;
-    const nearRight = Math.abs(sec - clipEnd) <= 0.5;
-    const inClip = sec >= clipStart && sec <= clipEnd;
-    canvas.style.cursor = nearLeft || nearRight || inClip ? "grab" : "pointer";
-  }
+    els.selectedClipCanvas.addEventListener("mousedown", (event) => {
+        const track = getSelectedTrack();
+        if (!track || !track.decoded) {
+            return;
+        }
 
-  els.selectedClipCanvas.addEventListener("mousedown", (event) => {
-    const track = getSelectedTrack();
-    if (!track || !track.decoded) {
-      return;
-    }
+        const range = getClipWindow(track);
+        const sec = pointerToSec(els.selectedClipCanvas, event, range.start, range.end);
+        const clipStart = track.startSec;
+        const clipEnd = Math.min(track.durationSec, clipStart + CLIP_SECONDS);
 
-    const range = getClipWindow(track);
-    const sec = pointerToSec(els.selectedClipCanvas, event, range.start, range.end);
-    const clipStart = track.startSec;
-    const clipEnd = Math.min(track.durationSec, clipStart + CLIP_SECONDS);
+        if (sec >= clipStart && sec <= clipEnd) {
+            state.dragClip = {
+                trackId: track.id,
+                canvas: els.selectedClipCanvas,
+                pointerDeltaSec: sec - clipStart,
+                dragStartSec: track.startSec,
+                downSec: sec,
+                rangeStart: range.start,
+                rangeEnd: range.end,
+                rangeMode: "clip"
+            };
+            els.selectedClipCanvas.style.cursor = "grabbing";
+        } else {
+            syncTrackStart(track, sec);
+        }
 
-    if (sec >= clipStart && sec <= clipEnd) {
-      state.dragClip = {
-        trackId: track.id,
-        canvas: els.selectedClipCanvas,
-        pointerDeltaSec: sec - clipStart,
-        dragStartSec: track.startSec,
-        downSec: sec,
-        rangeStart: range.start,
-        rangeEnd: range.end,
-        rangeMode: "clip"
-      };
-      els.selectedClipCanvas.style.cursor = "grabbing";
-    } else {
-      syncTrackStart(track, sec);
-    }
+        event.preventDefault();
+    });
 
-    event.preventDefault();
-  });
+    els.selectedClipCanvas.addEventListener("mousemove", (event) => {
+        const track = getSelectedTrack();
+        if (!track || !track.decoded) {
+            els.selectedClipCanvas.style.cursor = "default";
+            return;
+        }
+        const range = getClipWindow(track);
+        const sec = pointerToSec(els.selectedClipCanvas, event, range.start, range.end);
+        setSelectedCursor(track, els.selectedClipCanvas, sec, "clip");
+    });
 
-  els.selectedClipCanvas.addEventListener("mousemove", (event) => {
-    const track = getSelectedTrack();
-    if (!track || !track.decoded) {
-      els.selectedClipCanvas.style.cursor = "default";
-      return;
-    }
-    const range = getClipWindow(track);
-    const sec = pointerToSec(els.selectedClipCanvas, event, range.start, range.end);
-    setSelectedCursor(track, els.selectedClipCanvas, sec, "clip");
-  });
+    els.selectedClipCanvas.addEventListener("mouseleave", () => {
+        if (!state.dragClip || state.dragClip.canvas !== els.selectedClipCanvas) {
+            els.selectedClipCanvas.style.cursor = "default";
+        }
+    });
 
-  els.selectedClipCanvas.addEventListener("mouseleave", () => {
-    if (!state.dragClip || state.dragClip.canvas !== els.selectedClipCanvas) {
-      els.selectedClipCanvas.style.cursor = "default";
-    }
-  });
+    els.selectedFileCanvas.addEventListener("mousedown", (event) => {
+        const track = getSelectedTrack();
+        if (!track || !track.decoded) {
+            return;
+        }
 
-  els.selectedFileCanvas.addEventListener("mousedown", (event) => {
-    const track = getSelectedTrack();
-    if (!track || !track.decoded) {
-      return;
-    }
+        const rangeEnd = Math.max(1, track.durationSec || CLIP_SECONDS);
+        const sec = pointerToSec(els.selectedFileCanvas, event, 0, rangeEnd);
+        const clipStart = track.startSec;
+        const clipEnd = Math.min(track.durationSec, clipStart + CLIP_SECONDS);
 
-    const rangeEnd = Math.max(1, track.durationSec || CLIP_SECONDS);
-    const sec = pointerToSec(els.selectedFileCanvas, event, 0, rangeEnd);
-    const clipStart = track.startSec;
-    const clipEnd = Math.min(track.durationSec, clipStart + CLIP_SECONDS);
+        if (sec >= clipStart && sec <= clipEnd) {
+            state.dragClip = {
+                trackId: track.id,
+                canvas: els.selectedFileCanvas,
+                pointerDeltaSec: sec - clipStart,
+                dragStartSec: track.startSec,
+                downSec: sec,
+                rangeStart: 0,
+                rangeEnd,
+                rangeMode: "full"
+            };
+            els.selectedFileCanvas.style.cursor = "grabbing";
+        } else {
+            syncTrackStart(track, sec);
+        }
 
-    if (sec >= clipStart && sec <= clipEnd) {
-      state.dragClip = {
-        trackId: track.id,
-        canvas: els.selectedFileCanvas,
-        pointerDeltaSec: sec - clipStart,
-        dragStartSec: track.startSec,
-        downSec: sec,
-        rangeStart: 0,
-        rangeEnd,
-        rangeMode: "full"
-      };
-      els.selectedFileCanvas.style.cursor = "grabbing";
-    } else {
-      syncTrackStart(track, sec);
-    }
+        event.preventDefault();
+    });
 
-    event.preventDefault();
-  });
+    els.selectedFileCanvas.addEventListener("mousemove", (event) => {
+        const track = getSelectedTrack();
+        if (!track || !track.decoded) {
+            els.selectedFileCanvas.style.cursor = "default";
+            return;
+        }
+        const rangeEnd = Math.max(1, track.durationSec || CLIP_SECONDS);
+        const sec = pointerToSec(els.selectedFileCanvas, event, 0, rangeEnd);
+        setSelectedCursor(track, els.selectedFileCanvas, sec, "full");
+    });
 
-  els.selectedFileCanvas.addEventListener("mousemove", (event) => {
-    const track = getSelectedTrack();
-    if (!track || !track.decoded) {
-      els.selectedFileCanvas.style.cursor = "default";
-      return;
-    }
-    const rangeEnd = Math.max(1, track.durationSec || CLIP_SECONDS);
-    const sec = pointerToSec(els.selectedFileCanvas, event, 0, rangeEnd);
-    setSelectedCursor(track, els.selectedFileCanvas, sec, "full");
-  });
+    els.selectedFileCanvas.addEventListener("mouseleave", () => {
+        if (!state.dragClip || state.dragClip.canvas !== els.selectedFileCanvas) {
+            els.selectedFileCanvas.style.cursor = "default";
+        }
+    });
 
-  els.selectedFileCanvas.addEventListener("mouseleave", () => {
-    if (!state.dragClip || state.dragClip.canvas !== els.selectedFileCanvas) {
-      els.selectedFileCanvas.style.cursor = "default";
-    }
-  });
+    window.addEventListener("mousemove", (event) => {
+        if (state.dragClip) {
+            const track = state.tracks.find((item) => item.id === state.dragClip.trackId);
+            if (!track || !state.dragClip.canvas) {
+                return;
+            }
+            const sec = pointerToSec(state.dragClip.canvas, event, state.dragClip.rangeStart, state.dragClip.rangeEnd);
+            const delta = sec - state.dragClip.downSec;
+            syncTrackStart(track, state.dragClip.dragStartSec + delta);
+            return;
+        }
+    });
 
-  window.addEventListener("mousemove", (event) => {
-    if (state.dragClip) {
-      const track = state.tracks.find((item) => item.id === state.dragClip.trackId);
-      if (!track || !state.dragClip.canvas) {
-        return;
-      }
-      const sec = pointerToSec(state.dragClip.canvas, event, state.dragClip.rangeStart, state.dragClip.rangeEnd);
-      const delta = sec - state.dragClip.downSec;
-      syncTrackStart(track, state.dragClip.dragStartSec + delta);
-      return;
-    }
-  });
-
-  window.addEventListener("mouseup", () => {
-    state.dragClip = null;
-    els.selectedClipCanvas.style.cursor = "default";
-    els.selectedFileCanvas.style.cursor = "default";
-  });
+    window.addEventListener("mouseup", () => {
+        state.dragClip = null;
+        els.selectedClipCanvas.style.cursor = "default";
+        els.selectedFileCanvas.style.cursor = "default";
+    });
 }
 
 function resampleBuffer(buffer, outputRate) {
-  if (buffer.sampleRate === outputRate) {
-    return buffer;
-  }
-
-  const ratio = buffer.sampleRate / outputRate;
-  const outLength = Math.round(buffer.length / ratio);
-  const out = new AudioBuffer({
-    sampleRate: outputRate,
-    numberOfChannels: buffer.numberOfChannels,
-    length: outLength
-  });
-
-  for (let ch = 0; ch < buffer.numberOfChannels; ch += 1) {
-    const src = buffer.getChannelData(ch);
-    const dst = out.getChannelData(ch);
-    for (let i = 0; i < outLength; i += 1) {
-      const srcIndex = i * ratio;
-      const lo = Math.floor(srcIndex);
-      const hi = Math.min(src.length - 1, lo + 1);
-      const frac = srcIndex - lo;
-      dst[i] = src[lo] * (1 - frac) + src[hi] * frac;
+    if (buffer.sampleRate === outputRate) {
+        return buffer;
     }
-  }
 
-  return out;
+    const ratio = buffer.sampleRate / outputRate;
+    const outLength = Math.round(buffer.length / ratio);
+    const out = new AudioBuffer({
+        sampleRate: outputRate,
+        numberOfChannels: buffer.numberOfChannels,
+        length: outLength
+    });
+
+    for (let ch = 0; ch < buffer.numberOfChannels; ch += 1) {
+        const src = buffer.getChannelData(ch);
+        const dst = out.getChannelData(ch);
+        for (let i = 0; i < outLength; i += 1) {
+            const srcIndex = i * ratio;
+            const lo = Math.floor(srcIndex);
+            const hi = Math.min(src.length - 1, lo + 1);
+            const frac = srcIndex - lo;
+            dst[i] = src[lo] * (1 - frac) + src[hi] * frac;
+        }
+    }
+
+    return out;
 }
 
 function writeString(view, offset, text) {
-  for (let i = 0; i < text.length; i += 1) {
-    view.setUint8(offset + i, text.charCodeAt(i));
-  }
+    for (let i = 0; i < text.length; i += 1) {
+        view.setUint8(offset + i, text.charCodeAt(i));
+    }
 }
 
 function encodeWav(buffer) {
-  const pcm = resampleBuffer(buffer, WAV_RATE);
-  const channels = pcm.numberOfChannels;
-  const frames = pcm.length;
-  const blockAlign = channels * 2;
-  const dataBytes = frames * blockAlign;
+    const pcm = resampleBuffer(buffer, WAV_RATE);
+    const channels = pcm.numberOfChannels;
+    const frames = pcm.length;
+    const blockAlign = channels * 2;
+    const dataBytes = frames * blockAlign;
 
-  const arr = new ArrayBuffer(44 + dataBytes);
-  const view = new DataView(arr);
+    const arr = new ArrayBuffer(44 + dataBytes);
+    const view = new DataView(arr);
 
-  writeString(view, 0, "RIFF");
-  view.setUint32(4, 36 + dataBytes, true);
-  writeString(view, 8, "WAVE");
-  writeString(view, 12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, channels, true);
-  view.setUint32(24, pcm.sampleRate, true);
-  view.setUint32(28, pcm.sampleRate * blockAlign, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, 16, true);
-  writeString(view, 36, "data");
-  view.setUint32(40, dataBytes, true);
+    writeString(view, 0, "RIFF");
+    view.setUint32(4, 36 + dataBytes, true);
+    writeString(view, 8, "WAVE");
+    writeString(view, 12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, channels, true);
+    view.setUint32(24, pcm.sampleRate, true);
+    view.setUint32(28, pcm.sampleRate * blockAlign, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, 16, true);
+    writeString(view, 36, "data");
+    view.setUint32(40, dataBytes, true);
 
-  let offset = 44;
-  for (let i = 0; i < frames; i += 1) {
-    for (let ch = 0; ch < channels; ch += 1) {
-      const sample = Math.max(-1, Math.min(1, pcm.getChannelData(ch)[i]));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      offset += 2;
+    let offset = 44;
+    for (let i = 0; i < frames; i += 1) {
+        for (let ch = 0; ch < channels; ch += 1) {
+            const sample = Math.max(-1, Math.min(1, pcm.getChannelData(ch)[i]));
+            view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+            offset += 2;
+        }
     }
-  }
 
-  return new Uint8Array(arr);
+    return new Uint8Array(arr);
 }
 
 function clipTrackToWav(track) {
-  if (!track.decoded) {
-    throw new Error(`Track audio missing for ${track.id}`);
-  }
-
-  const startFrame = Math.floor(track.startSec * track.decoded.sampleRate);
-  const lenFrames = Math.floor(CLIP_SECONDS * track.decoded.sampleRate);
-
-  if (startFrame + lenFrames > track.decoded.length) {
-    throw new Error(`Clip exceeds source duration for ${track.title || track.id}`);
-  }
-
-  const clipped = new AudioBuffer({
-    sampleRate: track.decoded.sampleRate,
-    numberOfChannels: track.decoded.numberOfChannels,
-    length: lenFrames
-  });
-
-  const fadeFrames = Math.min(Math.floor(FADE_SECONDS * track.decoded.sampleRate), Math.floor(lenFrames / 2));
-
-  for (let ch = 0; ch < track.decoded.numberOfChannels; ch += 1) {
-    const src = track.decoded.getChannelData(ch).subarray(startFrame, startFrame + lenFrames);
-    const dst = clipped.getChannelData(ch);
-    dst.set(src);
-
-    for (let i = 0; i < fadeFrames; i += 1) {
-      const gainIn = i / fadeFrames;
-      const outIndex = lenFrames - 1 - i;
-      const gainOut = i / fadeFrames;
-      dst[i] *= gainIn;
-      dst[outIndex] *= gainOut;
+    if (!track.decoded) {
+        throw new Error(`Track audio missing for ${track.id}`);
     }
-  }
 
-  return encodeWav(clipped);
+    const startFrame = Math.floor(track.startSec * track.decoded.sampleRate);
+    const lenFrames = Math.floor(CLIP_SECONDS * track.decoded.sampleRate);
+
+    if (startFrame + lenFrames > track.decoded.length) {
+        throw new Error(`Clip exceeds source duration for ${track.title || track.id}`);
+    }
+
+    const clipped = new AudioBuffer({
+        sampleRate: track.decoded.sampleRate,
+        numberOfChannels: track.decoded.numberOfChannels,
+        length: lenFrames
+    });
+
+    const fadeFrames = Math.min(Math.floor(FADE_SECONDS * track.decoded.sampleRate), Math.floor(lenFrames / 2));
+
+    for (let ch = 0; ch < track.decoded.numberOfChannels; ch += 1) {
+        const src = track.decoded.getChannelData(ch).subarray(startFrame, startFrame + lenFrames);
+        const dst = clipped.getChannelData(ch);
+        dst.set(src);
+
+        for (let i = 0; i < fadeFrames; i += 1) {
+            const gainIn = i / fadeFrames;
+            const outIndex = lenFrames - 1 - i;
+            const gainOut = i / fadeFrames;
+            dst[i] *= gainIn;
+            dst[outIndex] *= gainOut;
+        }
+    }
+
+    return encodeWav(clipped);
 }
 
 function validateExport() {
-  if (!els.themeClue.value.trim()) {
-    return "Clue is required.";
-  }
-  if (!els.themeAnswer.value.trim()) {
-    return "Answer is required.";
-  }
-
-  for (let i = 0; i < state.tracks.length; i += 1) {
-    const track = state.tracks[i];
-    if (!track.title || !track.artist || !track.decoded) {
-      return `Track ${i + 1} is incomplete.`;
+    if (!els.themeClue.value.trim()) {
+        return "Clue is required.";
     }
-    if (track.startSec + CLIP_SECONDS > track.durationSec) {
-      return `Track ${i + 1} clip exceeds source duration.`;
+    if (!els.themeAnswer.value.trim()) {
+        return "Answer is required.";
     }
-  }
 
-  return "";
+    for (let i = 0; i < state.tracks.length; i += 1) {
+        const track = state.tracks[i];
+        if (!track.title || !track.artist || !track.decoded) {
+            return `Track ${i + 1} is incomplete.`;
+        }
+        if (track.startSec + CLIP_SECONDS > track.durationSec) {
+            return `Track ${i + 1} clip exceeds source duration.`;
+        }
+    }
+
+    return "";
 }
 
 async function exportZip() {
-  const problem = validateExport();
-  if (problem) {
-    setStatus(problem, "bad");
-    return;
-  }
-
-  const dateKey = todayAestDate();
-  const clue = els.themeClue.value.trim();
-  const answer = els.themeAnswer.value.trim();
-
-  setStatus("Building package...", "warn");
-
-  try {
-    const zip = new JSZip();
-    const root = zip.folder(`mystery-mixtape-${dateKey}`);
-    const clips = root.folder("data/clips");
-    const puzzles = root.folder("data/puzzles");
-
-    const clipFileNames = [];
-
-    for (let i = 0; i < state.tracks.length; i += 1) {
-      const track = state.tracks[i];
-      const safe = sanitizeFileBaseName(`${track.artist}-${track.title}`);
-      const clipName = `${dateKey}__${i + 1}__${safe}.wav`;
-      clipFileNames.push(clipName);
-      clips.file(clipName, clipTrackToWav(track));
+    const problem = validateExport();
+    if (problem) {
+        setStatus(problem, "bad");
+        return;
     }
 
-    const puzzle = {
-      date: dateKey,
-      clueTitle: "Clue",
-      clue,
-      theme: answer,
-      aliases: [],
-      songs: state.tracks.map((track, i) => ({
-        title: track.title,
-        artist: track.artist,
-        clipSrc: `data/clips/${clipFileNames[i]}`,
-        hint: ""
-      }))
-    };
+    const dateKey = todayAestDate();
+    const clue = els.themeClue.value.trim();
+    const answer = els.themeAnswer.value.trim();
 
-    puzzles.file(`${dateKey}.json`, JSON.stringify(puzzle, null, 2));
+    setStatus("Building package...", "warn");
 
-    root.file(
-      "data/daily-puzzles.patch.json",
-      JSON.stringify(
-        {
-          timezone: "Australia/Melbourne",
-          puzzles: {
-            [dateKey]: `data/puzzles/${dateKey}.json`
-          },
-          fallback: `data/puzzles/${dateKey}.json`
-        },
-        null,
-        2
-      )
-    );
+    try {
+        const zip = new JSZip();
+        const root = zip.folder(`mystery-mixtape-${dateKey}`);
+        const clips = root.folder("data/clips");
+        const puzzles = root.folder("data/puzzles");
 
-    root.file(
-      "README_IMPORT.txt",
-      [
-        "Unzip and copy into project:",
-        "1) data/clips/*.wav",
-        `2) data/puzzles/${dateKey}.json`,
-        "3) merge data/daily-puzzles.patch.json into data/daily-puzzles.json"
-      ].join("\n")
-    );
+        const clipFileNames = [];
 
-    const blob = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `mystery-mixtape-${dateKey}.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
+        for (let i = 0; i < state.tracks.length; i += 1) {
+            const track = state.tracks[i];
+            const safe = sanitizeFileBaseName(`${track.artist}-${track.title}`);
+            const clipName = `${dateKey}__${i + 1}__${safe}.wav`;
+            clipFileNames.push(clipName);
+            clips.file(clipName, clipTrackToWav(track));
+        }
 
-    setStatus("Mixtape package downloaded.", "ok");
-  } catch (error) {
-    setStatus(error.message || "Package build failed.", "bad");
-  }
+        const puzzle = {
+            date: dateKey,
+            clueTitle: "Clue",
+            clue,
+            theme: answer,
+            aliases: [],
+            songs: state.tracks.map((track, i) => ({
+                title: track.title,
+                artist: track.artist,
+                clipSrc: `data/clips/${clipFileNames[i]}`,
+                hint: ""
+            }))
+        };
+
+        puzzles.file(`${dateKey}.json`, JSON.stringify(puzzle, null, 2));
+
+        root.file(
+            "data/daily-puzzles.patch.json",
+            JSON.stringify(
+                {
+                    timezone: "Australia/Melbourne",
+                    puzzles: {
+                        [dateKey]: `data/puzzles/${dateKey}.json`
+                    },
+                    fallback: `data/puzzles/${dateKey}.json`
+                },
+                null,
+                2
+            )
+        );
+
+        root.file(
+            "README_IMPORT.txt",
+            [
+                "Unzip and copy into project:",
+                "1) data/clips/*.wav",
+                `2) data/puzzles/${dateKey}.json`,
+                "3) merge data/daily-puzzles.patch.json into data/daily-puzzles.json"
+            ].join("\n")
+        );
+
+        const blob = await zip.generateAsync({ type: "blob" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `mystery-mixtape-${dateKey}.zip`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        setStatus("Mixtape package downloaded.", "ok");
+    } catch (error) {
+        setStatus(error.message || "Package build failed.", "bad");
+    }
 }
 
 function clearAll() {
-  stopAllPreviews();
-  state.tracks = createEmptyTracks();
-  state.selectedTrackId = "";
-  state.hoverSec = null;
-  renderSegmentsStrip();
-  renderCanvases();
-  saveDraft();
-  setStatus("All tracks reset.", "warn");
+    stopAllPreviews();
+    state.tracks = createEmptyTracks();
+    state.selectedTrackId = "";
+    state.hoverSec = null;
+    renderSegmentsStrip();
+    renderCanvases();
+    saveDraft();
+    setStatus("All tracks reset.", "warn");
 }
 
 function wireEvents() {
-  els.uploadAllBtn.addEventListener("keydown", (event) => {
-    if (event.code !== "Space" && event.code !== "Enter") {
-      return;
-    }
-    event.preventDefault();
-    openFilePicker(els.uploadAllInput);
-  });
-  els.uploadAllInput.addEventListener("change", async () => {
-    await handleBulkFiles(els.uploadAllInput.files);
-    els.uploadAllInput.value = "";
-  });
-  els.combinedPreviewBtn.addEventListener("click", () => toggleSelectedPreview());
-  els.clearSelectionBtn.addEventListener("click", clearSelection);
-  els.downloadPackageBtn.addEventListener("click", exportZip);
-  els.clearAllBtn.addEventListener("click", clearAll);
+    els.uploadAllBtn.addEventListener("keydown", (event) => {
+        if (event.code !== "Space" && event.code !== "Enter") {
+            return;
+        }
+        event.preventDefault();
+        openFilePicker(els.uploadAllInput);
+    });
+    els.uploadAllInput.addEventListener("change", async () => {
+        await handleBulkFiles(els.uploadAllInput.files);
+        els.uploadAllInput.value = "";
+    });
+    els.combinedPreviewBtn.addEventListener("click", () => toggleSelectedPreview());
+    els.clearSelectionBtn.addEventListener("click", clearSelection);
+    els.downloadPackageBtn.addEventListener("click", exportZip);
+    els.clearAllBtn.addEventListener("click", clearAll);
 
-  [els.themeClue, els.themeAnswer].forEach((el) => {
-    el.addEventListener("input", saveDraft);
-  });
+    [els.themeClue, els.themeAnswer].forEach((el) => {
+        el.addEventListener("input", saveDraft);
+    });
 
-  bindCanvasInteractions();
+    bindCanvasInteractions();
 
-  window.addEventListener("resize", () => {
-    renderSegmentsStrip();
-    renderCanvases();
-  });
+    window.addEventListener("resize", () => {
+        renderSegmentsStrip();
+        renderCanvases();
+    });
 
-  window.addEventListener("keydown", (event) => {
-    if (event.code !== "Space") {
-      return;
-    }
-    if (isTypingContext()) {
-      return;
-    }
-    event.preventDefault();
-    toggleSelectedPreview({ fromBeginning: true });
-  });
+    window.addEventListener("keydown", (event) => {
+        if (event.code !== "Space") {
+            return;
+        }
+        if (isTypingContext()) {
+            return;
+        }
+        event.preventDefault();
+        toggleSelectedPreview({ fromBeginning: true });
+    });
 }
 
 function init() {
-  restoreDraft();
-  if (state.selectedTrackId && !state.tracks.some((track) => track.id === state.selectedTrackId)) {
-    state.selectedTrackId = "";
-  }
-  renderSegmentsStrip();
-  renderCanvases();
-  wireEvents();
+    restoreDraft();
+    if (state.selectedTrackId && !state.tracks.some((track) => track.id === state.selectedTrackId)) {
+        state.selectedTrackId = "";
+    }
+    renderSegmentsStrip();
+    renderCanvases();
+    wireEvents();
 }
 
 window.addEventListener("beforeunload", () => {
-  stopAllPreviews();
+    stopAllPreviews();
 });
 
 init();

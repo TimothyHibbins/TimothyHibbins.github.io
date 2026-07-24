@@ -1,157 +1,164 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mystery Mixtape</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mystery Mixtape</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=IBM+Plex+Mono:wght@400;600&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
 </head>
+
 <body class="mm-body">
-  <div class="game-shell">
-    <header class="game-topbar">
-      <div class="picker-wrap">
-        <div class="picker-row">
-          <label for="source-select">Set</label>
-          <select id="source-select" class="picker-select"></select>
-          <label for="tape-select">Tape</label>
-          <select id="tape-select" class="picker-select"></select>
-          <button id="load-tape-btn" class="picker-load-btn" type="button">Load</button>
-        </div>
-        <p id="puzzle-date" class="game-meta">Choose a set and tape.</p>
-      </div>
-      <button id="rules-btn" class="rules-btn" type="button" aria-label="Show rules">?</button>
-    </header>
-
-    <main class="game-main">
-      <h2 id="clue-title" class="prompt-title hidden">Clue</h2>
-      <p id="clue-text" class="prompt-text hidden">Loading clue...</p>
-
-      <section id="mixtape-cassette" class="cassette" aria-label="Mixtape display">
-        <div class="cassette-frame">
-          <div class="cassette-face cassette-front">
-            <div class="cassette-top-notches" aria-hidden="true">
-              <span class="notch"></span>
-              <span class="notch"></span>
-              <span class="notch"></span>
-              <span class="notch"></span>
-              <span class="notch"></span>
+    <div class="game-shell">
+        <header class="game-topbar">
+            <div class="picker-wrap">
+                <div class="picker-row">
+                    <label for="source-select">Set</label>
+                    <select id="source-select" class="picker-select"></select>
+                    <label for="tape-select">Tape</label>
+                    <select id="tape-select" class="picker-select"></select>
+                    <button id="load-tape-btn" class="picker-load-btn" type="button">Load</button>
+                </div>
+                <p id="puzzle-date" class="game-meta">Choose a set and tape.</p>
             </div>
+            <button id="rules-btn" class="rules-btn" type="button" aria-label="Show rules">?</button>
+        </header>
 
-            <div class="cassette-screws" aria-hidden="true">
-              <span class="screw tl"></span>
-              <span class="screw tr"></span>
-              <span class="screw bl"></span>
-              <span class="screw br"></span>
-            </div>
+        <main class="game-main">
+            <h2 id="clue-title" class="prompt-title hidden">Clue</h2>
+            <p id="clue-text" class="prompt-text hidden">Loading clue...</p>
 
-            <div class="cassette-clue-strip">
-              <p id="cassette-clue" class="cassette-clue">Loading clue...</p>
-            </div>
+            <section id="mixtape-cassette" class="cassette" aria-label="Mixtape display">
+                <div class="cassette-frame">
+                    <div class="cassette-face cassette-front">
+                        <div class="cassette-top-notches" aria-hidden="true">
+                            <span class="notch"></span>
+                            <span class="notch"></span>
+                            <span class="notch"></span>
+                            <span class="notch"></span>
+                            <span class="notch"></span>
+                        </div>
 
-            <div class="cassette-window">
-              <div class="wheel-pocket">
-                <div class="wheel" id="wheel-left"></div>
-              </div>
-              <div class="tape-center">
-                <span class="tape-label">Mystery Mixtape</span>
-                <span class="tape-track"></span>
-              </div>
-              <div class="wheel-pocket">
-                <div class="wheel" id="wheel-right"></div>
-              </div>
-            </div>
+                        <div class="cassette-screws" aria-hidden="true">
+                            <span class="screw tl"></span>
+                            <span class="screw tr"></span>
+                            <span class="screw bl"></span>
+                            <span class="screw br"></span>
+                        </div>
 
-            <div class="cassette-bottom-hardware" aria-hidden="true">
-              <span class="cassette-slot"></span>
-              <span class="cassette-slot"></span>
-              <span class="cassette-slot"></span>
-            </div>
-          </div>
+                        <div class="cassette-clue-strip">
+                            <p id="cassette-clue" class="cassette-clue">Loading clue...</p>
+                        </div>
 
-          <div class="cassette-face cassette-back">
-            <div class="cassette-top-notches" aria-hidden="true">
-              <span class="notch"></span>
-              <span class="notch"></span>
-              <span class="notch"></span>
-              <span class="notch"></span>
-              <span class="notch"></span>
-            </div>
+                        <div class="cassette-window">
+                            <div class="wheel-pocket">
+                                <div class="wheel" id="wheel-left"></div>
+                            </div>
+                            <div class="tape-center">
+                                <span class="tape-label">Mystery Mixtape</span>
+                                <span class="tape-track"></span>
+                            </div>
+                            <div class="wheel-pocket">
+                                <div class="wheel" id="wheel-right"></div>
+                            </div>
+                        </div>
 
-            <div class="cassette-screws" aria-hidden="true">
-              <span class="screw tl"></span>
-              <span class="screw tr"></span>
-              <span class="screw bl"></span>
-              <span class="screw br"></span>
-            </div>
+                        <div class="cassette-bottom-hardware" aria-hidden="true">
+                            <span class="cassette-slot"></span>
+                            <span class="cassette-slot"></span>
+                            <span class="cassette-slot"></span>
+                        </div>
+                    </div>
 
-            <p class="cassette-back-label">Track list</p>
+                    <div class="cassette-face cassette-back">
+                        <div class="cassette-top-notches" aria-hidden="true">
+                            <span class="notch"></span>
+                            <span class="notch"></span>
+                            <span class="notch"></span>
+                            <span class="notch"></span>
+                            <span class="notch"></span>
+                        </div>
 
-            <section id="reveal-panel" class="reveal-pop hidden">
-              <div id="song-reveal-list" class="reveal-table"></div>
+                        <div class="cassette-screws" aria-hidden="true">
+                            <span class="screw tl"></span>
+                            <span class="screw tr"></span>
+                            <span class="screw bl"></span>
+                            <span class="screw br"></span>
+                        </div>
+
+                        <p class="cassette-back-label">Track list</p>
+
+                        <section id="reveal-panel" class="reveal-pop hidden">
+                            <div id="song-reveal-list" class="reveal-table"></div>
+                        </section>
+
+                        <div class="cassette-bottom-hardware" aria-hidden="true">
+                            <span class="cassette-slot"></span>
+                            <span class="cassette-slot"></span>
+                            <span class="cassette-slot"></span>
+                        </div>
+                    </div>
+                </div>
             </section>
 
-            <div class="cassette-bottom-hardware" aria-hidden="true">
-              <span class="cassette-slot"></span>
-              <span class="cassette-slot"></span>
-              <span class="cassette-slot"></span>
+            <div class="transport-row">
+                <button id="transport-play-btn" class="transport-btn" type="button">Play</button>
+                <div class="timeline-wrap">
+                    <input id="timeline-scrubber" class="timeline-scrubber" type="range" min="0" max="60" step="0.1"
+                        value="0" disabled>
+                    <div id="timeline-markers" class="timeline-markers" aria-hidden="true"></div>
+                    <div id="timeline-segments" class="timeline-segments" aria-hidden="true"></div>
+                    <p id="timeline-readout" class="timeline-readout">00:00 / 01:00</p>
+                </div>
             </div>
-          </div>
-        </div>
-      </section>
 
-      <div class="transport-row">
-        <button id="transport-play-btn" class="transport-btn" type="button">Play</button>
-        <div class="timeline-wrap">
-          <input id="timeline-scrubber" class="timeline-scrubber" type="range" min="0" max="60" step="0.1" value="0" disabled>
-          <div id="timeline-markers" class="timeline-markers" aria-hidden="true"></div>
-          <div id="timeline-segments" class="timeline-segments" aria-hidden="true"></div>
-          <p id="timeline-readout" class="timeline-readout">00:00 / 01:00</p>
-        </div>
-      </div>
+            <p id="cassette-status" class="cassette-status">Press Play</p>
 
-      <p id="cassette-status" class="cassette-status">Press Play</p>
+            <form id="guess-form" class="guess-form-row">
+                <input id="guess-input" name="guess" type="text" autocomplete="off"
+                    placeholder="Enter your theme guess and press Enter">
+                <button type="submit" class="guess-submit-btn">Guess</button>
+            </form>
 
-      <form id="guess-form" class="guess-form-row">
-        <input id="guess-input" name="guess" type="text" autocomplete="off" placeholder="Enter your theme guess and press Enter">
-        <button type="submit" class="guess-submit-btn">Guess</button>
-      </form>
+            <div class="game-subrow">
+                <p id="round-meta" class="game-score"></p>
+                <button id="give-up-btn" class="ghost-danger" type="button">Give Up</button>
+            </div>
 
-      <div class="game-subrow">
-        <p id="round-meta" class="game-score"></p>
-        <button id="give-up-btn" class="ghost-danger" type="button">Give Up</button>
-      </div>
+            <p id="status-message" class="status-message">Preparing today's tape...</p>
 
-      <p id="status-message" class="status-message">Preparing today's tape...</p>
+            <div id="wrong-guesses-wrap" class="wrong-guesses hidden" aria-live="polite">
+                <p class="wrong-heading">Wrong guesses</p>
+                <ul id="wrong-guesses-list" class="wrong-guesses-list"></ul>
+            </div>
 
-      <div id="wrong-guesses-wrap" class="wrong-guesses hidden" aria-live="polite">
-        <p class="wrong-heading">Wrong guesses</p>
-        <ul id="wrong-guesses-list" class="wrong-guesses-list"></ul>
-      </div>
-
-    </main>
-  </div>
-
-  <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
-
-  <div id="rules-modal" class="rules-modal hidden" role="dialog" aria-modal="true" aria-labelledby="rules-title">
-    <div class="rules-card">
-      <div class="rules-head">
-        <h3 id="rules-title">How To Play</h3>
-        <button id="rules-close-btn" class="rules-close-btn" type="button" aria-label="Close rules">x</button>
-      </div>
-      <ol class="rules-list">
-        <li>Press Play to start the mixtape.</li>
-        <li>Each round plays six clips, ten seconds each.</li>
-        <li>Type your theme guess below the tape and press Enter.</li>
-        <li>Wrong guesses add 10 seconds to your score and appear below.</li>
-        <li>Solve to reveal the song table and unlock timeline scrubbing.</li>
-      </ol>
+        </main>
     </div>
-  </div>
 
-  <script type="module" src="js/game.js"></script>
+    <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
+
+    <div id="rules-modal" class="rules-modal hidden" role="dialog" aria-modal="true" aria-labelledby="rules-title">
+        <div class="rules-card">
+            <div class="rules-head">
+                <h3 id="rules-title">How To Play</h3>
+                <button id="rules-close-btn" class="rules-close-btn" type="button" aria-label="Close rules">x</button>
+            </div>
+            <ol class="rules-list">
+                <li>Press Play to start the mixtape.</li>
+                <li>Each round plays six clips, ten seconds each.</li>
+                <li>Type your theme guess below the tape and press Enter.</li>
+                <li>Wrong guesses add 10 seconds to your score and appear below.</li>
+                <li>Solve to reveal the song table and unlock timeline scrubbing.</li>
+            </ol>
+        </div>
+    </div>
+
+    <script type="module" src="js/game.js"></script>
 </body>
+
 </html>

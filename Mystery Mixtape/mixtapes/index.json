@@ -1,13 +1,13 @@
 {
-  "default": "tape A",
-  "packs": [
-    {
-      "slug": "tape A",
-      "label": "Tape A"
-    },
-    {
-      "slug": "tape B",
-      "label": "Tape B"
-    }
-  ]
+    "default": "tape A",
+    "packs": [
+        {
+            "slug": "tape A",
+            "label": "Tape A"
+        },
+        {
+            "slug": "tape B",
+            "label": "Tape B"
+        }
+    ]
 }
