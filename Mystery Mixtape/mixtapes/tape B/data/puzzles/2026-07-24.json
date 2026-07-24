@@ -1,0 +1,45 @@
+{
+  "date": "2026-07-24",
+  "clueTitle": "Clue",
+  "clue": "What city is referenced in the titles of all of these songs?",
+  "theme": "New York City",
+  "aliases": [],
+  "songs": [
+    {
+      "title": "New York State of Mind",
+      "artist": "Billy Joel",
+      "clipSrc": "data/clips/2026-07-24__1__billy-joel-new-york-state-of-mind.wav",
+      "hint": ""
+    },
+    {
+      "title": "N.Y. State of Mind",
+      "artist": "Nas",
+      "clipSrc": "data/clips/2026-07-24__2__nas-n-y-state-of-mind.wav",
+      "hint": ""
+    },
+    {
+      "title": "Welcome to New York",
+      "artist": "Taylor Swift",
+      "clipSrc": "data/clips/2026-07-24__3__taylor-swift-welcome-to-new-york.wav",
+      "hint": ""
+    },
+    {
+      "title": "Naked In Manhattan",
+      "artist": "Chappell Roan",
+      "clipSrc": "data/clips/2026-07-24__4__chappell-roan-naked-in-manhattan.wav",
+      "hint": ""
+    },
+    {
+      "title": "Theme From New York, New York",
+      "artist": "Frank Sinatra",
+      "clipSrc": "data/clips/2026-07-24__5__frank-sinatra-theme-from-new-york-new-york.wav",
+      "hint": ""
+    },
+    {
+      "title": "Empire State Of Mind",
+      "artist": "Jay Z (Feat. Alicia Keys)",
+      "clipSrc": "data/clips/2026-07-24__6__jay-z-feat-alicia-keys-empire-state-of-mind.wav",
+      "hint": ""
+    }
+  ]
+}

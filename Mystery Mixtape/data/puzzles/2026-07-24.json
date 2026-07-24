@@ -1,0 +1,48 @@
+{
+  "date": "2026-07-24",
+  "clueTitle": "Today's Clue",
+  "clue": "Each song title contains a color.",
+  "theme": "Songs with colors in the title",
+  "aliases": [
+    "Color songs",
+    "Songs named after colors"
+  ],
+  "songs": [
+    {
+      "title": "Back in Black",
+      "artist": "AC/DC",
+      "clipSrc": "data/clips/2026-07-24__1.mp3",
+      "hint": "A classic hard rock opener"
+    },
+    {
+      "title": "Blue Monday",
+      "artist": "New Order",
+      "clipSrc": "data/clips/2026-07-24__2.mp3",
+      "hint": "Synth pulse from the 80s"
+    },
+    {
+      "title": "Purple Rain",
+      "artist": "Prince",
+      "clipSrc": "data/clips/2026-07-24__3.mp3",
+      "hint": "Arena-sized power ballad"
+    },
+    {
+      "title": "Yellow",
+      "artist": "Coldplay",
+      "clipSrc": "data/clips/2026-07-24__4.mp3",
+      "hint": "Early 2000s alt-rock single"
+    },
+    {
+      "title": "Red Red Wine",
+      "artist": "UB40",
+      "clipSrc": "data/clips/2026-07-24__5.mp3",
+      "hint": "Reggae-pop chart staple"
+    },
+    {
+      "title": "Paint It, Black",
+      "artist": "The Rolling Stones",
+      "clipSrc": "data/clips/2026-07-24__6.mp3",
+      "hint": "60s rock with a haunting riff"
+    }
+  ]
+}

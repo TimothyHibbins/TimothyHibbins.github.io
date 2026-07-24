@@ -1,0 +1,45 @@
+{
+  "date": "2026-07-24",
+  "clueTitle": "Clue",
+  "clue": "What set of names with both scientific and mythological meanings do each of these song titles draw from?",
+  "theme": "planets",
+  "aliases": [],
+  "songs": [
+    {
+      "title": "Mercury",
+      "artist": "Steve Lacy",
+      "clipSrc": "data/clips/2026-07-24__1__steve-lacy-mercury.wav",
+      "hint": ""
+    },
+    {
+      "title": "Venus",
+      "artist": "Bananarama",
+      "clipSrc": "data/clips/2026-07-24__2__bananarama-venus.wav",
+      "hint": ""
+    },
+    {
+      "title": "Pluto Projector",
+      "artist": "Rex Orange County",
+      "clipSrc": "data/clips/2026-07-24__3__rex-orange-county-pluto-projector.wav",
+      "hint": ""
+    },
+    {
+      "title": "Life on Mars",
+      "artist": "David Bowie",
+      "clipSrc": "data/clips/2026-07-24__4__david-bowie-life-on-mars.wav",
+      "hint": ""
+    },
+    {
+      "title": "Saturn",
+      "artist": "SZA",
+      "clipSrc": "data/clips/2026-07-24__5__sza-saturn.wav",
+      "hint": ""
+    },
+    {
+      "title": "Drops of Jupiter",
+      "artist": "Train",
+      "clipSrc": "data/clips/2026-07-24__6__train-drops-of-jupiter.wav",
+      "hint": ""
+    }
+  ]
+}

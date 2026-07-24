@@ -1,0 +1,2 @@
+# No Python packages required for local-file build mode.
+# Requires ffmpeg installed and available in PATH.
