@@ -243,6 +243,13 @@ let treeHeld = false;
 let treePulse = 0;
 let stackPulse = 0;
 let smoothedBandTemps = null;
+// Smoothed upper bound of the temperature graph's KE axis (auto-scales to fit).
+let gAxisKeMax = 0;
+let gAxisKeMin = 0;
+// Energy bookkeeping: sun energy entering vs IR energy escaping to space, both
+// accumulated each draw and reported as smoothed rates.
+let pendingEnergyIn = 0, pendingEnergyOut = 0;
+let energyInRate = 0, energyOutRate = 0;
 
 // --- Utility ----------------------------------------------------------------
 
@@ -256,13 +263,20 @@ function yToBandIndex(y) {
 }
 
 function bandTemperatureK(i) {
-  let total = 0, count = 0;
+  // Sample the temperature at this band's centre from the molecules NEAREST to
+  // it in altitude — the closest ~10% of all molecules — rather than only the
+  // few that fall inside the band. Thin upper bands then borrow neighbours, so
+  // their reading is far less noisy.
+  const centreKm = (i + 0.5) * KM_PER_BAND;
+  const arr = [];
   for (const m of molecules) {
-    if (yToBandIndex(m.y) !== i) continue;
-    total += 0.5 * (m.vx * m.vx + m.vy * m.vy);
-    count++;
+    arr.push({ d: Math.abs(yToAltKm(m.y) - centreKm), ke: 0.5 * (m.vx * m.vx + m.vy * m.vy) });
   }
-  if (count < MIN_BAND_SAMPLE) return null;
+  if (arr.length === 0) return null;
+  arr.sort((a, b) => a.d - b.d);
+  const n = Math.max(MIN_BAND_SAMPLE, Math.round(arr.length * 0.1));
+  let total = 0; const count = Math.min(n, arr.length);
+  for (let k = 0; k < count; k++) total += arr[k].ke;
   return BASE_TEMP_K + KE_TO_KELVIN * (total / count);
 }
 
@@ -407,8 +421,32 @@ function maxwellBoltzmannVel(T_K) {
 
 // --- Setup ------------------------------------------------------------------
 
+// The simulation is drawn at a fixed aspect ratio and centred (letterboxed)
+// inside whatever window it sits in, so every internal proportion — column
+// width, molecule sizes, graph layout — stays constant. The viewport only
+// changes how large the fixed-aspect box is scaled, never its shape.
+const SIM_ASPECT = 1;
+
+function fitCanvasSize() {
+  let w = windowWidth, h = windowHeight;
+  if (w / h > SIM_ASPECT) w = h * SIM_ASPECT;   // window too wide → pillarbox
+  else h = w / SIM_ASPECT;                       // window too tall → letterbox
+  return { w: Math.floor(w), h: Math.floor(h) };
+}
+
+function centreCanvas() {
+  const cnv = document.querySelector('canvas');
+  if (!cnv) return;
+  cnv.style.position = 'absolute';
+  cnv.style.left = '50%';
+  cnv.style.top = '50%';
+  cnv.style.transform = 'translate(-50%, -50%)';
+}
+
 function setup() {
-  createCanvas(windowWidth, windowHeight);
+  const s = fitCanvasSize();
+  createCanvas(s.w, s.h);
+  centreCanvas();
   computeLayout();
   initMolecules();
 
@@ -681,6 +719,9 @@ function makeMolecule(type, x, y, T_K) {
     vibrationFlash: 0,       // visual animation timer (frames)
     vibrationMode: 0,        // 0=symmetric stretch, 1=asymmetric, 2=bending
     vibrationPhase: 0,
+    absorbRipple: 0,         // one-shot expanding ripple at the moment of absorption
+    absorbFlash: 0,          // brief swell/glow at the moment of absorption
+    emitRipple: 0,           // one-shot expanding cool ripple at the moment of emission
     // True for a non-greenhouse molecule that has just received energy from an
     // excited CO2 via collisional de-excitation. It is spotlighted (bright red,
     // full opacity) until it hands the energy back to a CO2 or cools to ambient.
@@ -711,6 +752,7 @@ function initGroundAtoms() {
       homeX: x, homeY: groundY,
       x, y: groundY,
       vx: Math.cos(a) * v0, vy: Math.sin(a) * v0,
+      emitRipple: 0,
     });
   }
 }
@@ -746,8 +788,10 @@ function stepGroundAtoms(dt) {
         const sc = Math.sqrt(Math.max(0, ke - E) / ke);
         g.vx *= sc; g.vy *= sc;
         emitGroundAtomPhoton(g.x, E);
+        g.emitRipple = 1;   // cool ripple — surface shedding heat as IR
       }
     }
+    if (g.emitRipple > 0) g.emitRipple = Math.max(0, g.emitRipple - dt * 0.18);
   }
 }
 
@@ -803,7 +847,9 @@ function windowResized() {
   const oldWidth = Math.max(1, oldRight - oldLeft);
   const oldHeight = Math.max(1, oldBottom - oldTop);
 
-  resizeCanvas(windowWidth, windowHeight);
+  const s = fitCanvasSize();
+  resizeCanvas(s.w, s.h);
+  centreCanvas();
   computeLayout();
   initGroundAtoms();
 
@@ -880,15 +926,21 @@ function draw() {
   // Smoothed temperature display updates once per draw call (not per step),
   // so the panel looks the same regardless of playback speed.
   updateSmoothedBandTemps();
+  // Energy-flux rates: convert this frame's accumulated in/out into a smoothed
+  // per-time rate so the readout is steady across playback speeds.
+  const dtSim = (simSpeed * BASE_DT) || 1;
+  energyInRate += ((pendingEnergyIn / dtSim) - energyInRate) * 0.04;
+  energyOutRate += ((pendingEnergyOut / dtSim) - energyOutRate) * 0.04;
+  pendingEnergyIn = 0; pendingEnergyOut = 0;
 
   drawSpaceAndSky();
-  drawColumnBackground();
   drawAltitudeAxis();
   drawTemperatureGraph();
   // Everything below is the physical scene: drawn through the zoom/pan camera
   // and clipped to the column so it can be inspected close-up without
   // disturbing the axes, the graph or the stats overlay.
   beginSimCamera();
+  drawColumnBackground();
   drawGround();
   drawSmokestack();
   drawTree();
@@ -942,6 +994,7 @@ function stepPhysics(dt) {
       });
       m.vibrationEnergy = 0;
       m.vibrationFlash = 8;
+      m.emitRipple = 1;        // expanding cool ripple — "shedding heat"
     }
   }
 
@@ -988,6 +1041,12 @@ function updateMolecule(m, dt) {
     m.vibrationFlash -= dt;
     m.vibrationPhase += 0.4 * dt;
   }
+  // Absorption-event animation: a one-shot ripple + swell that decays quickly
+  // (independent of how long the molecule stays excited). Emission gets a
+  // matching but opposite (cooling) ripple. Both are small and fast.
+  if (m.absorbRipple > 0) m.absorbRipple = Math.max(0, m.absorbRipple - dt * 0.18);
+  if (m.absorbFlash > 0) m.absorbFlash = Math.max(0, m.absorbFlash - dt * 0.22);
+  if (m.emitRipple > 0) m.emitRipple = Math.max(0, m.emitRipple - dt * 0.18);
 
   // A spotlighted carrier that has bled its extra energy back down to ambient
   // (through ordinary collisions) stops glowing even if it never met a CO2.
@@ -1134,6 +1193,7 @@ function spawnSunPhoton() {
     lastGhAltKm: -1,
     energy: freq, dead: false,
   });
+  pendingEnergyIn += freq;   // solar energy entering the column
 }
 
 function emitGroundAtomPhoton(x, E) {
@@ -1159,6 +1219,7 @@ function updatePhoton(p, dt) {
   if (p.y < columnTop - 4) {
     const alt = p.lastGhAltKm >= 0 ? p.lastGhAltKm : 0;
     recordEmissionAltitude(alt);
+    pendingEnergyOut += p.energy;   // radiation escaping to space
     p.dead = true; return;
   }
 
@@ -1186,6 +1247,8 @@ function updatePhoton(p, dt) {
       bestM.vibrationEnergy += p.energy;
       bestM.vibrationFlash = VIBRATION_FRAMES;
       bestM.vibrationPhase = 0;
+      bestM.absorbRipple = 1;   // triggers the expanding "caught it" ripple
+      bestM.absorbFlash = 1;    // brief swell/glow at the instant of capture
       // Pick a vibration mode at random. In reality the mode that activates
       // depends on the photon's frequency relative to the CO2 absorption
       // bands (asymmetric stretch ~2350 cm⁻¹, bending ~667 cm⁻¹, symmetric
@@ -1233,9 +1296,36 @@ function drawSpaceAndSky() {
   rect(0, 0, width, SKY_TOP);
 }
 function drawColumnBackground() {
+  // A continuous vertical gradient: the temperature is interpolated between
+  // band centres and coloured with the inferno palette, so the gradient is
+  // smooth (no banding) like the temperature graph.
   noStroke();
-  fill(252);
-  rect(columnLeft, columnTop, columnWidth, columnHeight);
+  const temps = smoothedBandTemps || rawBandTemperatures();
+  const step = 3;
+  for (let y = columnTop; y < groundY; y += step) {
+    const ke = (tempKAtKm(yToAltKm(y), temps) - BASE_TEMP_K) / KE_TO_KELVIN;
+    const [r, g, b] = keToColor(ke, 255);
+    fill(r, g, b);
+    rect(columnLeft, y, columnWidth, step + 1);
+  }
+}
+
+// Temperature (K) at an arbitrary altitude, linearly interpolated between the
+// band centres (which sit at (i+0.5)·KM_PER_BAND).
+function tempKAtKm(km, temps) {
+  const f = km / KM_PER_BAND - 0.5;
+  const i0 = constrain(Math.floor(f), 0, N_BANDS - 1);
+  const i1 = constrain(i0 + 1, 0, N_BANDS - 1);
+  const t = constrain(f - i0, 0, 1);
+  return temps[i0] + (temps[i1] - temps[i0]) * t;
+}
+
+// Background-temperature colour for the layer a molecule sits in, used so a
+// non-greenhouse molecule reads as a faint shade-shift of its surroundings.
+function bandBgColor(y) {
+  const temps = smoothedBandTemps || rawBandTemperatures();
+  const ke = (tempKAtKm(yToAltKm(y), temps) - BASE_TEMP_K) / KE_TO_KELVIN;
+  return keToColor(ke, 255);
 }
 
 function drawAltitudeAxis() {
@@ -1257,91 +1347,143 @@ function drawAltitudeAxis() {
 }
 
 function drawTemperatureGraph() {
-  const temps = smoothedBandTemps || rawBandTemperatures();
   // Plotted in the left margin, on the same side as the altitude axis. The
   // vertical axis is altitude (shared with the column via altKmToY); the
-  // horizontal axis is temperature, so the curve reads as temp-vs-height.
+  // horizontal axis is kinetic energy / temperature. Every molecule is a dot,
+  // and an inferno-coloured line tracks the mean within a 1 km band.
   const gLeft = 8;
   const gRight = columnLeft - 42;   // leave room for the km labels by the axis
   const gW = gRight - gLeft;
-  const TMIN = -60, TMAX = 30;
-  const tx = (C) => gLeft + ((constrain(C, TMIN, TMAX) - TMIN) / (TMAX - TMIN)) * gW;
+  const keToC = (ke) => physKToDisplayC(BASE_TEMP_K + ke * KE_TO_KELVIN);
+  // Horizontal axis auto-scales to the coldest AND hottest temperatures in the
+  // profile (plus the ground), so the mean line fills the width. Both ends are
+  // smoothed so the axis grows/shrinks gently rather than snapping.
+  const profile = smoothedBandTemps || rawBandTemperatures();
+  let keMax = 0.6, keMin = 1e9;
+  for (let km = 0; km <= MAX_ALT_KM; km += MAX_ALT_KM / 40) {
+    const k = (tempKAtKm(km, profile) - BASE_TEMP_K) / KE_TO_KELVIN;
+    if (k > keMax) keMax = k;
+    if (k < keMin) keMin = k;
+  }
+  const gk = (groundTemp - BASE_TEMP_K) / KE_TO_KELVIN;
+  if (gk > keMax) keMax = gk;
+  if (gk < keMin) keMin = gk;
+  if (!isFinite(keMin)) keMin = 0;
+  gAxisKeMax = gAxisKeMax ? gAxisKeMax + (keMax - gAxisKeMax) * 0.04 : keMax;
+  gAxisKeMin = gAxisKeMin ? gAxisKeMin + (keMin - gAxisKeMin) * 0.04 : keMin;
+  const TMIN = keToC(gAxisKeMin), TMAX = keToC(gAxisKeMax);
+  const span = Math.max(1, TMAX - TMIN);
+  const tx = (C) => gLeft + ((constrain(C, TMIN, TMAX) - TMIN) / span) * gW;
+
+  // White instrument background for high contrast.
+  noStroke();
+  fill(255);
+  rect(gLeft - 2, columnTop, gW + 4, columnHeight);
 
   textFont('Menlo');
   noStroke();
-  fill(120);
+  fill(110);
   textSize(10);
   textAlign(LEFT, BOTTOM);
   text('TEMP \u00b0C', gLeft, columnTop - 4);
 
-  // Vertical reference lines + labels at a couple of round temperatures.
-  textAlign(CENTER, TOP);
+  // Gridlines + °C labels at endpoints and any round 20 °C marks between them.
   textSize(8);
-  for (const Cmark of [-50, 0]) {
+  const labelC = [TMIN, TMAX];
+  for (let m = Math.ceil(TMIN / 20) * 20; m < TMAX; m += 20) labelC.push(m);
+  for (const Cmark of labelC) {
     const x = tx(Cmark);
-    stroke(228);
+    stroke(Math.abs(Cmark) < 5 ? 170 : 224);
     strokeWeight(1);
     line(x, columnTop, x, groundY);
     noStroke();
     fill(150);
-    text(Cmark + '\u00b0', x, groundY + GROUND_HEIGHT + 2);
+    textAlign(CENTER, TOP);
+    text(Cmark.toFixed(0), x, groundY + GROUND_HEIGHT + 2);
   }
 
-  // Temperature-vs-altitude curve.
-  const pts = [];
-  for (let i = 0; i < N_BANDS; i++) {
-    const C = physKToDisplayC(temps[i]);
-    pts.push({ x: tx(C), y: altKmToY((i + 0.5) * KM_PER_BAND), T: temps[i] });
+  // Zoom overlay: shade the altitude slice currently visible in the column.
+  if (viewScale > 1.02) {
+    const wTop = (columnTop - viewOffsetY) / viewScale;
+    const wBot = (groundY - viewOffsetY) / viewScale;
+    const yTop = constrain(wTop, columnTop, groundY);
+    const yBot = constrain(wBot, columnTop, groundY);
+    noStroke();
+    fill(70, 130, 220, 40);
+    rect(gLeft, yTop, gW, yBot - yTop);
+    stroke(70, 130, 220, 170);
+    strokeWeight(1);
+    line(gLeft, yTop, gRight, yTop);
+    line(gLeft, yBot, gRight, yBot);
+    noStroke();
   }
-  // The ground temperature anchors the curve at the surface (altitude 0), so
-  // the air gradient and the surface reading appear on one continuous plot.
-  const groundPt = { x: tx(physKToDisplayC(groundTemp)), y: groundY, T: groundTemp };
 
-  noFill();
-  stroke(90);
-  strokeWeight(1.5);
-  beginShape();
-  for (const p of pts) vertex(p.x, p.y);
-  vertex(groundPt.x, groundPt.y);
-  endShape();
-
-  // Air-band markers, coloured with the same palette as the gas.
+  // One dot per molecule: x = kinetic energy, y = altitude, coloured inferno.
   noStroke();
-  for (const p of pts) {
-    const tNorm = constrain((p.T - 200) / 130, 0, 1);
-    const [r, g, b] = keToColor(tNorm * 1.4 + 0.15, 255);
-    fill(r, g, b);
-    circle(p.x, p.y, 5);
+
+  // Mean-temperature line: the smoothed band profile (sampled from the nearest
+  // ~10% of molecules), interpolated continuously and coloured with the same
+  // inferno palette as the molecules so the line reads as its own temperature.
+  const stepKm = MAX_ALT_KM / 40;
+  strokeWeight(2);
+  let prev = null;
+  for (let km = 0; km <= MAX_ALT_KM; km += stepKm) {
+    const meanKe = (tempKAtKm(km, profile) - BASE_TEMP_K) / KE_TO_KELVIN;
+    const cur = { x: tx(keToC(meanKe)), y: altKmToY(km) };
+    if (prev) {
+      const [r, g, b] = keToColor(meanKe, 255);
+      stroke(r, g, b);
+      line(prev.x, prev.y, cur.x, cur.y);
+    }
+    prev = cur;
   }
 
-  // Ground marker — a distinct outlined square (vs the round air markers) so
-  // it reads as "the surface", still tinted by its own temperature. It sits on
-  // the 0 km axis line, so no extra label is needed.
-  const gNorm = constrain((groundPt.T - 200) / 130, 0, 1);
-  const [gr, gg, gb] = keToColor(gNorm * 1.4 + 0.15, 255);
-  rectMode(CENTER);
-  stroke(60);
+  // Surface temperature: square anchored on the 0 km line + readout.
+  const gx = tx(physKToDisplayC(groundTemp));
+  const gke = (groundTemp - BASE_TEMP_K) / KE_TO_KELVIN;
+  const [sr, sg, sb] = keToColor(gke, 255);
+  stroke(40);
   strokeWeight(1);
-  fill(gr, gg, gb);
-  square(groundPt.x, groundPt.y, 7);
+  fill(sr, sg, sb);
+  rectMode(CENTER);
+  square(gx, groundY, 6);
   rectMode(CORNER);
   noStroke();
+  fill(70);
+  textSize(9);
+  textAlign(LEFT, CENTER);
+  text(`${physKToDisplayC(groundTemp).toFixed(0)}\u00b0`, gx + 6, groundY - 6);
 }
 
 function drawGround() {
-  const tNorm = constrain((groundTemp - 200) / 90, 0, 1);
-  const colA = lerpColor(color('#6e4a2e'), color('#a85a2a'), tNorm);
+  // Ground colour tracks its temperature with the same inferno palette as the
+  // air layers, so the surface reads as the hottest part of the gradient.
+  const gke = (groundTemp - BASE_TEMP_K) / KE_TO_KELVIN;
+  const [r, g, b] = keToColor(gke, 255);
+  const colA = color(r, g, b);
   noStroke();
   const ar = GROUND_ATOM_R;
   // A thin solid base beneath the surface atoms, so the single live layer
   // reads as the top of solid ground rather than a row of floating dots.
-  fill(lerpColor(color('#4a3320'), color('#6e3c1c'), tNorm));
+  fill(r * 0.6, g * 0.6, b * 0.6);
   rect(columnLeft, groundY + ar, columnWidth, GROUND_HEIGHT - ar);
   // The ONE physically-simulated layer of surface atoms, drawn at their live
   // (spring-jiggled) positions — a single atomic layer on top of the solid.
-  const colLive = lerpColor(colA, color(255), 0.18);
+  const colLive = lerpColor(colA, color(255), 0.25);
+  // Cool emission ripple from atoms that have just radiated IR — a ring a notch
+  // colder than the ground's own temperature colour.
+  const [cgr, cgg, cgb] = keToColor(gke * 0.45);
+  noFill();
+  strokeWeight(2);
+  for (const gatm of groundAtoms) {
+    if (gatm.emitRipple > 0.02) {
+      stroke(cgr, cgg, cgb, 220 * gatm.emitRipple);
+      circle(gatm.x, groundY, GROUND_ATOM_R * 4 + (1 - gatm.emitRipple) * 14);
+    }
+  }
+  noStroke();
   fill(colLive);
-  for (const g of groundAtoms) circle(g.x, g.y, ar * 2);
+  for (const gatm of groundAtoms) circle(gatm.x, gatm.y, ar * 2);
   // Faint surface line so the gas/ground boundary stays crisp.
   stroke(0, 30);
   line(columnLeft, groundY, columnRight, groundY);
@@ -1522,14 +1664,60 @@ function drawMoleculeAt(m, cx, cy, scale) {
   // wiggle, not by colour, so the two cues stay independent.
   let bodyR, bodyG, bodyB, bodyA;
   if (showHeatColouring) {
-    const ke = 0.5 * (m.vx * m.vx + m.vy * m.vy);
-    [bodyR, bodyG, bodyB, bodyA] = molThermalColor(ke);
+    if (m.isGreenhouse) {
+      // GHG molecules pop in solid white against the temperature-coloured layers.
+      bodyR = 255; bodyG = 255; bodyB = 255; bodyA = 255;
+    } else {
+      // Inert gases are just a faint shade of the layer background — present,
+      // but not competing with the GHGs or the gradient.
+      const [br, bg, bb] = bandBgColor(cy);
+      bodyR = constrain(br + 40, 0, 255);
+      bodyG = constrain(bg + 40, 0, 255);
+      bodyB = constrain(bb + 40, 0, 255);
+      bodyA = 200;
+    }
   } else if (m.isGreenhouse) {
     // Heat colouring off: neutral two-tone so CO2 is still distinguishable.
     bodyR = 40; bodyG = 40; bodyB = 40; bodyA = 255;
   } else {
     bodyR = 205; bodyG = 205; bodyB = 205; bodyA = 130;
   }
+
+  // Absorption flash: at the instant a GHG catches an IR photon it swells,
+  // glows and emits an expanding ripple, so capture is unmistakable (not just
+  // an arrow vanishing). Both decay fast and are one-shot per absorption.
+  const flashT = m.isGreenhouse ? constrain(m.absorbFlash || 0, 0, 1) : 0;
+  const ripple = m.isGreenhouse ? constrain(m.absorbRipple || 0, 0, 1) : 0;
+  const eRipple = m.isGreenhouse ? constrain(m.emitRipple || 0, 0, 1) : 0;
+  // Ripple colours track the LOCAL air temperature: warmer than ambient for an
+  // absorption (heat going in), cooler than ambient for an emission.
+  const localKe = (tempKAtKm(yToAltKm(cy), smoothedBandTemps || rawBandTemperatures()) - BASE_TEMP_K) / KE_TO_KELVIN;
+  if (ripple > 0.02) {
+    // Absorption = heat IN: a ring a notch hotter than the local background.
+    const [hr, hg, hb] = keToColor(localKe * 1.8 + 1.2);
+    const baseR = def.collisionRadius * scale * 2.5;
+    noFill();
+    strokeWeight(2.5 * scale);
+    stroke(hr, hg, hb, 220 * ripple);
+    circle(cx, cy, baseR + (1 - ripple) * baseR * 2.2);
+  }
+  if (eRipple > 0.02) {
+    // Emission = cooling: a ring a notch colder than the local background.
+    const [cr2, cg2, cb2] = keToColor(localKe * 0.45);
+    const baseR = def.collisionRadius * scale * 2.5;
+    noFill();
+    strokeWeight(2.5 * scale);
+    stroke(cr2, cg2, cb2, 220 * eRipple);
+    circle(cx, cy, baseR + (1 - eRipple) * baseR * 2.2);
+  }
+  if (flashT > 0.02) {
+    noStroke();
+    for (let g = 3; g >= 1; g--) {
+      fill(255, 210, 90, 70 * flashT / g);
+      circle(cx, cy, def.collisionRadius * scale * (3.2 + g * 1.6) * (0.6 + 0.4 * flashT));
+    }
+  }
+  const grow = 1 + 0.9 * flashT;
 
   // BONDS
   stroke(bodyR, bodyG, bodyB, bodyA);
@@ -1540,7 +1728,7 @@ function drawMoleculeAt(m, cx, cy, scale) {
 
   // ATOMS
   noStroke();
-  const atomR = def.atomRadius * scale;
+  const atomR = def.atomRadius * scale * grow;
   if (scale > 1.5) textSize(atomR);
   for (const p of positions) {
     fill(bodyR, bodyG, bodyB, bodyA);
@@ -1592,20 +1780,40 @@ function vibrationOffset(n, mode, i, vib) {
 // fill (not an "hsl(...)" CSS string) so the colour reliably renders in p5.
 function drawPhotonAt(p, cx, cy, scale) {
   const isIR = p.freq < 0.30;
-  const r = (isIR ? 4.5 : 4) * scale;
-  const [pr, pg, pb] = freqToColor(p.freq);
   if (isIR) {
-    // IR photons: no outline, lower opacity — they're numerous and we don't
-    // want them to visually dominate the molecules.
+    // IR photons: tiny but intense — a white-hot core inside a red glow makes
+    // them read as brightly glowing red, with a short arrow + trail for motion.
+    const sp = Math.hypot(p.vx, p.vy) || 1;
+    const ux = p.vx / sp, uy = p.vy / sp;          // heading
+    const len = 3 * scale;                          // arrow half-length
+    strokeWeight(1.6 * scale);
+    for (let t = 1; t <= 3; t++) {
+      stroke(255, 40, 40, 80 - t * 22);
+      line(cx - ux * len * t, cy - uy * len * t, cx - ux * len * (t + 1), cy - uy * len * (t + 1));
+    }
     noStroke();
-    fill(pr, pg, pb, 150);
-  } else {
-    // Non-IR (visible/UV) photons are faded — they're just transport that the
-    // ground absorbs without atmospheric interaction.
-    stroke(20, 20, 20, 55);
-    strokeWeight(0.8 * scale);
-    fill(pr, pg, pb, 55);
+    fill(255, 30, 30, 80);
+    circle(cx, cy, 8 * scale);
+    fill(255, 90, 90, 130);
+    circle(cx, cy, 4.5 * scale);
+    fill(255, 240, 240);
+    circle(cx, cy, 2.4 * scale);
+    const px = -uy, py = ux;
+    fill(255, 60, 60);
+    triangle(
+      cx + ux * len, cy + uy * len,
+      cx - ux * len * 0.4 + px * 1.6 * scale, cy - uy * len * 0.4 + py * 1.6 * scale,
+      cx - ux * len * 0.4 - px * 1.6 * scale, cy - uy * len * 0.4 - py * 1.6 * scale
+    );
+    return;
   }
+  // Non-IR (visible/UV) photons are faded — they're just transport that the
+  // ground absorbs without atmospheric interaction.
+  const r = 4 * scale;
+  const [pr, pg, pb] = freqToColor(p.freq);
+  stroke(20, 20, 20, 55);
+  strokeWeight(0.8 * scale);
+  fill(pr, pg, pb, 55);
   circle(cx, cy, r * 2);
 }
 
@@ -1621,16 +1829,20 @@ function drawPhotons() {
 function drawStats() {
   textFont('Menlo');
   textSize(11);
-  textAlign(LEFT, TOP);
+  textAlign(CENTER, TOP);
   noStroke();
   fill(50);
+  // Total thermal energy in the box (gas translational + vibrational + ground)
+  // plus the smoothed solar-in / space-out fluxes.
+  let total = 0;
+  for (const m of molecules) total += 0.5 * (m.vx * m.vx + m.vy * m.vy) + (m.vibrationEnergy || 0);
+  for (const g of groundAtoms) total += 0.5 * GROUND_ATOM_MASS * (g.vx * g.vx + g.vy * g.vy);
+  text(`Energy: ${total.toFixed(0)}   |   In (sun): ${energyInRate.toFixed(2)}/s   |   Out (space): ${energyOutRate.toFixed(2)}/s`,
+    (columnLeft + columnRight) / 2, 4);
+
   const avgAlt = emissionAltitudes.length
     ? emissionAltitudes.reduce((a, b) => a + b, 0) / emissionAltitudes.length
     : 0;
-  const gT = physKToDisplayC(groundTemp);
-  const ghCount = molecules.filter(m => m.isGreenhouse).length;
-  text(`Ground: ${gT.toFixed(0)}\u00b0C   |   Emission altitude: ${avgAlt.toFixed(1)} km   |   CO\u2082: ${ghCount}`,
-    columnLeft, 4);
   if (emissionAltitudes.length > 4) {
     const y = altKmToY(avgAlt);
     stroke('#d34a4a');
@@ -1643,6 +1855,13 @@ function drawStats() {
     textAlign(LEFT, BOTTOM);
     text(`avg emission: ${avgAlt.toFixed(1)} km`, columnLeft + 4, y - 1);
   }
+
+  // CO2 count, centred at the bottom between the smokestack and the tree.
+  const ghCount = molecules.filter(m => m.isGreenhouse).length;
+  fill(50);
+  textSize(11);
+  textAlign(CENTER, TOP);
+  text(`CO\u2082: ${ghCount}`, (columnLeft + columnRight) / 2, groundY + GROUND_HEIGHT - 14);
 }
 
 // --- Input -----------------------------------------------------------------
