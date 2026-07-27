@@ -3,27 +3,34 @@ const MIXTAPE_MANIFEST_PATH = "mixtapes/index.json";
 const STORAGE_PREFIX = "mystery-mixtape.v1";
 const WRONG_GUESS_PENALTY_SECONDS = 10;
 const CLIP_PLAY_SECONDS = 10;
+const BUZZ_WINDOW_MS = 5000;
 
 const els = {
     puzzleDate: document.getElementById("puzzle-date"),
-    sourceSelect: document.getElementById("source-select"),
-    tapeSelect: document.getElementById("tape-select"),
-    loadTapeBtn: document.getElementById("load-tape-btn"),
+    archiveBtn: document.getElementById("archive-btn"),
+    archiveModal: document.getElementById("archive-modal"),
+    archiveCloseBtn: document.getElementById("archive-close-btn"),
+    archiveList: document.getElementById("archive-list"),
     clueTitle: document.getElementById("clue-title"),
     clueText: document.getElementById("clue-text"),
     cassette: document.getElementById("mixtape-cassette"),
     cassetteStatus: document.getElementById("cassette-status"),
     cassetteClue: document.getElementById("cassette-clue"),
+    startBtn: document.getElementById("start-btn"),
+    transportRow: document.getElementById("transport-row"),
     transportPlayBtn: document.getElementById("transport-play-btn"),
-    timelineScrubber: document.getElementById("timeline-scrubber"),
+    timelineSurface: document.getElementById("timeline-surface"),
+    timelineWaveform: document.getElementById("timeline-waveform"),
+    timelineProgress: document.getElementById("timeline-progress"),
+    timelinePlayhead: document.getElementById("timeline-playhead"),
     timelineMarkers: document.getElementById("timeline-markers"),
     timelineSegments: document.getElementById("timeline-segments"),
     timelineReadout: document.getElementById("timeline-readout"),
     statusMessage: document.getElementById("status-message"),
     roundMeta: document.getElementById("round-meta"),
-    giveUpBtn: document.getElementById("give-up-btn"),
     guessForm: document.getElementById("guess-form"),
     guessInput: document.getElementById("guess-input"),
+    guessSubmitBtn: document.querySelector(".guess-submit-btn"),
     wrongGuessesWrap: document.getElementById("wrong-guesses-wrap"),
     wrongGuessesList: document.getElementById("wrong-guesses-list"),
     revealPanel: document.getElementById("reveal-panel"),
@@ -41,6 +48,7 @@ const state = {
     selectedTapeKey: "",
     selectedTapePath: "",
     selectedPackLabel: "",
+    archiveEntries: [],
     availableTapes: [],
     puzzle: null,
     phase: "loading",
@@ -61,6 +69,11 @@ const state = {
     timelineTickIntervalId: null,
     timelineTickStartSec: 0,
     timelineTickStartMs: 0,
+    buzzActive: false,
+    buzzDeadlineMs: 0,
+    buzzTimerIntervalId: null,
+    timelineWaveformPeaks: [],
+    timelineWaveformToken: 0,
     preserveTimelinePositionOnStop: false,
     sourceLabel: "",
     sourceBasePath: "",
@@ -196,6 +209,63 @@ function extractTapeEntries(dailyIndex) {
     return entries;
 }
 
+async function fetchArchiveClue(basePath, tapePath) {
+    try {
+        const response = await fetch(encodeURI(joinPath(basePath, tapePath)));
+        if (!response.ok) {
+            return "Could not load clue";
+        }
+        const puzzle = await response.json();
+        return String(puzzle?.clue || "No clue available").trim() || "No clue available";
+    } catch (error) {
+        return "Could not load clue";
+    }
+}
+
+async function buildArchiveEntries() {
+    const entries = [];
+    for (const pack of state.manifestPacks) {
+        const source = await loadIndexForMixtape(pack.slug, pack.label);
+        const tapes = extractTapeEntries(source.dailyIndex);
+        for (const tape of tapes) {
+            const clue = await fetchArchiveClue(source.basePath, tape.path);
+            entries.push({
+                packSlug: pack.slug,
+                packLabel: pack.label,
+                basePath: source.basePath,
+                tapeKey: tape.key,
+                tapePath: tape.path,
+                clue
+            });
+        }
+    }
+    state.archiveEntries = entries;
+}
+
+function renderArchiveList() {
+    if (!els.archiveList) {
+        return;
+    }
+    els.archiveList.innerHTML = "";
+
+    for (const item of state.archiveEntries) {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "archive-tape";
+        card.dataset.packSlug = item.packSlug;
+        card.dataset.tapeKey = item.tapeKey;
+        card.innerHTML = `
+            <span class="archive-tape-title">${item.packLabel} / ${item.tapeKey}</span>
+            <span class="archive-tape-clue">${item.clue}</span>
+        `;
+        card.addEventListener("click", async () => {
+            await loadTapeFromArchiveItem(item);
+            closeArchiveModal();
+        });
+        els.archiveList.appendChild(card);
+    }
+}
+
 function renderSourceOptions() {
     if (!els.sourceSelect) {
         return;
@@ -292,6 +362,215 @@ function clampTimelineSec(value) {
     return Math.max(0, Math.min(duration, Number(value) || 0));
 }
 
+function clearBuzzTimerInterval() {
+    if (!state.buzzTimerIntervalId) {
+        return;
+    }
+    clearInterval(state.buzzTimerIntervalId);
+    state.buzzTimerIntervalId = null;
+}
+
+function updateBuzzTimerUi() {
+    if (!els.buzzTimer) {
+        return;
+    }
+
+    if (!state.buzzActive) {
+        els.buzzTimer.classList.add("hidden");
+        return;
+    }
+
+    const remainingMs = Math.max(0, state.buzzDeadlineMs - nowMs());
+    els.buzzTimer.classList.remove("hidden");
+    els.buzzTimer.textContent = `${(remainingMs / 1000).toFixed(1)}s`;
+}
+
+async function resumeSequenceAfterBuzzIfNeeded() {
+    if (state.phase === "solved" || state.phase === "gaveup") {
+        return;
+    }
+    if (state.isSequencePlaying || state.isTimelinePlaying) {
+        return;
+    }
+    await playMixtapeFromCursor(state.timelineCurrentSec);
+}
+
+async function endBuzzWindow({
+    resumePlayback = false,
+    statusText = "",
+    statusTone = "",
+    skipStatus = false
+} = {}) {
+    const wasActive = state.buzzActive;
+    state.buzzActive = false;
+    state.buzzDeadlineMs = 0;
+    clearBuzzTimerInterval();
+    updateBuzzTimerUi();
+
+    if (!skipStatus && statusText) {
+        setStatusMessage(statusText, statusTone);
+    }
+
+    render();
+
+    if (wasActive && resumePlayback) {
+        await resumeSequenceAfterBuzzIfNeeded();
+    }
+}
+
+function startBuzzTimerLoop() {
+    clearBuzzTimerInterval();
+    state.buzzTimerIntervalId = setInterval(() => {
+        const remainingMs = state.buzzDeadlineMs - nowMs();
+        if (remainingMs <= 0) {
+            endBuzzWindow({
+                resumePlayback: true,
+                statusText: "Time up. Mixtape resumed.",
+                statusTone: "warn"
+            });
+            return;
+        }
+        updateBuzzTimerUi();
+    }, 50);
+}
+
+function sizeTimelineWaveformCanvas() {
+    const canvas = els.timelineWaveform;
+    if (!canvas) {
+        return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const cssWidth = Math.max(10, Math.floor(rect.width));
+    const cssHeight = Math.max(12, Math.floor(rect.height));
+    const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+    const nextWidth = Math.floor(cssWidth * dpr);
+    const nextHeight = Math.floor(cssHeight * dpr);
+    if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
+        canvas.width = nextWidth;
+        canvas.height = nextHeight;
+    }
+}
+
+function drawTimelineWaveformPlaceholder() {
+    const canvas = els.timelineWaveform;
+    if (!canvas) {
+        return;
+    }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+        return;
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function buildWavePeaksFromBuffer(buffer, binCount) {
+    const bins = Math.max(24, Math.floor(binCount || 120));
+    const peaks = new Float32Array(bins);
+    const data = buffer.getChannelData(0);
+    if (!data || !data.length) {
+        return peaks;
+    }
+
+    const samplesPerBin = Math.max(1, Math.floor(data.length / bins));
+    for (let i = 0; i < bins; i += 1) {
+        const start = i * samplesPerBin;
+        const end = Math.min(data.length, start + samplesPerBin);
+        let maxAbs = 0;
+        for (let j = start; j < end; j += 1) {
+            const v = Math.abs(data[j]);
+            if (v > maxAbs) {
+                maxAbs = v;
+            }
+        }
+        peaks[i] = maxAbs;
+    }
+
+    return peaks;
+}
+
+function renderTimelineWaveform() {
+    const canvas = els.timelineWaveform;
+    if (!canvas) {
+        return;
+    }
+    sizeTimelineWaveformCanvas();
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+        return;
+    }
+
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+
+    const tracks = state.timelineWaveformPeaks;
+    if (!Array.isArray(tracks) || !tracks.length) {
+        return;
+    }
+
+    const midY = height / 2;
+    const segmentWidth = width / tracks.length;
+    ctx.strokeStyle = "rgba(255,255,255,0.96)";
+    ctx.lineWidth = Math.max(1, Math.floor((window.devicePixelRatio || 1)));
+    ctx.globalAlpha = 0.95;
+
+    for (let trackIndex = 0; trackIndex < tracks.length; trackIndex += 1) {
+        const peaks = tracks[trackIndex];
+        if (!(peaks instanceof Float32Array) || !peaks.length) {
+            continue;
+        }
+
+        const xStart = trackIndex * segmentWidth;
+        const localWidth = segmentWidth;
+        for (let i = 0; i < peaks.length; i += 1) {
+            const x = xStart + (i / peaks.length) * localWidth;
+            const amp = Math.max(0.015, Math.min(1, peaks[i]));
+            const bar = amp * (height * 0.48);
+            ctx.beginPath();
+            ctx.moveTo(x + 0.5, midY - bar);
+            ctx.lineTo(x + 0.5, midY + bar);
+            ctx.stroke();
+        }
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+async function buildTimelineWaveformData() {
+    if (!state.puzzle || !Array.isArray(state.puzzle.songs)) {
+        state.timelineWaveformPeaks = [];
+        renderTimelineWaveform();
+        return;
+    }
+
+    const token = ++state.timelineWaveformToken;
+    state.timelineWaveformPeaks = new Array(state.puzzle.songs.length).fill(null);
+    renderTimelineWaveform();
+
+    for (let i = 0; i < state.puzzle.songs.length; i += 1) {
+        if (token !== state.timelineWaveformToken) {
+            return;
+        }
+
+        const song = state.puzzle.songs[i];
+        if (!song?.clipSrc) {
+            continue;
+        }
+
+        try {
+            const buffer = await getClipBuffer(song.clipSrc);
+            if (token !== state.timelineWaveformToken) {
+                return;
+            }
+            state.timelineWaveformPeaks[i] = buildWavePeaksFromBuffer(buffer, 140);
+            renderTimelineWaveform();
+        } catch (error) {
+            // Ignore waveform extraction failures per clip; playback errors are handled elsewhere.
+        }
+    }
+}
+
 function stopTimelineTick() {
     if (!state.timelineTickIntervalId) {
         return;
@@ -345,6 +624,11 @@ function renderTimelineSegments() {
         return;
     }
 
+    if (state.phase !== "solved") {
+        els.timelineSegments.innerHTML = "";
+        return;
+    }
+
     const trackCount = state.puzzle?.songs?.length || 0;
     els.timelineSegments.innerHTML = "";
     if (!trackCount) {
@@ -362,17 +646,34 @@ function renderTimelineSegments() {
 function renderTimeline() {
     const duration = timelineDurationSec();
     const terminalSolved = state.phase === "solved";
+    const clampedSec = clampTimelineSec(state.timelineCurrentSec);
+    const pct = duration ? Math.max(0, Math.min(100, (clampedSec / duration) * 100)) : 0;
 
-    if (els.timelineScrubber) {
-        els.timelineScrubber.max = String(duration || 60);
-        els.timelineScrubber.value = String(clampTimelineSec(state.timelineCurrentSec));
-        els.timelineScrubber.disabled = !terminalSolved;
+    if (els.timelineSurface) {
+        els.timelineSurface.classList.toggle("seekable", terminalSolved);
+        els.timelineSurface.setAttribute("aria-disabled", terminalSolved ? "false" : "true");
+        els.timelineSurface.setAttribute("aria-valuemin", "0");
+        els.timelineSurface.setAttribute("aria-valuemax", String(Math.floor(duration || 60)));
+        els.timelineSurface.setAttribute("aria-valuenow", String(Math.floor(clampedSec)));
+        els.timelineSurface.setAttribute(
+            "aria-valuetext",
+            `${formatClock(Math.floor(clampedSec))} / ${formatClock(Math.floor(duration || 60))}`
+        );
+    }
+
+    if (els.timelineProgress) {
+        els.timelineProgress.style.width = `${pct}%`;
+    }
+
+    if (els.timelinePlayhead) {
+        els.timelinePlayhead.style.left = `${pct}%`;
     }
 
     if (els.timelineReadout) {
-        els.timelineReadout.textContent = `${formatClock(Math.floor(clampTimelineSec(state.timelineCurrentSec)))} / ${formatClock(Math.floor(duration || 60))}`;
+        els.timelineReadout.textContent = `${formatClock(Math.floor(clampedSec))} / ${formatClock(Math.floor(duration || 60))}`;
     }
 
+    renderTimelineWaveform();
     renderTimelineSegments();
     renderTimelineMarkers();
 }
@@ -667,7 +968,7 @@ async function playClipForWindow(song, index, token, options = {}) {
     }
 }
 
-async function playMixtapeSequence() {
+async function playMixtapeFromCursor(startSec = 0) {
     if (!state.puzzle || !Array.isArray(state.puzzle.songs)) {
         return;
     }
@@ -686,26 +987,38 @@ async function playMixtapeSequence() {
         return;
     }
 
+    const duration = timelineDurationSec();
+    let cursor = clampTimelineSec(startSec);
+    if (cursor >= duration - 0.01) {
+        cursor = 0;
+    }
+
     state.sequencePlaybackToken += 1;
     const token = state.sequencePlaybackToken;
     state.isSequencePlaying = true;
-    state.timelineCurrentSec = 0;
+    state.timelineCurrentSec = cursor;
     render();
     let failedTrack = -1;
 
-    for (let index = 0; index < state.puzzle.songs.length; index += 1) {
-        if (token !== state.sequencePlaybackToken || state.phase === "gaveup") {
-            break;
-        }
+    while (token === state.sequencePlaybackToken && state.isSequencePlaying && cursor < duration - 0.01) {
+        const index = Math.min(state.puzzle.songs.length - 1, Math.floor(cursor / CLIP_PLAY_SECONDS));
+        const offsetSec = cursor - index * CLIP_PLAY_SECONDS;
+        const segmentDuration = Math.min(CLIP_PLAY_SECONDS - offsetSec, duration - cursor);
 
-        state.timelineCurrentSec = index * CLIP_PLAY_SECONDS;
+        state.timelineCurrentSec = clampTimelineSec(cursor);
         renderTimeline();
         setStatusMessage(`Playing clip ${index + 1} of ${state.puzzle.songs.length}...`);
-        const ok = await playClipForWindow(state.puzzle.songs[index], index, token);
+        const ok = await playClipForWindow(state.puzzle.songs[index], index, token, {
+            offsetSec,
+            durationSec: segmentDuration,
+            timelineStartSec: cursor
+        });
         if (!ok && token === state.sequencePlaybackToken) {
             failedTrack = index;
             break;
         }
+
+        cursor = clampTimelineSec(cursor + segmentDuration);
     }
 
     if (token === state.sequencePlaybackToken && failedTrack >= 0) {
@@ -717,11 +1030,15 @@ async function playMixtapeSequence() {
     if (token === state.sequencePlaybackToken) {
         state.isSequencePlaying = false;
         if (!state.isTimelinePlaying) {
-            state.timelineCurrentSec = timelineDurationSec();
+            state.timelineCurrentSec = state.buzzActive ? clampTimelineSec(cursor) : timelineDurationSec();
             renderTimeline();
         }
         render();
     }
+}
+
+async function playMixtapeSequence() {
+    await playMixtapeFromCursor(0);
 }
 
 function pauseTransportPlayback() {
@@ -801,24 +1118,57 @@ async function onTransportPlayPause() {
         return;
     }
 
+    if (state.phase !== "solved") {
+        setStatusMessage("Timeline controls unlock after solving the theme.", "warn");
+        return;
+    }
+
     if (state.phase === "solved") {
         await playTimelineFromCursor();
         return;
     }
+}
 
+async function onStartRound() {
+    if (!state.puzzle) {
+        setStatusMessage("Pick a tape from Archive first.", "warn");
+        return;
+    }
+    if (state.phase === "solved" || state.phase === "gaveup") {
+        setStatusMessage("Round already finished.", "warn");
+        return;
+    }
+    if (state.isSequencePlaying) {
+        return;
+    }
     await playMixtapeSequence();
 }
 
 function answerSet() {
     if (!state.puzzle) {
-        return new Set();
+        return [];
     }
 
     const canonical = [state.puzzle.theme, ...(state.puzzle.aliases || [])]
         .map((item) => normalizeTheme(String(item || "")))
         .filter(Boolean);
 
-    return new Set(canonical);
+    return Array.from(new Set(canonical));
+}
+
+function isAcceptedGuess(normalizedGuess, acceptedAnswers) {
+    if (!normalizedGuess) {
+        return false;
+    }
+    for (const answer of acceptedAnswers) {
+        if (!answer) {
+            continue;
+        }
+        if (normalizedGuess === answer || normalizedGuess.includes(answer)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function submitGuess(rawGuess) {
@@ -828,7 +1178,8 @@ function submitGuess(rawGuess) {
         return "empty";
     }
 
-    if (!startRoundIfNeeded()) {
+    if (!state.startedAtMs) {
+        setStatusMessage("Press Start first.", "warn");
         return "blocked";
     }
 
@@ -839,7 +1190,7 @@ function submitGuess(rawGuess) {
 
     const normalizedGuess = normalizeTheme(guess);
     const options = answerSet();
-    const isCorrect = options.has(normalizedGuess);
+    const isCorrect = isAcceptedGuess(normalizedGuess, options);
 
     if (isCorrect) {
         state.phase = "solved";
@@ -859,7 +1210,7 @@ function submitGuess(rawGuess) {
         state.phase = "running";
         state.wrongGuesses += 1;
         state.guesses.push({ value: guess, result: "wrong", atMs: nowMs() });
-        setStatusMessage(`Not it. +${WRONG_GUESS_PENALTY_SECONDS}s penalty. Keep guessing.`, "bad");
+        setStatusMessage("Not it. Keep guessing.", "bad");
     }
 
     persistGameState();
@@ -883,6 +1234,10 @@ function giveUp() {
     state.timelinePlaybackToken += 1;
     state.isSequencePlaying = false;
     state.isTimelinePlaying = false;
+    clearBuzzTimerInterval();
+    state.buzzActive = false;
+    state.buzzDeadlineMs = 0;
+    updateBuzzTimerUi();
     stopAnyClip();
     stopClock();
 
@@ -892,21 +1247,9 @@ function giveUp() {
 }
 
 function renderRoundMeta() {
-    if (!state.startedAtMs) {
+    if (els.roundMeta) {
         els.roundMeta.textContent = "";
-        return;
     }
-
-    const elapsed = elapsedSeconds();
-    const penalty = state.wrongGuesses * WRONG_GUESS_PENALTY_SECONDS;
-
-    if (state.phase === "gaveup") {
-        els.roundMeta.textContent = `Elapsed ${formatClock(elapsed)} | Penalty +${penalty}s | Score DNF`;
-        return;
-    }
-
-    const suffix = state.phase === "solved" ? "" : "*";
-    els.roundMeta.textContent = `Elapsed ${formatClock(elapsed)} | Penalty +${penalty}s | Score ${currentScoreSeconds()}s${suffix}`;
 }
 
 function renderReveal() {
@@ -961,7 +1304,7 @@ function renderCassetteState() {
     } else if (state.phase === "gaveup") {
         els.cassetteStatus.textContent = "Finished";
     } else if (playable) {
-        els.cassetteStatus.textContent = "Press Play";
+        els.cassetteStatus.textContent = "";
     } else {
         els.cassetteStatus.textContent = "Loading";
     }
@@ -970,9 +1313,20 @@ function renderCassetteState() {
 function renderTransportState() {
     const playable = state.phase !== "loading" && state.phase !== "missing";
     const isAnyPlayback = state.isSequencePlaying || state.isTimelinePlaying;
+    const solved = state.phase === "solved";
+
+    if (els.startBtn) {
+        els.startBtn.classList.toggle("hidden", solved);
+        els.startBtn.disabled = !playable || isAnyPlayback || !state.puzzle;
+        els.startBtn.textContent = state.startedAtMs ? "Replay" : "Start";
+    }
+
+    if (els.transportRow) {
+        els.transportRow.classList.toggle("hidden", !solved);
+    }
 
     if (els.transportPlayBtn) {
-        els.transportPlayBtn.disabled = !playable;
+        els.transportPlayBtn.disabled = !playable || !solved;
         if (isAnyPlayback) {
             els.transportPlayBtn.textContent = "Pause";
         } else {
@@ -1006,7 +1360,7 @@ function renderClue() {
         els.clueTitle.textContent = "";
         els.clueText.textContent = "";
         if (els.cassetteClue) {
-            els.cassetteClue.textContent = "Loading clue...";
+            els.cassetteClue.textContent = "Open Archive and choose a tape.";
         }
         return;
     }
@@ -1022,8 +1376,11 @@ function renderClue() {
 function renderGuessInputState() {
     const terminal = state.phase === "solved" || state.phase === "gaveup";
     const playable = state.phase !== "loading" && state.phase !== "missing";
-    els.guessInput.disabled = !playable || terminal;
-    els.giveUpBtn.disabled = !playable || terminal;
+    const canGuess = playable && !terminal && Boolean(state.startedAtMs);
+    els.guessInput.disabled = !canGuess;
+    if (els.guessSubmitBtn) {
+        els.guessSubmitBtn.disabled = !canGuess;
+    }
     els.guessInput.classList.toggle("correct", state.phase === "solved");
     els.guessForm.classList.toggle("hidden", terminal);
 }
@@ -1049,6 +1406,9 @@ function resetForNewTape() {
     state.guesses = [];
     state.timelineCurrentSec = 0;
     state.isTimelinePlaying = false;
+    state.timelineWaveformPeaks = [];
+    state.timelineWaveformToken += 1;
+    drawTimelineWaveformPlaceholder();
     if (els.guessInput) {
         els.guessInput.value = "";
     }
@@ -1115,27 +1475,69 @@ async function loadSelectedTape() {
     state.dateKey = `${state.selectedPackSlug}:${state.selectedTapeKey}`;
 
     els.puzzleDate.textContent = `Set: ${state.selectedPackLabel} | Tape: ${state.selectedTapeKey}`;
-    setStatusMessage(`Loaded ${state.selectedPackLabel} / ${state.selectedTapeKey}. Press Play to start.`);
+    setStatusMessage(`Loaded ${state.selectedPackLabel} / ${state.selectedTapeKey}.`);
+    buildTimelineWaveformData();
     render();
 }
 
+async function loadTapeFromArchiveItem(item) {
+    state.selectedPackSlug = item.packSlug;
+    state.selectedPackLabel = item.packLabel;
+    state.sourceBasePath = item.basePath;
+    state.sourceLabel = item.packLabel;
+    state.selectedTapeKey = item.tapeKey;
+    state.selectedTapePath = item.tapePath;
+    try {
+        await loadSelectedTape();
+    } catch (error) {
+        state.phase = "missing";
+        setStatusMessage(error.message || "Failed to load tape.", "bad");
+        render();
+    }
+}
+
 async function setupTapePicker() {
-    const { packs, defaultSlug } = await loadManifestPacks();
+    const { packs } = await loadManifestPacks();
     state.manifestPacks = packs;
     if (!packs.length) {
         throw new Error("No mixtape sets found in mixtapes/index.json.");
     }
 
-    const querySlug = getMixtapeSlugFromQuery();
-    const initialSlug =
-        packs.find((pack) => pack.slug === querySlug)?.slug ||
-        packs.find((pack) => pack.slug === defaultSlug)?.slug ||
-        packs[0].slug;
+    await buildArchiveEntries();
+    renderArchiveList();
 
-    state.selectedPackSlug = initialSlug;
-    renderSourceOptions();
-    await refreshTapeOptionsForPack(initialSlug);
-    await loadSelectedTape();
+    if (!state.archiveEntries.length) {
+        state.phase = "missing";
+        setStatusMessage("No tapes found in archive.", "bad");
+        render();
+        return;
+    }
+
+    state.phase = "ready";
+    state.puzzle = null;
+    state.startedAtMs = null;
+    state.endedAtMs = null;
+    state.wrongGuesses = 0;
+    state.guesses = [];
+    state.timelineCurrentSec = 0;
+    els.puzzleDate.textContent = "Select a tape from Archive.";
+    setStatusMessage("Open Archive and choose a tape.", "ok");
+    render();
+    openArchiveModal();
+}
+
+function openArchiveModal() {
+    if (!els.archiveModal) {
+        return;
+    }
+    els.archiveModal.classList.remove("hidden");
+}
+
+function closeArchiveModal() {
+    if (!els.archiveModal) {
+        return;
+    }
+    els.archiveModal.classList.add("hidden");
 }
 
 function openRulesModal() {
@@ -1146,60 +1548,89 @@ function closeRulesModal() {
     els.rulesModal.classList.add("hidden");
 }
 
+function timelinePointerToSec(event) {
+    if (!els.timelineSurface) {
+        return 0;
+    }
+    const rect = els.timelineSurface.getBoundingClientRect();
+    if (!rect.width) {
+        return clampTimelineSec(state.timelineCurrentSec);
+    }
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    return clampTimelineSec(ratio * timelineDurationSec());
+}
+
+function seekTimeline(nextSec, { restartIfPlaying = true } = {}) {
+    if (state.phase !== "solved") {
+        setStatusMessage("Timeline seeking unlocks after solving the theme.", "warn");
+        return;
+    }
+    state.timelineCurrentSec = clampTimelineSec(nextSec);
+    renderTimeline();
+
+    if (restartIfPlaying && state.isTimelinePlaying) {
+        pauseTransportPlayback();
+        playTimelineFromCursor();
+    }
+}
+
 function wireEvents() {
-    els.sourceSelect.addEventListener("change", async () => {
-        const slug = String(els.sourceSelect.value || "");
-        try {
-            await refreshTapeOptionsForPack(slug);
-            els.puzzleDate.textContent = `Set: ${state.selectedPackLabel} | Tape: ${state.selectedTapeKey}`;
-            setStatusMessage("Choose a tape and press Load.", "ok");
-            render();
-        } catch (error) {
-            setStatusMessage(error.message || "Could not load set.", "bad");
-        }
-    });
+    if (els.archiveBtn) {
+        els.archiveBtn.addEventListener("click", openArchiveModal);
+    }
 
-    els.tapeSelect.addEventListener("change", () => {
-        if (applyTapeSelectionFromUI()) {
-            els.puzzleDate.textContent = `Set: ${state.selectedPackLabel} | Tape: ${state.selectedTapeKey}`;
-        }
-    });
+    if (els.archiveCloseBtn) {
+        els.archiveCloseBtn.addEventListener("click", closeArchiveModal);
+    }
 
-    els.loadTapeBtn.addEventListener("click", async () => {
-        if (!applyTapeSelectionFromUI()) {
-            setStatusMessage("No tape selected.", "warn");
-            return;
-        }
-        try {
-            await loadSelectedTape();
-        } catch (error) {
-            state.phase = "missing";
-            setStatusMessage(error.message || "Failed to load tape.", "bad");
-            render();
-        }
-    });
+    if (els.archiveModal) {
+        els.archiveModal.addEventListener("click", (event) => {
+            if (event.target === els.archiveModal) {
+                closeArchiveModal();
+            }
+        });
+    }
+
+    if (els.startBtn) {
+        els.startBtn.addEventListener("click", onStartRound);
+    }
 
     els.transportPlayBtn.addEventListener("click", () => {
         onTransportPlayPause();
     });
 
-    els.timelineScrubber.addEventListener("input", () => {
-        const nextSec = clampTimelineSec(Number(els.timelineScrubber.value));
-        state.timelineCurrentSec = nextSec;
-        renderTimeline();
-    });
+    if (els.timelineSurface) {
+        els.timelineSurface.addEventListener("click", (event) => {
+            seekTimeline(timelinePointerToSec(event));
+        });
 
-    els.timelineScrubber.addEventListener("change", () => {
-        if (state.phase !== "solved") {
-            return;
-        }
-        if (state.isTimelinePlaying) {
-            pauseTransportPlayback();
-            playTimelineFromCursor();
-        }
-    });
-
-    els.giveUpBtn.addEventListener("click", giveUp);
+        els.timelineSurface.addEventListener("keydown", (event) => {
+            if (state.phase !== "solved") {
+                return;
+            }
+            const duration = timelineDurationSec() || 60;
+            if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                seekTimeline(state.timelineCurrentSec - 1, { restartIfPlaying: false });
+            } else if (event.key === "ArrowRight") {
+                event.preventDefault();
+                seekTimeline(state.timelineCurrentSec + 1, { restartIfPlaying: false });
+            } else if (event.key === "Home") {
+                event.preventDefault();
+                seekTimeline(0, { restartIfPlaying: false });
+            } else if (event.key === "End") {
+                event.preventDefault();
+                seekTimeline(duration, { restartIfPlaying: false });
+            } else if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                if (state.isTimelinePlaying) {
+                    pauseTransportPlayback();
+                } else {
+                    playTimelineFromCursor();
+                }
+            }
+        });
+    }
 
     els.guessForm.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -1220,7 +1651,12 @@ function wireEvents() {
     window.addEventListener("keydown", (event) => {
         if (event.code === "Escape") {
             closeRulesModal();
+            closeArchiveModal();
         }
+    });
+
+    window.addEventListener("resize", () => {
+        renderTimelineWaveform();
     });
 }
 

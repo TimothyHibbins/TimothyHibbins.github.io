@@ -1,0 +1,49 @@
+{
+  "date": "2026-07-27",
+  "clueTitle": "Clue",
+  "clue": "What do the numbers represent in the titles to all of these songs?",
+  "theme": "ages",
+  "aliases": [
+    "age",
+    "birthdays",
+    "years"
+  ],
+  "songs": [
+    {
+      "title": "18",
+      "artist": "One Direction",
+      "clipSrc": "data/clips/2026-07-27__1__one-direction-18.wav",
+      "hint": ""
+    },
+    {
+      "title": "Sixteen",
+      "artist": "Ellie Goulding",
+      "clipSrc": "data/clips/2026-07-27__2__ellie-goulding-sixteen.wav",
+      "hint": ""
+    },
+    {
+      "title": "Seventeen",
+      "artist": "Heathers: The Musical",
+      "clipSrc": "data/clips/2026-07-27__3__heathers-the-musical-seventeen.wav",
+      "hint": ""
+    },
+    {
+      "title": "30/90",
+      "artist": "Tick Tick Boom",
+      "clipSrc": "data/clips/2026-07-27__4__tick-tick-boom-30-90.wav",
+      "hint": ""
+    },
+    {
+      "title": "7 Years",
+      "artist": "Lukas Graham",
+      "clipSrc": "data/clips/2026-07-27__5__lukas-graham-7-years.wav",
+      "hint": ""
+    },
+    {
+      "title": "22",
+      "artist": "Taylor Swift",
+      "clipSrc": "data/clips/2026-07-27__6__taylor-swift-22.wav",
+      "hint": ""
+    }
+  ]
+}

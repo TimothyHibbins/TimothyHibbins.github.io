@@ -1,13 +1,37 @@
 {
-    "default": "tape A",
+    "default": "tape 1",
     "packs": [
         {
-            "slug": "tape A",
-            "label": "Tape A"
+            "slug": "tape 1",
+            "label": "Tape 1"
         },
         {
-            "slug": "tape B",
-            "label": "Tape B"
+            "slug": "tape 2",
+            "label": "Tape 2"
+        },
+        {
+            "slug": "tape 3",
+            "label": "Tape 3"
+        },
+        {
+            "slug": "tape 4",
+            "label": "Tape 4"
+        },
+        {
+            "slug": "tape 5",
+            "label": "Tape 5"
+        },
+        {
+            "slug": "tape 6",
+            "label": "Tape 6"
+        },
+        {
+            "slug": "tape 7",
+            "label": "Tape 7"
+        },
+        {
+            "slug": "tape 8",
+            "label": "Tape 8"
         }
     ]
 }

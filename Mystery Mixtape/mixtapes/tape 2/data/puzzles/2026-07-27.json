@@ -1,0 +1,48 @@
+{
+  "date": "2026-07-27",
+  "clueTitle": "Clue",
+  "clue": "What type of person is named in each of these songs titles?",
+  "theme": "queen",
+  "aliases": [
+    "a queen",
+    "queens"
+  ],
+  "songs": [
+    {
+      "title": "God Save the Queen",
+      "artist": "Sex Pistols",
+      "clipSrc": "data/clips/2026-07-27__1__sex-pistols-god-save-the-queen.wav",
+      "hint": ""
+    },
+    {
+      "title": "Carribbean Queen",
+      "artist": "Billy Ocean",
+      "clipSrc": "data/clips/2026-07-27__2__billy-ocean-carribbean-queen.wav",
+      "hint": ""
+    },
+    {
+      "title": "Killer Queen",
+      "artist": "Queen",
+      "clipSrc": "data/clips/2026-07-27__3__queen-killer-queen.wav",
+      "hint": ""
+    },
+    {
+      "title": "Queencard",
+      "artist": "i-dle",
+      "clipSrc": "data/clips/2026-07-27__4__i-dle-queencard.wav",
+      "hint": ""
+    },
+    {
+      "title": "Dancing Queen",
+      "artist": "ABBA",
+      "clipSrc": "data/clips/2026-07-27__5__abba-dancing-queen.wav",
+      "hint": ""
+    },
+    {
+      "title": "God Save the Queen (British National Anthem)",
+      "artist": "British National Anthem",
+      "clipSrc": "data/clips/2026-07-27__6__british-national-anthem-god-save-the-queen-british-n.wav",
+      "hint": ""
+    }
+  ]
+}

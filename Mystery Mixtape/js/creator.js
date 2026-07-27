@@ -1,17 +1,23 @@
 import JSZip from "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm";
 
-const STORAGE_KEY = "mystery-mixtape.creator.v5";
+const STORAGE_KEY = "mystery-mixtape.creator.v6";
 const TRACK_COUNT = 6;
 const CLIP_SECONDS = 10;
 const CLIP_CONTEXT_SECONDS = 2;
 const FADE_SECONDS = 1;
 const TIME_STEP = 0.01;
 const WAV_RATE = 44100;
+const SOURCE_CANVAS_HEIGHT = 112;
+const SOURCE_CANVAS_MIN_WIDTH = 1800;
+const SOURCE_CANVAS_MAX_WIDTH = 8192;
+const SOURCE_CANVAS_PIXELS_PER_SECOND = 220;
 
 const els = {
     themeClue: document.getElementById("theme-clue"),
     themeAnswer: document.getElementById("theme-answer"),
+    themeAliases: document.getElementById("theme-aliases"),
     segmentsStrip: document.getElementById("segments-strip"),
+    combinedCanvas: document.getElementById("combined-canvas"),
     selectedClipCanvas: document.getElementById("selected-clip-canvas"),
     selectedFileCanvas: document.getElementById("selected-file-canvas"),
     songCount: document.getElementById("song-count"),
@@ -34,6 +40,20 @@ const state = {
     dragClip: null
 };
 
+function computeSourceCanvasWidth(durationSec) {
+    if (!Number.isFinite(durationSec) || durationSec <= 0) {
+        return SOURCE_CANVAS_MIN_WIDTH;
+    }
+    const desired = Math.round(durationSec * SOURCE_CANVAS_PIXELS_PER_SECOND);
+    return Math.max(SOURCE_CANVAS_MIN_WIDTH, Math.min(SOURCE_CANVAS_MAX_WIDTH, desired));
+}
+
+function getWaveformBackgroundColor() {
+    const rootStyles = getComputedStyle(document.documentElement);
+    const surface = rootStyles.getPropertyValue("--surface").trim();
+    return surface || "#fffdf8";
+}
+
 function createEmptyTracks() {
     return Array.from({ length: TRACK_COUNT }, (_, index) => ({
         id: `track-${index + 1}`,
@@ -53,8 +73,8 @@ function createEmptyTracks() {
         previewSource: null,
         spectrogramImage: null,
         spectrogramCanvas: null,
-        sourceCanvasW: 720,
-        sourceCanvasH: 92
+        sourceCanvasW: SOURCE_CANVAS_MIN_WIDTH,
+        sourceCanvasH: SOURCE_CANVAS_HEIGHT
     }));
 }
 
@@ -95,6 +115,7 @@ function saveDraft() {
     const payload = {
         themeClue: els.themeClue.value,
         themeAnswer: els.themeAnswer.value,
+        themeAliases: els.themeAliases.value,
         selectedTrackId: state.selectedTrackId,
         tracks: state.tracks.map((track) => ({
             id: track.id,
@@ -121,6 +142,7 @@ function restoreDraft() {
 
         els.themeClue.value = payload.themeClue || "";
         els.themeAnswer.value = payload.themeAnswer || "";
+        els.themeAliases.value = payload.themeAliases || "";
 
         if (Array.isArray(payload.tracks) && payload.tracks.length === TRACK_COUNT) {
             state.tracks = payload.tracks.map((stored, index) => ({
@@ -141,8 +163,8 @@ function restoreDraft() {
                 previewSource: null,
                 spectrogramImage: null,
                 spectrogramCanvas: null,
-                sourceCanvasW: 720,
-                sourceCanvasH: 92
+                sourceCanvasW: SOURCE_CANVAS_MIN_WIDTH,
+                sourceCanvasH: SOURCE_CANVAS_HEIGHT
             }));
         }
 
@@ -313,11 +335,11 @@ function computeWaveformImage(track) {
     sourceCanvas.height = height;
     const sourceCtx = sourceCanvas.getContext("2d");
     if (sourceCtx) {
-        sourceCtx.fillStyle = "#111827";
+        sourceCtx.fillStyle = getWaveformBackgroundColor();
         sourceCtx.fillRect(0, 0, width, height);
 
         const midY = Math.floor(height / 2);
-        sourceCtx.strokeStyle = "rgba(148,163,184,0.45)";
+        sourceCtx.strokeStyle = "rgba(17,24,39,0.18)";
         sourceCtx.lineWidth = 1;
         sourceCtx.beginPath();
         sourceCtx.moveTo(0, midY + 0.5);
@@ -325,7 +347,7 @@ function computeWaveformImage(track) {
         sourceCtx.stroke();
 
         const samplesPerPixel = Math.max(1, Math.floor(channel.length / width));
-        sourceCtx.strokeStyle = "rgba(125,211,252,0.95)";
+        sourceCtx.strokeStyle = "rgba(17,24,39,0.98)";
         sourceCtx.lineWidth = 1;
 
         for (let x = 0; x < width; x += 1) {
@@ -358,11 +380,24 @@ function computeWaveformImage(track) {
 }
 
 function fillEmptySpectrogram(ctx, width, height, text) {
-    ctx.fillStyle = "#111827";
+    ctx.fillStyle = getWaveformBackgroundColor();
     ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = "#9ca3af";
+    ctx.fillStyle = "#6b7280";
     ctx.font = "11px IBM Plex Mono";
     ctx.fillText(text, 8, Math.floor(height / 2));
+}
+
+function getDrawContext(canvas) {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+        return null;
+    }
+
+    const dpr = Number(canvas.dataset.dpr || "1");
+    const width = Math.max(10, Math.floor(canvas.clientWidth));
+    const height = Math.max(10, Math.floor(canvas.clientHeight));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, width, height };
 }
 
 function secToCanvasX(sec, rangeStart, rangeEnd, width) {
@@ -381,15 +416,14 @@ function pointerToSec(canvas, event, rangeStart, rangeEnd) {
 }
 
 function drawWindowedSpectrogram(track, canvas, windowStart, windowEnd, labelText = "", options = {}) {
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
+    const draw = getDrawContext(canvas);
+    if (!draw) {
         return;
     }
 
-    const width = canvas.width;
-    const height = canvas.height;
+    const { ctx, width, height } = draw;
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "#111827";
+    ctx.fillStyle = getWaveformBackgroundColor();
     ctx.fillRect(0, 0, width, height);
 
     if (!track.decoded || !track.spectrogramCanvas || !track.durationSec) {
@@ -408,7 +442,7 @@ function drawWindowedSpectrogram(track, canvas, windowStart, windowEnd, labelTex
     const clipStartX = secToCanvasX(clipStart, windowStart, windowEnd, width);
     const clipEndX = secToCanvasX(clipEnd, windowStart, windowEnd, width);
 
-    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.fillStyle = "rgba(239,68,68,0.24)";
     ctx.fillRect(clipStartX, 0, Math.max(1, clipEndX - clipStartX), height);
 
     if (Number.isFinite(state.hoverSec) && state.hoverSec >= windowStart && state.hoverSec <= windowEnd) {
@@ -430,26 +464,20 @@ function drawWindowedSpectrogram(track, canvas, windowStart, windowEnd, labelTex
         ctx.stroke();
     }
 
-    if (labelText) {
-        ctx.fillStyle = "rgba(17,24,39,0.75)";
-        ctx.fillRect(3, 3, 120, 14);
-        ctx.fillStyle = "#e5e7eb";
-        ctx.font = "10px IBM Plex Mono";
-        ctx.fillText(labelText, 7, 13);
-    }
+    void labelText;
+    void options;
 }
 
 function drawCombinedSpectrogram(canvas, labelText = "Combined 60s mixtape") {
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
+    const draw = getDrawContext(canvas);
+    if (!draw) {
         return;
     }
 
-    const width = canvas.width;
-    const height = canvas.height;
+    const { ctx, width, height } = draw;
     const segWidth = width / TRACK_COUNT;
 
-    ctx.fillStyle = "#111827";
+    ctx.fillStyle = getWaveformBackgroundColor();
     ctx.fillRect(0, 0, width, height);
 
     for (let i = 0; i < TRACK_COUNT; i += 1) {
@@ -462,9 +490,9 @@ function drawCombinedSpectrogram(canvas, labelText = "Combined 60s mixtape") {
             const clipWidth = Math.max(1, clipEndX - clipStartX);
             ctx.drawImage(track.spectrogramCanvas, clipStartX, 0, clipWidth, track.sourceCanvasH, x, 0, segWidth, height);
         } else {
-            ctx.fillStyle = "#1f2937";
+            ctx.fillStyle = "rgba(17,24,39,0.08)";
             ctx.fillRect(x, 0, segWidth, height);
-            ctx.fillStyle = "#9ca3af";
+            ctx.fillStyle = "#6b7280";
             ctx.font = "10px IBM Plex Mono";
             ctx.fillText("Upload", x + 8, Math.floor(height / 2));
         }
@@ -490,7 +518,7 @@ function drawCombinedSpectrogram(canvas, labelText = "Combined 60s mixtape") {
         }
 
         if (i > 0) {
-            ctx.strokeStyle = "rgba(255,255,255,0.3)";
+            ctx.strokeStyle = "rgba(17,24,39,0.22)";
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(x + 0.5, 0);
@@ -499,22 +527,27 @@ function drawCombinedSpectrogram(canvas, labelText = "Combined 60s mixtape") {
         }
     }
 
-    ctx.fillStyle = "rgba(17,24,39,0.75)";
-    ctx.fillRect(3, 3, 170, 14);
-    ctx.fillStyle = "#e5e7eb";
-    ctx.font = "10px IBM Plex Mono";
-    ctx.fillText(labelText, 7, 13);
+    void labelText;
 }
 
 function sizeCanvas(canvas) {
     const rect = canvas.getBoundingClientRect();
     const width = Math.max(10, Math.floor(rect.width));
     const height = Math.max(10, Math.floor(rect.height));
-    if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
+    const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+    const pixelWidth = Math.floor(width * dpr);
+    const pixelHeight = Math.floor(height * dpr);
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+        canvas.dataset.dpr = String(dpr);
         return true;
     }
+
+    if (canvas.dataset.dpr !== String(dpr)) {
+        canvas.dataset.dpr = String(dpr);
+    }
+
     return false;
 }
 
@@ -570,6 +603,8 @@ function syncTrackStart(track, nextValue) {
 function clearTrackAudio(track) {
     stopPreview(track);
     resetPreviewPosition(track);
+    track.title = "";
+    track.artist = "";
     track.sourceFileName = "";
     track.sourceFile = null;
     track.arrayBuffer = null;
@@ -585,9 +620,12 @@ async function loadTrackFile(track, file) {
     track.sourceFile = file;
     track.sourceFileName = file.name;
     track.title = inferTitleFromFileName(file.name);
+    track.artist = "";
     track.arrayBuffer = await file.arrayBuffer();
     track.decoded = await audioContext.decodeAudioData(track.arrayBuffer.slice(0));
     track.durationSec = track.decoded.duration;
+    track.sourceCanvasW = computeSourceCanvasWidth(track.durationSec);
+    track.sourceCanvasH = SOURCE_CANVAS_HEIGHT;
     clampTrackStart(track);
     resetPreviewPosition(track);
     computeWaveformImage(track);
@@ -596,28 +634,44 @@ async function loadTrackFile(track, file) {
 function renderSelectedEditor() {
     const track = getSelectedTrack();
 
+    sizeCanvas(els.combinedCanvas);
     sizeCanvas(els.selectedClipCanvas);
     sizeCanvas(els.selectedFileCanvas);
 
+    drawCombinedSpectrogram(els.combinedCanvas, "Combined 60s waveform overview");
+
     if (!track) {
-        const wrap = els.selectedClipCanvas.parentElement;
-        wrap.classList.remove("empty");
-        wrap.classList.add("overview");
-        drawCombinedSpectrogram(els.selectedClipCanvas, "Combined 60s waveform overview");
-        drawCombinedSpectrogram(els.selectedFileCanvas, "Combined 60s waveform overview");
+        const clipDraw = getDrawContext(els.selectedClipCanvas);
+        const fileDraw = getDrawContext(els.selectedFileCanvas);
+        if (clipDraw) {
+            fillEmptySpectrogram(clipDraw.ctx, clipDraw.width, clipDraw.height, "Select a row below");
+        }
+        if (fileDraw) {
+            fillEmptySpectrogram(fileDraw.ctx, fileDraw.width, fileDraw.height, "Select a row below");
+        }
         return;
     }
 
     const hasDecodedAudio = Boolean(track.decoded && track.spectrogramCanvas && track.durationSec);
-    const wrap = els.selectedClipCanvas.parentElement;
-    wrap.classList.toggle("empty", !hasDecodedAudio);
-    wrap.classList.remove("overview");
 
     if (!hasDecodedAudio) {
-        drawWindowedSpectrogram(track, els.selectedClipCanvas, 0, CLIP_SECONDS, track.sourceFileName ? "Re-upload to restore audio" : "No audio loaded");
-        const fileCtx = els.selectedFileCanvas.getContext("2d");
-        if (fileCtx) {
-            fileCtx.clearRect(0, 0, els.selectedFileCanvas.width, els.selectedFileCanvas.height);
+        const clipDraw = getDrawContext(els.selectedClipCanvas);
+        const fileDraw = getDrawContext(els.selectedFileCanvas);
+        if (clipDraw) {
+            fillEmptySpectrogram(
+                clipDraw.ctx,
+                clipDraw.width,
+                clipDraw.height,
+                track.sourceFileName ? "Re-upload to restore audio" : "No audio loaded"
+            );
+        }
+        if (fileDraw) {
+            fillEmptySpectrogram(
+                fileDraw.ctx,
+                fileDraw.width,
+                fileDraw.height,
+                track.sourceFileName ? "Re-upload to restore audio" : "No audio loaded"
+            );
         }
         return;
     }
@@ -628,7 +682,7 @@ function renderSelectedEditor() {
         els.selectedClipCanvas,
         clipWindow.start,
         clipWindow.end,
-        `Clip +/-2s | Start ${track.startSec.toFixed(2)}s`,
+        "",
         { showDragHandles: true }
     );
     drawWindowedSpectrogram(
@@ -636,7 +690,7 @@ function renderSelectedEditor() {
         els.selectedFileCanvas,
         0,
         Math.max(1, track.durationSec || CLIP_SECONDS),
-        `Full file | Start ${track.startSec.toFixed(2)}s`,
+        "",
         { showDragHandles: true }
     );
 }
@@ -1218,6 +1272,13 @@ function validateExport() {
     return "";
 }
 
+function parseAliasList(value) {
+    return String(value || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
 async function exportZip() {
     const problem = validateExport();
     if (problem) {
@@ -1228,6 +1289,8 @@ async function exportZip() {
     const dateKey = todayAestDate();
     const clue = els.themeClue.value.trim();
     const answer = els.themeAnswer.value.trim();
+    const aliases = parseAliasList(els.themeAliases.value)
+        .filter((alias) => alias.toLowerCase() !== answer.toLowerCase());
 
     setStatus("Building package...", "warn");
 
@@ -1252,7 +1315,7 @@ async function exportZip() {
             clueTitle: "Clue",
             clue,
             theme: answer,
-            aliases: [],
+            aliases,
             songs: state.tracks.map((track, i) => ({
                 title: track.title,
                 artist: track.artist,
@@ -1307,10 +1370,13 @@ function clearAll() {
     state.tracks = createEmptyTracks();
     state.selectedTrackId = "";
     state.hoverSec = null;
+    els.themeClue.value = "";
+    els.themeAnswer.value = "";
+    els.themeAliases.value = "";
+    localStorage.removeItem(STORAGE_KEY);
     renderSegmentsStrip();
     renderCanvases();
-    saveDraft();
-    setStatus("All tracks reset.", "warn");
+    setStatus("All tracks and cached draft data reset.", "warn");
 }
 
 function wireEvents() {
@@ -1330,7 +1396,7 @@ function wireEvents() {
     els.downloadPackageBtn.addEventListener("click", exportZip);
     els.clearAllBtn.addEventListener("click", clearAll);
 
-    [els.themeClue, els.themeAnswer].forEach((el) => {
+    [els.themeClue, els.themeAnswer, els.themeAliases].forEach((el) => {
         el.addEventListener("input", saveDraft);
     });
 

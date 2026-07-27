@@ -28,6 +28,9 @@
                 <label>Answer
                     <input id="theme-answer" type="text" placeholder="New York">
                 </label>
+                <label>Alternative Answers
+                    <input id="theme-aliases" type="text" placeholder="NYC, New York City, The Big Apple">
+                </label>
             </div>
 
             <div class="head-actions">
@@ -48,8 +51,18 @@
 
         <section class="segment segment-strip">
             <div class="selected-editor-canvases">
-                <canvas id="selected-clip-canvas" class="spectrogram selected-spectrogram"></canvas>
-                <canvas id="selected-file-canvas" class="spectrogram selected-spectrogram"></canvas>
+                <div class="selected-wave-lane">
+                    <p class="selected-wave-label">60s Mixtape Overview</p>
+                    <canvas id="combined-canvas" class="spectrogram selected-spectrogram"></canvas>
+                </div>
+                <div class="selected-wave-lane">
+                    <p class="selected-wave-label">Clip (10s +/- 2s)</p>
+                    <canvas id="selected-clip-canvas" class="spectrogram selected-spectrogram"></canvas>
+                </div>
+                <div class="selected-wave-lane">
+                    <p class="selected-wave-label">Full Source File</p>
+                    <canvas id="selected-file-canvas" class="spectrogram selected-spectrogram"></canvas>
+                </div>
             </div>
             <div id="segments-strip" class="segments-strip"></div>
         </section>

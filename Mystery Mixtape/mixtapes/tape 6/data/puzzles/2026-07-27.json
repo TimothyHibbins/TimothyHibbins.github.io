@@ -1,0 +1,45 @@
+{
+  "date": "2026-07-27",
+  "clueTitle": "Clue",
+  "clue": "What concept is named in all of the titles of these songs?",
+  "theme": "karma",
+  "aliases": [],
+  "songs": [
+    {
+      "title": "Karma’s a Bitch",
+      "artist": "Brit Smith",
+      "clipSrc": "data/clips/2026-07-27__1__brit-smith-karma-s-a-bitch.wav",
+      "hint": ""
+    },
+    {
+      "title": "Karma",
+      "artist": "AJR",
+      "clipSrc": "data/clips/2026-07-27__2__ajr-karma.wav",
+      "hint": ""
+    },
+    {
+      "title": "Karma Police",
+      "artist": "Radiohead",
+      "clipSrc": "data/clips/2026-07-27__3__radiohead-karma-police.wav",
+      "hint": ""
+    },
+    {
+      "title": "My Kink Is Karma",
+      "artist": "Chappell Roan",
+      "clipSrc": "data/clips/2026-07-27__4__chappell-roan-my-kink-is-karma.wav",
+      "hint": ""
+    },
+    {
+      "title": "Karma Chameleon",
+      "artist": "Culture Club",
+      "clipSrc": "data/clips/2026-07-27__5__culture-club-karma-chameleon.wav",
+      "hint": ""
+    },
+    {
+      "title": "Karma",
+      "artist": "Taylor Swift",
+      "clipSrc": "data/clips/2026-07-27__6__taylor-swift-karma.wav",
+      "hint": ""
+    }
+  ]
+}

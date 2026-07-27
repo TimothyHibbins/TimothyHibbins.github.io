@@ -1,0 +1,48 @@
+{
+  "date": "2026-07-27",
+  "clueTitle": "Clue",
+  "clue": "What type of being is named in the titles of all of these songs?",
+  "theme": "God",
+  "aliases": [
+    "gods",
+    "a god"
+  ],
+  "songs": [
+    {
+      "title": "God Only Knows",
+      "artist": "The Beach Boys",
+      "clipSrc": "data/clips/2026-07-27__1__the-beach-boys-god-only-knows.wav",
+      "hint": ""
+    },
+    {
+      "title": "God Games",
+      "artist": "Epic: The Musical",
+      "clipSrc": "data/clips/2026-07-27__2__epic-the-musical-god-games.wav",
+      "hint": ""
+    },
+    {
+      "title": "God's Menu",
+      "artist": "Stray Kids",
+      "clipSrc": "data/clips/2026-07-27__3__stray-kids-god-s-menu.wav",
+      "hint": ""
+    },
+    {
+      "title": "God is a woman",
+      "artist": "Ariana Grande",
+      "clipSrc": "data/clips/2026-07-27__4__ariana-grande-god-is-a-woman.wav",
+      "hint": ""
+    },
+    {
+      "title": "God's Plan",
+      "artist": "Drake",
+      "clipSrc": "data/clips/2026-07-27__5__drake-god-s-plan.wav",
+      "hint": ""
+    },
+    {
+      "title": "Rap God",
+      "artist": "Eminem",
+      "clipSrc": "data/clips/2026-07-27__6__eminem-rap-god.wav",
+      "hint": ""
+    }
+  ]
+}
