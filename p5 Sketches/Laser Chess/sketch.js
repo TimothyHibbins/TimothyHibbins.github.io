@@ -565,7 +565,7 @@ function setup() {
 
     new Button(
       boardX + boardSidelength + margin * 2,
-      height - margin - spacing,
+      height - margin - spacing / 2 - spacing / 2 - spacing / 2,
       spacing * 3,
       spacing / 2,
       "AI Opponent", aiEnabled
