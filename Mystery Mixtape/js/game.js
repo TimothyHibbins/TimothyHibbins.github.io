@@ -26,7 +26,6 @@ const els = {
     timelineMarkers: document.getElementById("timeline-markers"),
     timelineSegments: document.getElementById("timeline-segments"),
     timelineReadout: document.getElementById("timeline-readout"),
-    statusMessage: document.getElementById("status-message"),
     roundMeta: document.getElementById("round-meta"),
     guessForm: document.getElementById("guess-form"),
     guessInput: document.getElementById("guess-input"),
@@ -679,6 +678,9 @@ function renderTimeline() {
 }
 
 function setStatusMessage(message, tone = "") {
+    if (!els.statusMessage) {
+        return;
+    }
     els.statusMessage.textContent = message;
     els.statusMessage.classList.remove("ok", "warn", "bad");
     if (tone) {
@@ -1132,16 +1134,20 @@ async function onTransportPlayPause() {
 async function onStartRound() {
     if (!state.puzzle) {
         setStatusMessage("Pick a tape from Archive first.", "warn");
-        return;
+        return false;
     }
     if (state.phase === "solved" || state.phase === "gaveup") {
         setStatusMessage("Round already finished.", "warn");
-        return;
+        return false;
     }
     if (state.isSequencePlaying) {
-        return;
+        return false;
     }
-    await playMixtapeSequence();
+    startRoundIfNeeded();
+    render();
+    els.guessInput.focus();
+    playMixtapeSequence();
+    return true;
 }
 
 function answerSet() {
@@ -1315,12 +1321,6 @@ function renderTransportState() {
     const isAnyPlayback = state.isSequencePlaying || state.isTimelinePlaying;
     const solved = state.phase === "solved";
 
-    if (els.startBtn) {
-        els.startBtn.classList.toggle("hidden", solved);
-        els.startBtn.disabled = !playable || isAnyPlayback || !state.puzzle;
-        els.startBtn.textContent = state.startedAtMs ? "Replay" : "Start";
-    }
-
     if (els.transportRow) {
         els.transportRow.classList.toggle("hidden", !solved);
     }
@@ -1328,9 +1328,13 @@ function renderTransportState() {
     if (els.transportPlayBtn) {
         els.transportPlayBtn.disabled = !playable || !solved;
         if (isAnyPlayback) {
-            els.transportPlayBtn.textContent = "Pause";
+            els.transportPlayBtn.textContent = "⏸";
+            els.transportPlayBtn.setAttribute("aria-label", "Pause");
+            els.transportPlayBtn.setAttribute("title", "Pause");
         } else {
-            els.transportPlayBtn.textContent = "Play";
+            els.transportPlayBtn.textContent = "▶";
+            els.transportPlayBtn.setAttribute("aria-label", "Play");
+            els.transportPlayBtn.setAttribute("title", "Play");
         }
     }
 
@@ -1376,13 +1380,18 @@ function renderClue() {
 function renderGuessInputState() {
     const terminal = state.phase === "solved" || state.phase === "gaveup";
     const playable = state.phase !== "loading" && state.phase !== "missing";
-    const canGuess = playable && !terminal && Boolean(state.startedAtMs);
+    const canGuess = playable && !terminal && Boolean(state.puzzle);
     els.guessInput.disabled = !canGuess;
-    if (els.guessSubmitBtn) {
-        els.guessSubmitBtn.disabled = !canGuess;
-    }
     els.guessInput.classList.toggle("correct", state.phase === "solved");
     els.guessForm.classList.toggle("hidden", terminal);
+
+    if (!state.puzzle) {
+        els.guessInput.placeholder = "Open Archive and choose a tape";
+    } else if (!state.startedAtMs) {
+        els.guessInput.placeholder = "Press Enter to start";
+    } else {
+        els.guessInput.placeholder = "Enter your theme guess";
+    }
 }
 
 function render() {
@@ -1411,6 +1420,7 @@ function resetForNewTape() {
     drawTimelineWaveformPlaceholder();
     if (els.guessInput) {
         els.guessInput.value = "";
+        els.guessInput.placeholder = "Press Enter to start";
     }
 }
 
@@ -1527,10 +1537,19 @@ async function setupTapePicker() {
 }
 
 function openArchiveModal() {
+    console.log('[DEBUG] openArchiveModal() called');
+    console.log('[DEBUG] els.archiveModal:', els.archiveModal);
+    
     if (!els.archiveModal) {
+        console.error('[DEBUG] Archive modal element not found!');
         return;
     }
+    
+    console.log('[DEBUG] Removing hidden class from modal');
+    console.log('[DEBUG] Modal classList before:', els.archiveModal.classList.toString());
     els.archiveModal.classList.remove("hidden");
+    console.log('[DEBUG] Modal classList after:', els.archiveModal.classList.toString());
+    console.log('[DEBUG] Modal display:', window.getComputedStyle(els.archiveModal).display);
 }
 
 function closeArchiveModal() {
@@ -1575,8 +1594,13 @@ function seekTimeline(nextSec, { restartIfPlaying = true } = {}) {
 }
 
 function wireEvents() {
+    console.log('[DEBUG] wireEvents() called');
+    
     if (els.archiveBtn) {
+        console.log('[DEBUG] Attaching click listener to archive button');
         els.archiveBtn.addEventListener("click", openArchiveModal);
+    } else {
+        console.error('[DEBUG] Archive button not found!');
     }
 
     if (els.archiveCloseBtn) {
@@ -1589,10 +1613,6 @@ function wireEvents() {
                 closeArchiveModal();
             }
         });
-    }
-
-    if (els.startBtn) {
-        els.startBtn.addEventListener("click", onStartRound);
     }
 
     els.transportPlayBtn.addEventListener("click", () => {
@@ -1632,8 +1652,26 @@ function wireEvents() {
         });
     }
 
-    els.guessForm.addEventListener("submit", (event) => {
+    els.guessForm.addEventListener("submit", async (event) => {
         event.preventDefault();
+        if (!state.puzzle) {
+            setStatusMessage("Pick a tape from Archive first.", "warn");
+            return;
+        }
+
+        const value = els.guessInput.value;
+
+        if (!state.startedAtMs) {
+            const started = await onStartRound();
+            if (!started) {
+                return;
+            }
+            if (!value.trim()) {
+                els.guessInput.focus();
+                return;
+            }
+        }
+
         const outcome = submitGuess(els.guessInput.value);
         if (outcome === "wrong") {
             els.guessInput.value = "";
@@ -1661,17 +1699,22 @@ function wireEvents() {
 }
 
 async function init() {
+    console.log('[DEBUG] init() called');
     wireEvents();
     render();
 
     try {
+        console.log('[DEBUG] Calling setupTapePicker()...');
         await setupTapePicker();
+        console.log('[DEBUG] setupTapePicker() completed');
     } catch (error) {
+        console.error('[DEBUG] Error in setupTapePicker():', error);
         state.phase = "missing";
         setStatusMessage(error.message || "Failed to load puzzle.", "bad");
     }
 
     render();
+    console.log('[DEBUG] init() completed');
 }
 
 init();

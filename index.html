@@ -21,26 +21,101 @@
         <img src="covers/Fares aren't fair (cover).png" width=30%>
     </a>
 
-    <p>Projects I haven't made covers for:</p>
-    <ul>
-        <li><a href="Graphing_Calculator/index.html">Graphing Calculator (draft)</a></li>
-        <li><a href="Fly_Me_To_The_Moon.html">Fly Me To The Moon</a></li>
-        <li><a href="p5 Sketches/Fly Me To The Moon/index.html">Fly Me To The Moon (sim)</a></li>
-        <li><a href="p5 Sketches/Tim's JoyWheel Steering Test/index.html">JoyWheel Steering Test</a></li>
-        <li><a href="p5 Sketches/Laser Chess/index.html">Laser Chess</a></li>
-        <li><a href="p5 Sketches/Track Drawer">Track Drawer</a></li>
-        <li><a href="p5 Sketches/Scoresnake Tennis Match Visualiser/index.html">Scoresnake Tennis Match Visualiser</a>
-        </li>
-        <li><a href="MagicWords/index.html">MagicWords</a></li>
-        <li><a href="Guitar/index.html">Guitar</a></li>
-        <li><a href="PerfectColors/index.html">PerfectColors</a></li>
-        <li><a href="LearnedLeague History Visualiser/index.html">LearnedLeague History Visualiser</a></li>
-        <li><a href="Mystery Mixtape/index.html">Mystery Mixtape</a></li>
+    <div class="projects-section">
+        <h2>Projects</h2>
 
+        <div class="project-controls">
+            <input type="text" class="search-bar" id="projectSearch" placeholder="Search projects...">
+            <div class="column-toggle">
+                <span>Columns:</span>
+                <button class="column-btn" data-cols="1">1</button>
+                <button class="column-btn active" data-cols="2">2</button>
+                <button class="column-btn" data-cols="3">3</button>
+            </div>
+        </div>
 
-    </ul>
+        <div class="thumbnail-grid cols-2" id="projectGrid">
+            <a href="Graphing_Calculator/index.html" class="thumbnail-item">
+                <img src="covers/Graphing Calculator.png" alt="Graphing Calculator">
+                <div class="thumbnail-title">Intercalc</div>
+                <div class="thumbnail-description">Graphing calculator that shows the intermediate operations which
+                    built to the output.</div>
+            </a>
 
+            <a href="Fly_Me_To_The_Moon.html" class="thumbnail-item">
+                <img src="covers/Fly Me To The Moon.png" alt="Fly Me To The Moon">
+                <div class="thumbnail-title">Fly Me To The Moon</div>
+                <div class="thumbnail-description">Interactive essay teaching orbital mechanics through simulation.</div>
+            </a>
 
+            <a href="p5 Sketches/Fly Me To The Moon/index.html" class="thumbnail-item">
+                <img src="covers/Fly Me To The Moon (sim).png" alt="Fly Me To The Moon (sim)">
+                <div class="thumbnail-title">Fly Me To The Moon (sim)</div>
+                <div class="thumbnail-description">Pure sandbox-mode simulation from Fly Me To The Moon.</div>
+            </a>
+
+            <a href="p5 Sketches/Tim's JoyWheel Steering Test/index.html" class="thumbnail-item">
+                <img src="covers/JoyWheel Steering Test.png" alt="JoyWheel Steering Test">
+                <div class="thumbnail-title">JoyWheel Steering Test</div>
+                <div class="thumbnail-description">Demo of JoyWheel steering controller scheme for analogue
+                    thumb-sticks.</div>
+            </a>
+
+            <a href="p5 Sketches/Laser Chess/index.html" class="thumbnail-item">
+                <img src="covers/Laser Chess.png" alt="Laser Chess">
+                <div class="thumbnail-title">Laser Chess</div>
+                <div class="thumbnail-description">Chess program with explicit visual representation of possible moves
+                    to better learn and understand the game.</div>
+            </a>
+
+            <a href="p5 Sketches/Track Drawer/index.html" class="thumbnail-item">
+                <img src="covers/Track Drawer.png" alt="Track Drawer">
+                <div class="thumbnail-title">Track Drawer</div>
+                <div class="thumbnail-description">Tool for drawing and designing racing tracks.</div>
+            </a>
+
+            <a href="p5 Sketches/Scoresnake Tennis Match Visualiser/index.html" class="thumbnail-item">
+                <img src="covers/Scoresnake Tennis Match Visualiser.png" alt="Scoresnake Tennis Match Visualiser">
+                <div class="thumbnail-title">Scoresnake Tennis Match Visualiser</div>
+                <div class="thumbnail-description">Database tool for generating score visualisations of real tennis
+                    matches.</div>
+            </a>
+
+            <a href="MagicWords/index.html" class="thumbnail-item">
+                <img src="covers/MagicWords.png" alt="MagicWords">
+                <div class="thumbnail-title">MagicWords</div>
+                <div class="thumbnail-description">Prototype for a true grammatically aware word-level word processor.
+                </div>
+            </a>
+
+            <a href="Guitar/index.html" class="thumbnail-item">
+                <img src="covers/Guitar.png" alt="Guitar">
+                <div class="thumbnail-title">Secret Chord</div>
+                <div class="thumbnail-description">Dynamic, harmonically-aware guitar tab display and editor.</div>
+            </a>
+
+            <a href="PerfectColors/index.html" class="thumbnail-item">
+                <img src="covers/PerfectColors.png" alt="PerfectColors">
+                <div class="thumbnail-title">PerfectColors</div>
+                <div class="thumbnail-description">The ultimate colour picker.</div>
+            </a>
+
+            <a href="LearnedLeague History Visualiser/index.html" class="thumbnail-item">
+                <img src="covers/LearnedLeague History Visualiser.png" alt="LearnedLeague History Visualiser">
+                <div class="thumbnail-title">LearnedLeague History Visualiser</div>
+                <div class="thumbnail-description">Tool for visualising a LearnedLeague player's past performance by
+                    subject.</div>
+            </a>
+
+            <a href="Mystery Mixtape/index.html" class="thumbnail-item">
+                <img src="covers/Mystery Mixtape.png" alt="Mystery Mixtape">
+                <div class="thumbnail-title">Mystery Mixtape</div>
+                <div class="thumbnail-description">Daily music quiz game.</div>
+            </a>
+        </div>
+    </div>
+
+    <script src="js/projects.js"></script>
 
 </body>
 

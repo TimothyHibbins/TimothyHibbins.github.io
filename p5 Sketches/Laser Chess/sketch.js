@@ -44,6 +44,12 @@ Things to add:
 
 - faces
 
+COMPLETED:
+- AI opponent integration using Stockfish.js
+  - Toggle AI on/off
+  - Adjustable skill level (0-20)
+  - Choose AI color (White/Black)
+  - Visual thinking indicator
 
 
 - each piece has dictionary for possible directions
@@ -555,13 +561,32 @@ function setup() {
       spacing * 3,
       spacing / 2,
       "Fullscreen", fullscreenMode
+    ),
+
+    new Button(
+      boardX + boardSidelength + margin * 2,
+      height - margin - spacing,
+      spacing * 3,
+      spacing / 2,
+      "AI Opponent", aiEnabled
     )
 
 
   ];
 
-}
+  // Initialize AI
+  console.log('========================================');
+  console.log('Laser Chess - Initializing AI System');
+  console.log('========================================');
+  console.log('To use AI:');
+  console.log('1. Click "AI Opponent" button to enable');
+  console.log('2. Press "A" to change AI color');
+  console.log('3. Press +/- to adjust difficulty (0-20)');
+  console.log('========================================');
 
+  initializeStockfish();
+
+}
 
 function playMoveSound(rank, file) {
 
@@ -646,6 +671,331 @@ class Button {
 
 
 }
+
+// ==================== AI INTEGRATION ====================
+/*
+ * CHESS AI USING STOCKFISH.JS
+ * 
+ * This implementation integrates the Stockfish chess engine to provide AI opponents.
+ * 
+ * FEATURES:
+ * - Toggle AI on/off with the "AI Opponent" button
+ * - AI can play as White or Black (press 'A' to toggle)
+ * - Adjustable AI strength from 0-20 (press +/- keys)
+ * - Visual indicator when AI is thinking
+ * 
+ * HOW IT WORKS:
+ * 1. Current position is converted to FEN (Forsyth-Edwards Notation)
+ * 2. FEN is sent to Stockfish engine
+ * 3. Stockfish returns best move in UCI format (e.g., "e2e4")
+ * 4. UCI move is parsed and applied to the game
+ * 
+ * TECHNICAL DETAILS:
+ * - Uses Stockfish.js (JavaScript port of Stockfish engine)
+ * - Communicates via UCI (Universal Chess Interface) protocol
+ * - AI moves are applied automatically after opponent moves
+ * - Skill level controls Stockfish's playing strength (0=weakest, 20=strongest)
+ * 
+ * STOCKFISH CONFIGURATION:
+ * - Default skill level: 10 (intermediate strength)
+ * - Move time: 1000ms (1 second per move)
+ * - These can be adjusted in the code for different behavior
+ */
+
+// Stockfish engine setup
+let stockfish;
+let aiEnabled = { [FLAG]: false };
+let aiColor = BLACK; // AI plays as black by default
+let aiThinking = false;
+let aiSkillLevel = 10; // 0-20, where 20 is strongest
+
+function initializeStockfish() {
+  try {
+    // Initialize Stockfish as a Web Worker
+    stockfish = new Worker('stockfish.js');
+
+    stockfish.onmessage = function (event) {
+      const message = event.data;
+
+      console.log("Stockfish:", message); // Debug logging
+
+      // When Stockfish sends the best move
+      if (typeof message === 'string' && message.startsWith('bestmove')) {
+        const parts = message.split(' ');
+        const moveUCI = parts[1];
+
+        if (moveUCI && moveUCI !== '(none)') {
+          applyAIMove(moveUCI);
+        }
+
+        aiThinking = false;
+      }
+    };
+
+    stockfish.onerror = function (error) {
+      console.error("Stockfish Worker error:", error);
+    };
+
+    // Initialize engine
+    stockfish.postMessage('uci');
+
+    // Wait a moment for uci to process, then send commands
+    setTimeout(() => {
+      stockfish.postMessage('isready');
+      stockfish.postMessage(`setoption name Skill Level value ${aiSkillLevel}`);
+      stockfish.postMessage('ucinewgame');
+    }, 100);
+
+    console.log("Stockfish initialized successfully");
+  } catch (error) {
+    console.error("Error initializing Stockfish:", error);
+    console.log("AI features will not be available");
+  }
+}
+
+// Convert current position to FEN (Forsyth-Edwards Notation)
+function positionToFEN(position) {
+  let fen = '';
+
+  // 1. Piece placement
+  for (let rank = 0; rank < N_RANKS; rank++) {
+    let emptyCount = 0;
+
+    for (let file = 0; file < N_FILES; file++) {
+      const piece = position.board[rank][file];
+
+      if (piece === null) {
+        emptyCount++;
+      } else {
+        if (emptyCount > 0) {
+          fen += emptyCount;
+          emptyCount = 0;
+        }
+
+        let pieceChar = '';
+        switch (piece.type) {
+          case PAWN: pieceChar = 'p'; break;
+          case KNIGHT: pieceChar = 'n'; break;
+          case BISHOP: pieceChar = 'b'; break;
+          case ROOK: pieceChar = 'r'; break;
+          case QUEEN: pieceChar = 'q'; break;
+          case KING: pieceChar = 'k'; break;
+        }
+
+        if (piece.pieceColor === WHITE) {
+          pieceChar = pieceChar.toUpperCase();
+        }
+
+        fen += pieceChar;
+      }
+    }
+
+    if (emptyCount > 0) {
+      fen += emptyCount;
+    }
+
+    if (rank < N_RANKS - 1) {
+      fen += '/';
+    }
+  }
+
+  // 2. Active color
+  fen += position.playerToMove === WHITE ? ' w' : ' b';
+
+  // 3. Castling rights (simplified - check if kings and rooks haven't moved)
+  let castling = '';
+
+  // White kingside
+  if (position.board[7][4] && position.board[7][4].type === KING &&
+    !position.board[7][4].hasMoved &&
+    position.board[7][7] && position.board[7][7].type === ROOK &&
+    !position.board[7][7].hasMoved) {
+    castling += 'K';
+  }
+
+  // White queenside
+  if (position.board[7][4] && position.board[7][4].type === KING &&
+    !position.board[7][4].hasMoved &&
+    position.board[7][0] && position.board[7][0].type === ROOK &&
+    !position.board[7][0].hasMoved) {
+    castling += 'Q';
+  }
+
+  // Black kingside
+  if (position.board[0][4] && position.board[0][4].type === KING &&
+    !position.board[0][4].hasMoved &&
+    position.board[0][7] && position.board[0][7].type === ROOK &&
+    !position.board[0][7].hasMoved) {
+    castling += 'k';
+  }
+
+  // Black queenside
+  if (position.board[0][4] && position.board[0][4].type === KING &&
+    !position.board[0][4].hasMoved &&
+    position.board[0][0] && position.board[0][0].type === ROOK &&
+    !position.board[0][0].hasMoved) {
+    castling += 'q';
+  }
+
+  if (castling === '') {
+    castling = '-';
+  }
+
+  fen += ' ' + castling;
+
+  // 4. En passant target
+  if (position.enPassantTarget) {
+    const epFile = fileLetters[position.enPassantTarget.x];
+    const epRank = rankNumbers[position.enPassantTarget.y];
+    fen += ' ' + epFile + epRank;
+  } else {
+    fen += ' -';
+  }
+
+  // 5. Halfmove clock (simplified - set to 0)
+  fen += ' 0';
+
+  // 6. Fullmove number (simplified - calculate from history)
+  const fullmoveNumber = Math.floor(currentPlyIndex / 2) + 1;
+  fen += ' ' + fullmoveNumber;
+
+  return fen;
+}
+
+// Request best move from Stockfish
+function requestAIMove() {
+  if (!stockfish) {
+    console.error('Stockfish not initialized');
+    return;
+  }
+
+  if (aiThinking) {
+    console.log('AI already thinking, skipping');
+    return;
+  }
+
+  aiThinking = true;
+  console.log('Requesting AI move...');
+
+  const fen = positionToFEN(positionHistory[currentPlyIndex]);
+  console.log('FEN:', fen);
+
+  // Send position to Stockfish
+  stockfish.postMessage(`position fen ${fen}`);
+
+  // Request best move with time limit (in milliseconds)
+  stockfish.postMessage('go movetime 1000');
+}
+
+// Apply AI move from UCI notation (e.g., "e2e4")
+function applyAIMove(uciMove) {
+  console.log('Applying AI move:', uciMove);
+
+  // Parse UCI move
+  const fromFile = fileLetters.indexOf(uciMove[0]);
+  const fromRank = rankNumbers.indexOf(uciMove[1]);
+  const toFile = fileLetters.indexOf(uciMove[2]);
+  const toRank = rankNumbers.indexOf(uciMove[3]);
+
+  // Check for pawn promotion
+  let promotion = false;
+  if (uciMove.length === 5) {
+    const promoChar = uciMove[4];
+    switch (promoChar) {
+      case 'q': promotion = QUEEN; break;
+      case 'r': promotion = ROOK; break;
+      case 'b': promotion = BISHOP; break;
+      case 'n': promotion = KNIGHT; break;
+    }
+  }
+
+  // Find the piece at the source position
+  updatePieceObjectsFromPosition(shadowPieceObjects, positionHistory[currentPlyIndex]);
+
+  let movingPiece = null;
+  for (let piece of shadowPieceObjects[aiColor]) {
+    if (piece.file === fromFile && piece.rank === fromRank) {
+      movingPiece = piece;
+      break;
+    }
+  }
+
+  if (!movingPiece) {
+    console.error("Could not find piece for AI move:", uciMove);
+    console.log('Looking for piece at file:', fromFile, 'rank:', fromRank);
+    console.log('AI color pieces:', shadowPieceObjects[aiColor].map(p => ({
+      type: p.type,
+      file: p.file,
+      rank: p.rank
+    })));
+    aiThinking = false;
+    return;
+  }
+
+  console.log('Found moving piece:', movingPiece.type, 'at', fileLetters[fromFile] + rankNumbers[fromRank]);
+
+  // Get legal plies for this piece
+  const legalPlies = getLegalPlies(movingPiece, positionHistory[currentPlyIndex], shadowPieceObjects);
+
+  // Find the matching ply
+  let matchingPly = null;
+  for (let ply of legalPlies) {
+    if (ply.destinationFile === toFile && ply.destinationRank === toRank) {
+      matchingPly = ply;
+      break;
+    }
+  }
+
+  if (matchingPly) {
+    // If promotion, set the promoted piece
+    if (promotion && matchingPly.pawnPromotion) {
+      matchingPly.promotedPiece = promotion;
+    }
+
+    // Apply the move
+    console.log('Applying legal ply:', plyNotation(matchingPly, positionHistory[currentPlyIndex]));
+    lockInLegalPly(matchingPly);
+    console.log('AI move applied successfully');
+  } else {
+    console.error("Could not find legal ply matching AI move:", uciMove);
+    console.log('Available plies:', legalPlies.map(p => uciMove[0] + uciMove[1] + fileLetters[p.destinationFile] + rankNumbers[p.destinationRank]));
+    aiThinking = false; // Reset thinking flag on error
+  }
+}
+
+// Check if it's AI's turn and make a move
+function checkAndMakeAIMove() {
+  if (!aiEnabled[FLAG]) {
+    return; // AI is disabled
+  }
+
+  if (positionHistory[currentPlyIndex].playerToMove !== aiColor) {
+    return; // Not AI's turn
+  }
+
+  if (positionHistory[currentPlyIndex].status === CHECKMATE ||
+    positionHistory[currentPlyIndex].status === STALEMATE) {
+    return; // Game is over
+  }
+
+  if (aiThinking) {
+    return; // Already thinking
+  }
+
+  if (currentPlyIndex !== positionHistory.length - 1) {
+    return; // Not at the end of history
+  }
+
+  // All conditions met, request AI move
+  console.log('AI turn detected, requesting move...');
+
+  // Small delay to make it feel more natural
+  setTimeout(() => {
+    requestAIMove();
+  }, 500);
+}
+
+// ==================== END AI INTEGRATION ====================
 
 class LightweightPiece {
 
@@ -2708,6 +3058,9 @@ function lockInLegalPly(ply) {
   // Reset selection
   hoverNode = false;
 
+  // Check if AI should make a move
+  checkAndMakeAIMove();
+
 }
 
 function updateHoverNode() {
@@ -2778,6 +3131,21 @@ function mouseWheel(event) {
 
 function keyPressed() {
 
+  // Adjust AI skill level with +/- keys
+  if (key === '+' || key === '=') {
+    aiSkillLevel = Math.min(20, aiSkillLevel + 1);
+    if (stockfish) {
+      stockfish.postMessage(`setoption name Skill Level value ${aiSkillLevel}`);
+    }
+  } else if (key === '-' || key === '_') {
+    aiSkillLevel = Math.max(0, aiSkillLevel - 1);
+    if (stockfish) {
+      stockfish.postMessage(`setoption name Skill Level value ${aiSkillLevel}`);
+    }
+  } else if (key === 'a' || key === 'A') {
+    // Toggle AI color
+    aiColor = aiColor === WHITE ? BLACK : WHITE;
+  }
 
   navigator.clipboard.readText().then(txt => {
 
@@ -2918,5 +3286,31 @@ function draw() {
     button.draw();
 
   }
+
+  // Display AI controls and status
+  if (aiEnabled[FLAG]) {
+    let x = boardX + boardSidelength + margin * 2;
+    let y = margin + spacing * 2;
+
+    fill(0);
+    noStroke();
+    textAlign(LEFT, CENTER);
+    textSize(14);
+
+    if (aiThinking) {
+      text("AI is thinking...", x, y);
+      y += spacing / 2;
+    }
+
+    text("AI plays as: " + (aiColor === WHITE ? "White" : "Black"), x, y);
+    text("(Press 'A' to toggle)", x, y + 15);
+    y += spacing / 2;
+
+    text("AI Strength: " + aiSkillLevel + "/20", x, y);
+    text("(Press +/- to adjust)", x, y + 15);
+  }
+
+  // Check if AI should make a move (called every frame to catch state changes)
+  checkAndMakeAIMove();
 
 }

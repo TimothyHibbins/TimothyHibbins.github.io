@@ -32,3 +32,150 @@ h2 {
   font-family: "Menlo", monospace;
   font-size: 24pt;
 }
+
+/* Projects section */
+.projects-section {
+  margin-left: -30%;
+  margin-right: -30%;
+  margin-top: 40px;
+  margin-bottom: 40px;
+  padding: 0 10%;
+}
+
+.projects-section h2 {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+/* Project controls */
+.project-controls {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 30px;
+  flex-wrap: wrap;
+}
+
+.search-bar {
+  font-family: "Garamond", serif;
+  font-size: 14pt;
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 300px;
+  max-width: 90%;
+}
+
+.column-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.column-toggle span {
+  font-family: "Garamond", serif;
+  font-size: 13pt;
+  margin-right: 8px;
+}
+
+.column-btn {
+  font-family: "Garamond", serif;
+  font-size: 13pt;
+  padding: 6px 14px;
+  border: 1px solid #333;
+  background: white;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.column-btn:hover {
+  background-color: #f0f0f0;
+}
+
+.column-btn.active {
+  background-color: #333;
+  color: white;
+}
+
+/* Thumbnail grid styles */
+.thumbnail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px 20px;
+  margin: 0 auto;
+}
+
+.thumbnail-grid.cols-1 {
+  grid-template-columns: 1fr;
+  max-width: 800px;
+}
+
+.thumbnail-grid.cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.thumbnail-grid.cols-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.thumbnail-item {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: opacity 0.2s ease;
+}
+
+.thumbnail-item.hidden {
+  display: none;
+}
+
+.thumbnail-item:hover {
+  opacity: 0.8;
+}
+
+.thumbnail-item img {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+  display: block;
+  border: 1px solid #e0e0e0;
+}
+
+.thumbnail-title {
+  font-family: "Garamond", serif;
+  font-weight: bold;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
+.thumbnail-description {
+  font-family: "Garamond", serif;
+  color: #666;
+  line-height: 1.3;
+}
+
+/* Responsive text sizing based on columns */
+.thumbnail-grid.cols-1 .thumbnail-title {
+  font-size: 18pt;
+}
+
+.thumbnail-grid.cols-1 .thumbnail-description {
+  font-size: 14pt;
+}
+
+.thumbnail-grid.cols-2 .thumbnail-title {
+  font-size: 16pt;
+}
+
+.thumbnail-grid.cols-2 .thumbnail-description {
+  font-size: 12pt;
+}
+
+.thumbnail-grid.cols-3 .thumbnail-title {
+  font-size: 14pt;
+}
+
+.thumbnail-grid.cols-3 .thumbnail-description {
+  font-size: 11pt;
+}
