@@ -574,16 +574,29 @@ function setup() {
 
   ];
 
+  // Initialize AI Panel (left side)
+  aiPanelWidth = boardX - margin * 3;
+  aiPanelHeight = boardSidelength;
+  aiPanelX = margin;
+  aiPanelY = margin;
+
+  // Create ELO slider (Y position will be set dynamically in drawAIPanel)
+  eloSlider = new Slider(
+    aiPanelX + 20,
+    aiPanelY + 175,  // Below color buttons
+    aiPanelWidth - 40,
+    20,
+    800,  // Min ELO
+    2800, // Max ELO
+    1600, // Default ELO
+    "ELO Rating"
+  );
+
   // Initialize AI
   console.log('========================================');
   console.log('Laser Chess - Initializing AI System');
   console.log('========================================');
-  console.log('To use AI:');
-  console.log('1. Click "AI Opponent" button to enable');
-  console.log('2. Press "A" to change AI color');
-  console.log('3. Press +/- to adjust difficulty (0-20)');
-  console.log('========================================');
-
+  console.log('AI controls are on the left side panel');
   initializeStockfish();
 
 }
@@ -599,6 +612,57 @@ function playNote(freq, delayMs) {
     osc.freq(freq);
     env.play(osc);
   }, delayMs);
+}
+
+// Slider class for ELO control
+class Slider {
+  constructor(x, y, w, h, minVal, maxVal, defaultVal, label) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+    this.minVal = minVal;
+    this.maxVal = maxVal;
+    this.value = defaultVal;
+    this.label = label;
+    this.dragging = false;
+  }
+
+  update(mouseX, mouseY) {
+    if (this.dragging) {
+      let relX = constrain(mouseX - this.x, 0, this.w);
+      this.value = map(relX, 0, this.w, this.minVal, this.maxVal);
+      this.value = Math.round(this.value);
+      return true;
+    }
+    return false;
+  }
+
+  isOver(mx, my) {
+    return mx > this.x && mx < this.x + this.w &&
+           my > this.y - this.h / 2 && my < this.y + this.h / 2;
+  }
+
+  draw() {
+    // Slider track
+    stroke(0);
+    strokeWeight(2);
+    line(this.x, this.y, this.x + this.w, this.y);
+
+    // Slider handle
+    let handleX = map(this.value, this.minVal, this.maxVal, this.x, this.x + this.w);
+    fill(this.dragging ? selectionColor : 200);
+    stroke(0);
+    strokeWeight(2);
+    circle(handleX, this.y, this.h);
+
+    // Value display
+    fill(0);
+    noStroke();
+    textAlign(CENTER, CENTER);
+    textSize(12);
+    text(this.value, handleX, this.y - this.h);
+  }
 }
 
 
@@ -704,13 +768,22 @@ class Button {
 
 // Stockfish engine setup
 let stockfish;
+let stockfishReady = false;
+let stockfishRetryCount = 0;
 let aiEnabled = { [FLAG]: false };
 let aiColor = BLACK; // AI plays as black by default
 let aiThinking = false;
 let aiSkillLevel = 10; // 0-20, where 20 is strongest
+let aiElo = 1600; // ELO rating (800-2800)
+
+// AI Panel UI
+let aiPanelX, aiPanelY, aiPanelWidth, aiPanelHeight;
+let eloSlider;
 
 function initializeStockfish() {
   try {
+    stockfishReady = false;
+    
     // Initialize Stockfish as a Web Worker
     stockfish = new Worker('stockfish.js');
 
@@ -719,6 +792,12 @@ function initializeStockfish() {
 
       console.log("Stockfish:", message); // Debug logging
 
+      // Check for ready confirmation
+      if (message === 'readyok') {
+        stockfishReady = true;
+        console.log("Stockfish engine ready!");
+      }
+
       // When Stockfish sends the best move
       if (typeof message === 'string' && message.startsWith('bestmove')) {
         const parts = message.split(' ');
@@ -726,14 +805,28 @@ function initializeStockfish() {
 
         if (moveUCI && moveUCI !== '(none)') {
           applyAIMove(moveUCI);
+        } else {
+          console.error('Stockfish returned invalid move');
+          aiThinking = false;
         }
-
-        aiThinking = false;
       }
     };
 
     stockfish.onerror = function (error) {
       console.error("Stockfish Worker error:", error);
+      stockfishReady = false;
+      aiThinking = false;
+      
+      // Try to reconnect
+      if (stockfishRetryCount < 3) {
+        stockfishRetryCount++;
+        console.log(`Attempting to reconnect Stockfish (attempt ${stockfishRetryCount}/3)...`);
+        setTimeout(() => {
+          initializeStockfish();
+        }, 1000);
+      } else {
+        console.error('Failed to initialize Stockfish after 3 attempts');
+      }
     };
 
     // Initialize engine
@@ -746,10 +839,11 @@ function initializeStockfish() {
       stockfish.postMessage('ucinewgame');
     }, 100);
 
-    console.log("Stockfish initialized successfully");
+    console.log("Stockfish initialization started...");
   } catch (error) {
     console.error("Error initializing Stockfish:", error);
     console.log("AI features will not be available");
+    stockfishReady = false;
   }
 }
 
@@ -864,27 +958,41 @@ function positionToFEN(position) {
 
 // Request best move from Stockfish
 function requestAIMove() {
-  if (!stockfish) {
-    console.error('Stockfish not initialized');
+  if (!stockfish || !stockfishReady) {
+    console.error('Stockfish not initialized or not ready');
+    aiThinking = false;
     return;
   }
-
+  
   if (aiThinking) {
     console.log('AI already thinking, skipping');
     return;
   }
-
+  
   aiThinking = true;
   console.log('Requesting AI move...');
-
+  
   const fen = positionToFEN(positionHistory[currentPlyIndex]);
   console.log('FEN:', fen);
-
-  // Send position to Stockfish
-  stockfish.postMessage(`position fen ${fen}`);
-
-  // Request best move with time limit (in milliseconds)
-  stockfish.postMessage('go movetime 1000');
+  
+  try {
+    // Send position to Stockfish
+    stockfish.postMessage(`position fen ${fen}`);
+    
+    // Request best move with time limit (in milliseconds)
+    stockfish.postMessage('go movetime 1000');
+    
+    // Safety timeout in case Stockfish doesn't respond
+    setTimeout(() => {
+      if (aiThinking) {
+        console.warn('Stockfish response timeout, resetting...');
+        aiThinking = false;
+      }
+    }, 5000);
+  } catch (error) {
+    console.error('Error communicating with Stockfish:', error);
+    aiThinking = false;
+  }
 }
 
 // Apply AI move from UCI notation (e.g., "e2e4")
@@ -3131,18 +3239,8 @@ function mouseWheel(event) {
 
 function keyPressed() {
 
-  // Adjust AI skill level with +/- keys
-  if (key === '+' || key === '=') {
-    aiSkillLevel = Math.min(20, aiSkillLevel + 1);
-    if (stockfish) {
-      stockfish.postMessage(`setoption name Skill Level value ${aiSkillLevel}`);
-    }
-  } else if (key === '-' || key === '_') {
-    aiSkillLevel = Math.max(0, aiSkillLevel - 1);
-    if (stockfish) {
-      stockfish.postMessage(`setoption name Skill Level value ${aiSkillLevel}`);
-    }
-  } else if (key === 'a' || key === 'A') {
+  // Keep 'A' key for backwards compatibility (also have UI buttons now)
+  if (key === 'a' || key === 'A') {
     // Toggle AI color
     aiColor = aiColor === WHITE ? BLACK : WHITE;
   }
@@ -3159,7 +3257,69 @@ function keyPressed() {
 
 }
 
+function mousePressed() {
+  // Start dragging slider if clicked
+  if (aiEnabled[FLAG] && eloSlider.isOver(mouseX, mouseY)) {
+    eloSlider.dragging = true;
+  }
+}
+
+function mouseDragged() {
+  // Update slider while dragging
+  if (aiEnabled[FLAG] && eloSlider.dragging) {
+    if (eloSlider.update(mouseX, mouseY)) {
+      aiElo = eloSlider.value;
+      aiSkillLevel = eloToSkillLevel(aiElo);
+      if (stockfish && stockfishReady) {
+        stockfish.postMessage(`setoption name Skill Level value ${aiSkillLevel}`);
+      }
+    }
+  }
+}
+
+function mouseReleased() {
+  // Stop dragging slider
+  if (eloSlider) {
+    eloSlider.dragging = false;
+  }
+}
+
 function mouseClicked() {
+
+  // Handle AI panel color button clicks
+  if (aiEnabled[FLAG]) {
+    let colorButtonY = aiPanelY + 100;
+    let buttonWidth = (aiPanelWidth - 60) / 2;
+    let buttonHeight = 30;
+    
+    // White button
+    let whiteX = aiPanelX + 20;
+    if (mouseX > whiteX && mouseX < whiteX + buttonWidth &&
+        mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
+      aiColor = WHITE;
+      return;
+    }
+    
+    // Black button
+    let blackX = aiPanelX + 30 + buttonWidth;
+    if (mouseX > blackX && mouseX < blackX + buttonWidth &&
+        mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
+      aiColor = BLACK;
+      return;
+    }
+    
+    // Handle slider click
+    if (eloSlider.isOver(mouseX, mouseY)) {
+      eloSlider.dragging = true;
+      eloSlider.update(mouseX, mouseY);
+      aiElo = eloSlider.value;
+      aiSkillLevel = eloToSkillLevel(aiElo);
+      if (stockfish && stockfishReady) {
+        stockfish.postMessage(`setoption name Skill Level value ${aiSkillLevel}`);
+      }
+      return;
+    }
+  }
 
   if (hoverPlyIndex != -1) {
     selectedPlyIndex = hoverPlyIndex;
@@ -3269,6 +3429,116 @@ function drawPawnPromotionOptionButtons() {
 
 }
 
+// Convert ELO rating to Stockfish skill level (0-20)
+function eloToSkillLevel(elo) {
+  // Map ELO 800-2800 to skill 0-20
+  return Math.round(map(elo, 800, 2800, 0, 20));
+}
+
+// Draw AI control panel on the left side
+function drawAIPanel() {
+  if (!aiEnabled[FLAG]) return;
+  
+  // Panel background
+  fill(245);
+  stroke(0);
+  strokeWeight(2);
+  rectMode(CORNER);
+  rect(aiPanelX, aiPanelY, aiPanelWidth, aiPanelHeight, 5);
+  
+  // Title
+  fill(0);
+  noStroke();
+  textAlign(CENTER, TOP);
+  textSize(18);
+  text("AI OPPONENT", aiPanelX + aiPanelWidth / 2, aiPanelY + 15);
+  
+  // Status
+  textSize(14);
+  textAlign(CENTER, TOP);
+  let statusY = aiPanelY + 50;
+  
+  if (aiThinking) {
+    fill(selectionColor);
+    text("● Thinking...", aiPanelX + aiPanelWidth / 2, statusY);
+  } else if (!stockfishReady) {
+    fill(255, 0, 0);
+    text("● Engine Not Ready", aiPanelX + aiPanelWidth / 2, statusY);
+  } else {
+    fill(0, 150, 0);
+    text("● Ready", aiPanelX + aiPanelWidth / 2, statusY);
+  }
+  
+  // Color selection
+  fill(0);
+  textSize(14);
+  textAlign(LEFT, TOP);
+  let colorY = aiPanelY + 80;
+  text("AI plays as:", aiPanelX + 20, colorY);
+  
+  // Color toggle buttons
+  let colorButtonY = colorY + 20;
+  let buttonWidth = (aiPanelWidth - 60) / 2;
+  let buttonHeight = 30;
+  
+  // White button
+  let whiteX = aiPanelX + 20;
+  if (mouseX > whiteX && mouseX < whiteX + buttonWidth &&
+      mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
+    fill(220);
+  } else {
+    fill(aiColor === WHITE ? selectionColor : 255);
+  }
+  stroke(0);
+  strokeWeight(2);
+  rect(whiteX, colorButtonY, buttonWidth, buttonHeight, 5);
+  fill(0);
+  noStroke();
+  textAlign(CENTER, CENTER);
+  text("White", whiteX + buttonWidth / 2, colorButtonY + buttonHeight / 2);
+  
+  // Black button
+  let blackX = aiPanelX + 30 + buttonWidth;
+  if (mouseX > blackX && mouseX < blackX + buttonWidth &&
+      mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
+    fill(220);
+  } else {
+    fill(aiColor === BLACK ? selectionColor : 255);
+  }
+  stroke(0);
+  strokeWeight(2);
+  rect(blackX, colorButtonY, buttonWidth, buttonHeight, 5);
+  fill(0);
+  noStroke();
+  textAlign(CENTER, CENTER);
+  text("Black", blackX + buttonWidth / 2, colorButtonY + buttonHeight / 2);
+  
+  // ELO Slider section
+  fill(0);
+  textSize(14);
+  textAlign(LEFT, TOP);
+  let sliderY = colorButtonY + buttonHeight + 25;
+  text("Strength (ELO):", aiPanelX + 20, sliderY);
+  
+  // Update slider position dynamically
+  eloSlider.x = aiPanelX + 20;
+  eloSlider.y = sliderY + 25;
+  eloSlider.w = aiPanelWidth - 40;
+  
+  // Draw slider
+  eloSlider.draw();
+  
+  // Display current values
+  textAlign(CENTER, TOP);
+  textSize(16);
+  fill(0);
+  text(`${aiElo} ELO`, aiPanelX + aiPanelWidth / 2, sliderY + 50);
+  
+  textSize(12);
+  fill(100);
+  text(`(Skill Level: ${aiSkillLevel}/20)`, aiPanelX + aiPanelWidth / 2, sliderY + 70);
+}
+
 function draw() {
 
   background(255);
@@ -3287,28 +3557,8 @@ function draw() {
 
   }
 
-  // Display AI controls and status
-  if (aiEnabled[FLAG]) {
-    let x = boardX + boardSidelength + margin * 2;
-    let y = margin + spacing * 2;
-
-    fill(0);
-    noStroke();
-    textAlign(LEFT, CENTER);
-    textSize(14);
-
-    if (aiThinking) {
-      text("AI is thinking...", x, y);
-      y += spacing / 2;
-    }
-
-    text("AI plays as: " + (aiColor === WHITE ? "White" : "Black"), x, y);
-    text("(Press 'A' to toggle)", x, y + 15);
-    y += spacing / 2;
-
-    text("AI Strength: " + aiSkillLevel + "/20", x, y);
-    text("(Press +/- to adjust)", x, y + 15);
-  }
+  // Draw AI control panel on left side
+  drawAIPanel();
 
   // Check if AI should make a move (called every frame to catch state changes)
   checkAndMakeAIMove();
