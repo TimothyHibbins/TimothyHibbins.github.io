@@ -1270,7 +1270,7 @@ function renderReveal() {
     const answerDisplay = document.querySelector(".answer-text");
     if (answerDisplay && state.puzzle.theme) {
         let answerText = `Answer: ${state.puzzle.theme}`;
-        
+
         // If solved with an alternative answer, show it
         if (state.phase === "solved" && state.guesses.length > 0) {
             const correctGuess = state.guesses.find(g => g.result === "correct");
@@ -1278,7 +1278,7 @@ function renderReveal() {
                 answerText += ` (You guessed: ${correctGuess.value})`;
             }
         }
-        
+
         answerDisplay.textContent = answerText;
     }
 
@@ -1555,12 +1555,12 @@ async function setupTapePicker() {
 function openArchiveModal() {
     console.log('[DEBUG] openArchiveModal() called');
     console.log('[DEBUG] els.archiveModal:', els.archiveModal);
-    
+
     if (!els.archiveModal) {
         console.error('[DEBUG] Archive modal element not found!');
         return;
     }
-    
+
     console.log('[DEBUG] Removing hidden class from modal');
     console.log('[DEBUG] Modal classList before:', els.archiveModal.classList.toString());
     els.archiveModal.classList.remove("hidden");
@@ -1611,7 +1611,7 @@ function seekTimeline(nextSec, { restartIfPlaying = true } = {}) {
 
 function wireEvents() {
     console.log('[DEBUG] wireEvents() called');
-    
+
     if (els.archiveBtn) {
         console.log('[DEBUG] Attaching click listener to archive button');
         els.archiveBtn.addEventListener("click", openArchiveModal);
