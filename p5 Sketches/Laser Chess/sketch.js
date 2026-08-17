@@ -640,7 +640,7 @@ class Slider {
 
   isOver(mx, my) {
     return mx > this.x && mx < this.x + this.w &&
-           my > this.y - this.h / 2 && my < this.y + this.h / 2;
+      my > this.y - this.h / 2 && my < this.y + this.h / 2;
   }
 
   draw() {
@@ -783,7 +783,7 @@ let eloSlider;
 function initializeStockfish() {
   try {
     stockfishReady = false;
-    
+
     // Initialize Stockfish as a Web Worker
     stockfish = new Worker('stockfish.js');
 
@@ -816,7 +816,7 @@ function initializeStockfish() {
       console.error("Stockfish Worker error:", error);
       stockfishReady = false;
       aiThinking = false;
-      
+
       // Try to reconnect
       if (stockfishRetryCount < 3) {
         stockfishRetryCount++;
@@ -963,25 +963,25 @@ function requestAIMove() {
     aiThinking = false;
     return;
   }
-  
+
   if (aiThinking) {
     console.log('AI already thinking, skipping');
     return;
   }
-  
+
   aiThinking = true;
   console.log('Requesting AI move...');
-  
+
   const fen = positionToFEN(positionHistory[currentPlyIndex]);
   console.log('FEN:', fen);
-  
+
   try {
     // Send position to Stockfish
     stockfish.postMessage(`position fen ${fen}`);
-    
+
     // Request best move with time limit (in milliseconds)
     stockfish.postMessage('go movetime 1000');
-    
+
     // Safety timeout in case Stockfish doesn't respond
     setTimeout(() => {
       if (aiThinking) {
@@ -3291,23 +3291,23 @@ function mouseClicked() {
     let colorButtonY = aiPanelY + 100;
     let buttonWidth = (aiPanelWidth - 60) / 2;
     let buttonHeight = 30;
-    
+
     // White button
     let whiteX = aiPanelX + 20;
     if (mouseX > whiteX && mouseX < whiteX + buttonWidth &&
-        mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
+      mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
       aiColor = WHITE;
       return;
     }
-    
+
     // Black button
     let blackX = aiPanelX + 30 + buttonWidth;
     if (mouseX > blackX && mouseX < blackX + buttonWidth &&
-        mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
+      mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
       aiColor = BLACK;
       return;
     }
-    
+
     // Handle slider click
     if (eloSlider.isOver(mouseX, mouseY)) {
       eloSlider.dragging = true;
@@ -3438,26 +3438,26 @@ function eloToSkillLevel(elo) {
 // Draw AI control panel on the left side
 function drawAIPanel() {
   if (!aiEnabled[FLAG]) return;
-  
+
   // Panel background
   fill(245);
   stroke(0);
   strokeWeight(2);
   rectMode(CORNER);
   rect(aiPanelX, aiPanelY, aiPanelWidth, aiPanelHeight, 5);
-  
+
   // Title
   fill(0);
   noStroke();
   textAlign(CENTER, TOP);
   textSize(18);
   text("AI OPPONENT", aiPanelX + aiPanelWidth / 2, aiPanelY + 15);
-  
+
   // Status
   textSize(14);
   textAlign(CENTER, TOP);
   let statusY = aiPanelY + 50;
-  
+
   if (aiThinking) {
     fill(selectionColor);
     text("● Thinking...", aiPanelX + aiPanelWidth / 2, statusY);
@@ -3468,23 +3468,23 @@ function drawAIPanel() {
     fill(0, 150, 0);
     text("● Ready", aiPanelX + aiPanelWidth / 2, statusY);
   }
-  
+
   // Color selection
   fill(0);
   textSize(14);
   textAlign(LEFT, TOP);
   let colorY = aiPanelY + 80;
   text("AI plays as:", aiPanelX + 20, colorY);
-  
+
   // Color toggle buttons
   let colorButtonY = colorY + 20;
   let buttonWidth = (aiPanelWidth - 60) / 2;
   let buttonHeight = 30;
-  
+
   // White button
   let whiteX = aiPanelX + 20;
   if (mouseX > whiteX && mouseX < whiteX + buttonWidth &&
-      mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
+    mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
     fill(220);
   } else {
     fill(aiColor === WHITE ? selectionColor : 255);
@@ -3496,11 +3496,11 @@ function drawAIPanel() {
   noStroke();
   textAlign(CENTER, CENTER);
   text("White", whiteX + buttonWidth / 2, colorButtonY + buttonHeight / 2);
-  
+
   // Black button
   let blackX = aiPanelX + 30 + buttonWidth;
   if (mouseX > blackX && mouseX < blackX + buttonWidth &&
-      mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
+    mouseY > colorButtonY && mouseY < colorButtonY + buttonHeight) {
     fill(220);
   } else {
     fill(aiColor === BLACK ? selectionColor : 255);
@@ -3512,28 +3512,28 @@ function drawAIPanel() {
   noStroke();
   textAlign(CENTER, CENTER);
   text("Black", blackX + buttonWidth / 2, colorButtonY + buttonHeight / 2);
-  
+
   // ELO Slider section
   fill(0);
   textSize(14);
   textAlign(LEFT, TOP);
   let sliderY = colorButtonY + buttonHeight + 25;
   text("Strength (ELO):", aiPanelX + 20, sliderY);
-  
+
   // Update slider position dynamically
   eloSlider.x = aiPanelX + 20;
   eloSlider.y = sliderY + 25;
   eloSlider.w = aiPanelWidth - 40;
-  
+
   // Draw slider
   eloSlider.draw();
-  
+
   // Display current values
   textAlign(CENTER, TOP);
   textSize(16);
   fill(0);
   text(`${aiElo} ELO`, aiPanelX + aiPanelWidth / 2, sliderY + 50);
-  
+
   textSize(12);
   fill(100);
   text(`(Skill Level: ${aiSkillLevel}/20)`, aiPanelX + aiPanelWidth / 2, sliderY + 70);

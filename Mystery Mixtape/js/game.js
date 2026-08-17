@@ -1266,6 +1266,22 @@ function renderReveal() {
         return;
     }
 
+    // Display the answer
+    const answerDisplay = document.querySelector(".answer-text");
+    if (answerDisplay && state.puzzle.theme) {
+        let answerText = `Answer: ${state.puzzle.theme}`;
+        
+        // If solved with an alternative answer, show it
+        if (state.phase === "solved" && state.guesses.length > 0) {
+            const correctGuess = state.guesses.find(g => g.result === "correct");
+            if (correctGuess && normalizeTheme(correctGuess.value) !== normalizeTheme(state.puzzle.theme)) {
+                answerText += ` (You guessed: ${correctGuess.value})`;
+            }
+        }
+        
+        answerDisplay.textContent = answerText;
+    }
+
     els.revealList.innerHTML = "";
 
     const header = document.createElement("div");

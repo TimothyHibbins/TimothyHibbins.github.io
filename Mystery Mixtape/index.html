@@ -10,7 +10,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=IBM+Plex+Mono:wght@400;600&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=9">
+    <link rel="stylesheet" href="style.css?v=13">
 </head>
 
 <body class="mm-body">
@@ -25,38 +25,17 @@
             <h2 id="clue-title" class="prompt-title hidden">Clue</h2>
             <p id="clue-text" class="prompt-text hidden">Loading clue...</p>
 
+            <!-- Clue text above cassette -->
+            <p id="cassette-clue" class="cassette-clue">Open Archive and choose a tape.</p>
+
             <section id="mixtape-cassette" class="cassette" data-variant="graphite" aria-label="Mixtape display">
-                <div class="cassette-shell">
-                    <!-- Label area at top -->
-                    <div class="cassette-label">
-                        <div class="label-text">
-                            <p id="cassette-clue" class="cassette-clue">Loading clue...</p>
-                        </div>
-                    </div>
-
-                    <!-- Window with reels -->
-                    <div class="cassette-window">
-                        <div class="reel-container left">
-                            <div class="reel" id="wheel-left">
-                                <div class="reel-hub"></div>
-                            </div>
-                        </div>
-                        
-                        <div class="tape-visible">
-                            <span class="tape-label">Mystery Mixtape</span>
-                        </div>
-                        
-                        <div class="reel-container right">
-                            <div class="reel" id="wheel-right">
-                                <div class="reel-hub"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Bottom strip -->
-                    <div class="cassette-bottom">
-                        <div class="pressure-pad"></div>
-                    </div>
+                <div class="cassette-svg-container">
+                    <!-- Wheels positioned behind tape -->
+                    <img src="custom SVGs/Wheel A.svg" class="cassette-wheel" id="wheel-left" alt="">
+                    <img src="custom SVGs/Wheel B.svg" class="cassette-wheel" id="wheel-right" alt="">
+                    
+                    <!-- Tape image -->
+                    <img src="custom SVGs/Tape.svg" class="cassette-tape" alt="Cassette tape">
                 </div>
             </section>
 
@@ -81,11 +60,14 @@
             <form id="guess-form" class="guess-form-row">
                 <input id="guess-input" name="guess" type="text" autocomplete="off"
                     placeholder="Press Enter to start">
+                <button id="guess-submit-btn" type="submit" class="guess-submit-btn">Enter</button>
             </form>
 
-            <section id="reveal-panel" class="case-panel hidden" aria-label="Cassette case track list">
+            <section id="reveal-panel" class="case-panel hidden" aria-label="Answer and tracklist">
+                <div class="answer-display">
+                    <p id="answer-text" class="answer-text"></p>
+                </div>
                 <div class="case-shell">
-                    <p class="case-title">Cassette Case Tracklist</p>
                     <div id="song-reveal-list" class="reveal-table"></div>
                 </div>
             </section>
@@ -127,7 +109,7 @@
         </div>
     </div>
 
-    <script type="module" src="js/game.js?v=3"></script>
+    <script type="module" src="js/game.js?v=4"></script>
 </body>
 
 </html>

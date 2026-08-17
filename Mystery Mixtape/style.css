@@ -262,73 +262,90 @@ body.mm-body:not(.creator-page) {
 
 /* Cassette tape with geometrically accurate proportions */
 .cassette {
-    /* Color scheme variables */
-    --cassette-shell: #d9e4f3;
-    --cassette-shell-dark: #a8b8cf;
-    --cassette-edge: #203652;
-    --cassette-trim: #5a6f90;
-    --cassette-window: #b9cbe2;
-    --cassette-window-edge: #324a68;
-    --cassette-window-gloss: rgba(228, 238, 250, 0.58);
-    --cassette-reel-ring: #4c6487;
-    --cassette-reel-core: #8b2323;
-    --cassette-shadow: rgba(8, 15, 26, 0.34);
-    --cassette-label-bg: #f6efdf;
-    --cassette-label-ink: #243956;
-    
-    /* Geometric proportions - real cassette is 101.6mm × 63.5mm = 1.6:1 */
-    --cassette-width: 520px;
-    width: min(var(--cassette-width), 100%);
-    aspect-ratio: 1.6;
+    /* SVG cassette dimensions: 1682x1084.5 = aspect ratio ~1.55 */
+    --cassette-width: 300px;
+    width: min(var(--cassette-width), 90%);
+    aspect-ratio: 1682 / 1084.5;
     justify-self: center;
-    color: #0f172a;
-    cursor: default;
     position: relative;
 }
 
 .cassette[data-variant="smoke"] {
-    --cassette-shell: #e4edf9;
-    --cassette-shell-dark: #c4d3e8;
-    --cassette-edge: #2f4664;
-    --cassette-window: #d4e1f2;
-    --cassette-reel-core: #932525;
+    opacity: 0.99;
 }
 
 .cassette[data-variant="graphite"] {
-    --cassette-shell: #c4d2e6;
-    --cassette-shell-dark: #93a6c3;
-    --cassette-edge: #1a2b42;
-    --cassette-trim: #3b5170;
-    --cassette-window: #afc2dd;
-    --cassette-window-edge: #243955;
-    --cassette-window-gloss: rgba(201, 216, 236, 0.66);
-    --cassette-reel-ring: #405b80;
-    --cassette-reel-core: #7d1f1f;
-    --cassette-label-bg: #f3ecdc;
+    opacity: 0.99;
 }
 
 .cassette.inactive {
     opacity: 0.99;
 }
 
-/* Cassette shell - main container with 1.6:1 aspect ratio */
-.cassette-shell {
+/* SVG cassette container */
+.cassette-svg-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+/* Clue text above cassette */
+.cassette-clue {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+    line-height: 1.4;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.95);
+    font-weight: 600;
+    max-width: 600px;
+    justify-self: center;
+}
+
+/* Tape image */
+.cassette-tape {
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, 
-        rgba(255, 255, 255, 0.6) 0%, 
-        var(--cassette-shell) 8%, 
-        var(--cassette-shell-dark) 100%);
-    border: 3px solid var(--cassette-edge);
-    border-radius: 8px;
-    box-shadow:
-        0 12px 24px var(--cassette-shadow),
-        inset 0 1px 0 rgba(255, 255, 255, 0.5),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.2);
-    display: grid;
-    grid-template-rows: 30% 1fr 12%;
-    padding: 12px;
-    gap: 8px;
+    width: 100%;
+    height: 100%;
+    display: block;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.cassette-tape-wrapper {
+    display: none;
+}
+
+/* Wheel positioning - behind tape, centered in holes */
+.cassette-wheel {
+    position: absolute;
+    z-index: 1;
+}
+
+/* Wheel A: 718x718, top-left at (124, 122) - adjusted slightly right and up */
+#wheel-left {
+    width: 42.69%;     /* 718/1682 */
+    height: auto;
+    left: 7.67%;       /* 124/1682 + 0.3% */
+    top: 10.75%;       /* 122/1084.5 - 0.5% */
+}
+
+/* Wheel B: 536x536, top-left at (928, 213) - adjusted slightly left and up */
+#wheel-right {
+    width: 31.87%;     /* 536/1682 */
+    height: auto;
+    left: 54.87%;      /* 928/1682 - 0.3% */
+    top: 19.14%;       /* 213/1084.5 - 0.5% */
+}
+
+/* Spin animation when playing */
+.cassette.playing #wheel-left,
+.cassette.playing #wheel-right {
+    animation: wheel-spin 2s linear infinite;
+}
+
+@keyframes wheel-spin {
+    to { transform: rotate(360deg); }
 }
 
 .transport-row {
@@ -698,19 +715,37 @@ body.mm-body:not(.creator-page) {
 .guess-form-row {
     width: min(448px, 100%);
     justify-self: center;
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 0.46rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
 }
 
 .guess-submit-btn {
     border: 1px solid rgba(255, 255, 255, 0.75);
-    background: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.22);
     color: #fff;
     font-weight: 800;
-    font-size: 0.84rem;
-    letter-spacing: 0.02em;
-    padding: 0.52rem 0.82rem;
+    font-size: 0.83rem;
+    border-radius: 10px;
+    padding: 0.52rem 1rem;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.guess-submit-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.guess-submit-btn:active {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+/* Hide button on desktop, show on mobile */
+@media (min-width: 640px) {
+    .guess-submit-btn {
+        display: none;
+    }
+}
     border-radius: 10px;
 }
 
@@ -742,6 +777,41 @@ body.mm-body:not(.creator-page) {
 .status-message {
     color: rgba(255, 255, 255, 0.9);
     font-size: 0.76rem;
+}
+
+/* Answer display above table */
+.answer-display {
+    margin: 1rem 0 0.5rem;
+    text-align: center;
+}
+
+.answer-text {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.95);
+    line-height: 1.4;
+}
+
+.case-panel {
+    width: 100%;
+    max-width: 600px;
+    justify-self: center;
+}
+
+.case-panel.hidden {
+    display: none;
+}
+
+.case-shell {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+.case-title {
+    display: none;
 }
 
 .wrong-guesses {
@@ -786,26 +856,70 @@ body.mm-body:not(.creator-page) {
     overflow: hidden;
 }
 
+/* Answer display above table */
+.answer-display {
+    margin: 1rem 0 0.5rem;
+    text-align: center;
+}
+
+.answer-text {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.95);
+    line-height: 1.4;
+}
+
+.case-panel {
+    width: 100%;
+    max-width: 600px;
+    justify-self: center;
+}
+
+.case-panel.hidden {
+    display: none;
+}
+
+.case-shell {
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+.case-title {
+    display: none;
+}
+
+.cassette-status {
+    display: none;
+}
+
 .reveal-table {
-    border-top: 2px solid rgba(31, 41, 55, 0.86);
+    border: none;
     max-height: none;
-    overflow: hidden;
+    overflow: auto;
+    max-height: 70vh;
 }
 
 .reveal-row {
     display: grid;
     grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr);
-    gap: 0.32rem;
+    gap: 0.4rem;
     align-items: center;
-    padding: 0.14rem 0;
-    border-bottom: 1px solid rgba(31, 41, 55, 0.26);
-    font-size: 0.74rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid rgba(31, 41, 55, 0.15);
+    font-size: 0.85rem;
     color: #111827;
 }
 
 .reveal-row.head {
     font-weight: 800;
-    border-bottom: 2px solid rgba(31, 41, 55, 0.82);
+    border-bottom: 2px solid rgba(31, 41, 55, 0.3);
+    position: sticky;
+    top: 0;
+    background: #fff;
+    z-index: 1;
 }
 
 .reveal-row:last-child {
@@ -1229,11 +1343,29 @@ body.creator-page {
     }
 
     .guess-form-row {
-        grid-template-columns: 1fr;
+        flex-direction: row;
     }
 
     .guess-submit-btn {
-        width: 100%;
+        display: block;
+    }
+
+    .cassette {
+        --cassette-width: 260px;
+    }
+
+    .cassette-clue {
+        font-size: 0.9rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .case-shell {
+        padding: 0.75rem;
+    }
+
+    .reveal-row {
+        font-size: 0.75rem;
+        gap: 0.3rem;
     }
 
     body.creator-page {
