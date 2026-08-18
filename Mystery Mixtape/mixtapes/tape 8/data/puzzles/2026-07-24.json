@@ -3,7 +3,10 @@
   "clueTitle": "Clue",
   "clue": "What city is referenced in the titles of all of these songs?",
   "theme": "New York City",
-  "aliases": [],
+  "aliases": [
+    "New York",
+    "NYC"
+  ],
   "songs": [
     {
       "title": "New York State of Mind",

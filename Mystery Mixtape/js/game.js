@@ -16,6 +16,7 @@ const els = {
     cassette: document.getElementById("mixtape-cassette"),
     cassetteStatus: document.getElementById("cassette-status"),
     cassetteClue: document.getElementById("cassette-clue"),
+    cassetteStartPrompt: document.getElementById("cassette-start-prompt"),
     startBtn: document.getElementById("start-btn"),
     transportRow: document.getElementById("transport-row"),
     transportPlayBtn: document.getElementById("transport-play-btn"),
@@ -34,6 +35,7 @@ const els = {
     wrongGuessesList: document.getElementById("wrong-guesses-list"),
     revealPanel: document.getElementById("reveal-panel"),
     revealList: document.getElementById("song-reveal-list"),
+    shareBtn: document.getElementById("share-btn"),
     confettiLayer: document.getElementById("confetti-layer"),
     rulesBtn: document.getElementById("rules-btn"),
     rulesModal: document.getElementById("rules-modal"),
@@ -248,20 +250,20 @@ function renderArchiveList() {
     els.archiveList.innerHTML = "";
 
     for (const item of state.archiveEntries) {
-        const card = document.createElement("button");
-        card.type = "button";
-        card.className = "archive-tape";
-        card.dataset.packSlug = item.packSlug;
-        card.dataset.tapeKey = item.tapeKey;
-        card.innerHTML = `
-            <span class="archive-tape-title">${item.packLabel} / ${item.tapeKey}</span>
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "archive-tape-row";
+        row.dataset.packSlug = item.packSlug;
+        row.dataset.tapeKey = item.tapeKey;
+        row.innerHTML = `
+            <span class="archive-tape-id">${item.packLabel} / ${item.tapeKey}</span>
             <span class="archive-tape-clue">${item.clue}</span>
         `;
-        card.addEventListener("click", async () => {
+        row.addEventListener("click", async () => {
             await loadTapeFromArchiveItem(item);
             closeArchiveModal();
         });
-        els.archiveList.appendChild(card);
+        els.archiveList.appendChild(row);
     }
 }
 
@@ -1315,9 +1317,21 @@ function renderCassetteState() {
     const playable = state.phase !== "loading" && state.phase !== "missing";
     const terminal = state.phase === "solved" || state.phase === "gaveup";
 
-    els.cassette.classList.toggle("playing", state.isSequencePlaying);
+    els.cassette.classList.toggle("playing", state.isSequencePlaying || state.isTimelinePlaying);
     els.cassette.classList.toggle("inactive", !playable || terminal);
     els.cassette.classList.toggle("flipped", terminal);
+
+    // Show/hide click-to-start prompt
+    const showStartPrompt = state.phase === "ready" && !state.startedAtMs;
+    if (els.cassetteStartPrompt) {
+        els.cassetteStartPrompt.classList.toggle("hidden", !showStartPrompt);
+
+        // Change text based on mobile detection
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 640;
+        els.cassetteStartPrompt.textContent = isMobile ? "Tap cassette to start!" : "Click cassette to start!";
+    }
+
+    els.cassette.classList.toggle("ready", showStartPrompt);
 
     if (state.isSequencePlaying) {
         els.cassetteStatus.textContent = "Playing";
@@ -1406,7 +1420,7 @@ function renderGuessInputState() {
     } else if (!state.startedAtMs) {
         els.guessInput.placeholder = "Press Enter to start";
     } else {
-        els.guessInput.placeholder = "Enter your theme guess";
+        els.guessInput.placeholder = "Enter your guess here";
     }
 }
 
@@ -1539,17 +1553,123 @@ async function setupTapePicker() {
         return;
     }
 
-    state.phase = "ready";
-    state.puzzle = null;
-    state.startedAtMs = null;
-    state.endedAtMs = null;
-    state.wrongGuesses = 0;
-    state.guesses = [];
-    state.timelineCurrentSec = 0;
-    els.puzzleDate.textContent = "Select a tape from Archive.";
-    setStatusMessage("Open Archive and choose a tape.", "ok");
-    render();
-    openArchiveModal();
+    // Default to Tape 8 (or first tape if not found)
+    const tape8Entry = state.archiveEntries.find(entry => entry.packSlug === "tape 8");
+    if (tape8Entry) {
+        await loadTapeFromArchiveItem(tape8Entry);
+    } else {
+        // Fallback to showing archive modal if Tape 8 not found
+        state.phase = "ready";
+        state.puzzle = null;
+        state.startedAtMs = null;
+        state.endedAtMs = null;
+        state.wrongGuesses = 0;
+        state.guesses = [];
+        state.timelineCurrentSec = 0;
+        els.puzzleDate.textContent = "Select a tape from Archive.";
+        setStatusMessage("Open Archive and choose a tape.", "ok");
+        render();
+        openArchiveModal();
+    }
+}
+
+function generateShareText() {
+    if (state.phase !== "solved") {
+        return "";
+    }
+
+    // Extract tape number from selectedTapeKey (e.g., "Tape 3" -> "3")
+    const tapeMatch = state.selectedTapeKey.match(/\d+/);
+    const tapeNumber = tapeMatch ? tapeMatch[0] : "?";
+
+    // Total elapsed time in seconds
+    const totalSeconds = elapsedSeconds();
+
+    // Find the correct guess
+    const correctGuess = state.guesses.find(g => g.result === "correct");
+    if (!correctGuess || !state.startedAtMs) {
+        return "";
+    }
+
+    // Calculate which track the correct answer was given on
+    const correctAnswerTime = (correctGuess.atMs - state.startedAtMs) / 1000;
+    const correctAnswerTrack = Math.floor(correctAnswerTime / CLIP_PLAY_SECONDS);
+
+    // Generate grid: one row per track up to and including the correct answer track
+    const lines = [];
+    lines.push(`Mystery Mixtape ${tapeNumber}`);
+    lines.push(`${totalSeconds} seconds`);
+
+    const tracksToShow = Math.min(correctAnswerTrack + 1, state.puzzle.songs.length);
+
+    for (let trackIdx = 0; trackIdx < tracksToShow; trackIdx++) {
+        const trackStart = trackIdx * CLIP_PLAY_SECONDS;
+        const trackEnd = (trackIdx + 1) * CLIP_PLAY_SECONDS;
+        const squares = [];
+
+        // Each track has 5 squares (10 seconds / 2 seconds each)
+        for (let squareIdx = 0; squareIdx < 5; squareIdx++) {
+            const squareStart = trackStart + (squareIdx * 2);
+            const squareEnd = squareStart + 2;
+
+            // Check if this square is after the correct answer
+            if (squareStart >= correctAnswerTime) {
+                squares.push("⬛");
+                continue;
+            }
+
+            // Check if there was a guess during this interval
+            let guessInInterval = null;
+            for (const guess of state.guesses) {
+                const guessTime = (guess.atMs - state.startedAtMs) / 1000;
+                if (guessTime >= squareStart && guessTime < squareEnd) {
+                    guessInInterval = guess;
+                    break;
+                }
+            }
+
+            if (guessInInterval) {
+                // There was a guess in this interval
+                if (guessInInterval.result === "correct") {
+                    squares.push("🟩");
+                } else {
+                    squares.push("🟥");
+                }
+            } else {
+                // No guess, just listening
+                // Only mark as listened if we actually reached this point
+                if (squareStart < correctAnswerTime) {
+                    squares.push("⬜️");
+                } else {
+                    squares.push("⬛");
+                }
+            }
+        }
+
+        lines.push(squares.join(""));
+    }
+
+    return lines.join("\n");
+}
+
+async function shareResults() {
+    const shareText = generateShareText();
+    if (!shareText) {
+        return;
+    }
+
+    try {
+        await navigator.clipboard.writeText(shareText);
+        const originalText = els.shareBtn.textContent;
+        els.shareBtn.textContent = "Copied!";
+        setTimeout(() => {
+            els.shareBtn.textContent = originalText;
+        }, 2000);
+    } catch (error) {
+        console.error("Failed to copy to clipboard:", error);
+        // Fallback: show the text in an alert
+        alert("Share text:\n\n" + shareText);
+    }
 }
 
 function openArchiveModal() {
@@ -1631,9 +1751,20 @@ function wireEvents() {
         });
     }
 
-    els.transportPlayBtn.addEventListener("click", () => {
-        onTransportPlayPause();
-    });
+    if (els.transportPlayBtn) {
+        els.transportPlayBtn.addEventListener("click", () => {
+            onTransportPlayPause();
+        });
+    }
+
+    // Cassette click to start
+    if (els.cassette) {
+        els.cassette.addEventListener("click", async () => {
+            if (state.phase === "ready" && !state.startedAtMs) {
+                await onStartRound();
+            }
+        });
+    }
 
     if (els.timelineSurface) {
         els.timelineSurface.addEventListener("click", (event) => {
@@ -1668,40 +1799,55 @@ function wireEvents() {
         });
     }
 
-    els.guessForm.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        if (!state.puzzle) {
-            setStatusMessage("Pick a tape from Archive first.", "warn");
-            return;
-        }
-
-        const value = els.guessInput.value;
-
-        if (!state.startedAtMs) {
-            const started = await onStartRound();
-            if (!started) {
+    if (els.guessForm) {
+        els.guessForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            if (!state.puzzle) {
+                setStatusMessage("Pick a tape from Archive first.", "warn");
                 return;
             }
-            if (!value.trim()) {
-                els.guessInput.focus();
-                return;
+
+            const value = els.guessInput.value;
+
+            if (!state.startedAtMs) {
+                const started = await onStartRound();
+                if (!started) {
+                    return;
+                }
+                if (!value.trim()) {
+                    els.guessInput.focus();
+                    return;
+                }
             }
-        }
 
-        const outcome = submitGuess(els.guessInput.value);
-        if (outcome === "wrong") {
-            els.guessInput.value = "";
-        }
-        els.guessInput.focus();
-    });
+            const outcome = submitGuess(els.guessInput.value);
+            if (outcome === "wrong") {
+                els.guessInput.value = "";
+            }
+            els.guessInput.focus();
+        });
+    }
 
-    els.rulesBtn.addEventListener("click", openRulesModal);
-    els.rulesCloseBtn.addEventListener("click", closeRulesModal);
-    els.rulesModal.addEventListener("click", (event) => {
-        if (event.target === els.rulesModal) {
-            closeRulesModal();
-        }
-    });
+    if (els.rulesBtn) {
+        els.rulesBtn.addEventListener("click", openRulesModal);
+    }
+
+    if (els.rulesCloseBtn) {
+        els.rulesCloseBtn.addEventListener("click", closeRulesModal);
+    }
+
+    if (els.shareBtn) {
+        els.shareBtn.addEventListener("click", shareResults);
+    }
+
+    if (els.rulesModal) {
+        els.rulesModal.addEventListener("click", (event) => {
+            if (event.target === els.rulesModal) {
+                closeRulesModal();
+            }
+        });
+    }
+
     window.addEventListener("keydown", (event) => {
         if (event.code === "Escape") {
             closeRulesModal();
@@ -1715,22 +1861,27 @@ function wireEvents() {
 }
 
 async function init() {
-    console.log('[DEBUG] init() called');
-    wireEvents();
-    render();
-
     try {
-        console.log('[DEBUG] Calling setupTapePicker()...');
-        await setupTapePicker();
-        console.log('[DEBUG] setupTapePicker() completed');
-    } catch (error) {
-        console.error('[DEBUG] Error in setupTapePicker():', error);
-        state.phase = "missing";
-        setStatusMessage(error.message || "Failed to load puzzle.", "bad");
-    }
+        console.log('[DEBUG] init() called');
+        wireEvents();
+        render();
 
-    render();
-    console.log('[DEBUG] init() completed');
+        try {
+            console.log('[DEBUG] Calling setupTapePicker()...');
+            await setupTapePicker();
+            console.log('[DEBUG] setupTapePicker() completed');
+        } catch (error) {
+            console.error('[DEBUG] Error in setupTapePicker():', error);
+            state.phase = "missing";
+            setStatusMessage(error.message || "Failed to load puzzle.", "bad");
+        }
+
+        render();
+        console.log('[DEBUG] init() completed');
+    } catch (error) {
+        console.error('[FATAL ERROR] in init():', error);
+        console.error(error.stack);
+    }
 }
 
 init();
