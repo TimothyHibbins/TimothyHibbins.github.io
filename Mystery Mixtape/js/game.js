@@ -228,21 +228,21 @@ async function fetchArchiveClue(basePath, tapePath) {
 async function buildArchiveEntries() {
     const entries = [];
     const today = getAestDateKey();
-    
+
     for (const pack of state.manifestPacks) {
         const source = await loadIndexForMixtape(pack.slug, pack.label);
         const tapes = extractTapeEntries(source.dailyIndex);
-        
+
         // Extract tape number from slug (e.g., "tape 8" -> 8)
         const tapeNumberMatch = pack.slug.match(/\d+/);
         const tapeNumber = tapeNumberMatch ? parseInt(tapeNumberMatch[0]) : null;
-        
+
         for (const tape of tapes) {
             // Only show tapes whose date has arrived (or passed)
             if (tape.key > today) {
                 continue;
             }
-            
+
             const clue = await fetchArchiveClue(source.basePath, tape.path);
             entries.push({
                 packSlug: pack.slug,
@@ -1532,19 +1532,19 @@ async function loadSelectedTape() {
 
     // Format date for display
     const dateObj = new Date(state.selectedReleaseDate + "T00:00:00");
-    const formattedDate = dateObj.toLocaleDateString('en-US', { 
-        month: 'long', 
-        day: 'numeric', 
+    const formattedDate = dateObj.toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric',
         year: 'numeric',
         timeZone: 'Australia/Melbourne'
     });
-    
+
     if (state.selectedTapeNumber) {
         els.puzzleDate.innerHTML = `<span style="font-size: 1rem; font-weight: 800;">Mystery Mixtape #${state.selectedTapeNumber}</span><br><span style="font-size: 0.7rem; opacity: 0.85;">(released ${formattedDate}, Australian Eastern Standard Time)</span>`;
     } else {
         els.puzzleDate.textContent = `Set: ${state.selectedPackLabel} | Tape: ${state.selectedTapeKey}`;
     }
-    
+
     setStatusMessage(`Loaded ${state.selectedPackLabel} / ${state.selectedTapeKey}.`);
     buildTimelineWaveformData();
     render();
@@ -1587,10 +1587,10 @@ async function setupTapePicker() {
 
     // Default to the most recent tape by tape number that has been released
     const today = getAestDateKey();
-    
+
     // Filter tapes that have been released (releaseDate <= today)
     const releasedTapes = state.archiveEntries.filter(entry => entry.releaseDate <= today);
-    
+
     if (releasedTapes.length > 0) {
         // Sort by tape number descending and take the highest
         releasedTapes.sort((a, b) => (b.tapeNumber || 0) - (a.tapeNumber || 0));
