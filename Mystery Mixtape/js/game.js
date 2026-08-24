@@ -49,6 +49,8 @@ const state = {
     selectedTapeKey: "",
     selectedTapePath: "",
     selectedPackLabel: "",
+    selectedTapeNumber: null,
+    selectedReleaseDate: "",
     archiveEntries: [],
     availableTapes: [],
     puzzle: null,
@@ -225,10 +227,22 @@ async function fetchArchiveClue(basePath, tapePath) {
 
 async function buildArchiveEntries() {
     const entries = [];
+    const today = getAestDateKey();
+    
     for (const pack of state.manifestPacks) {
         const source = await loadIndexForMixtape(pack.slug, pack.label);
         const tapes = extractTapeEntries(source.dailyIndex);
+        
+        // Extract tape number from slug (e.g., "tape 8" -> 8)
+        const tapeNumberMatch = pack.slug.match(/\d+/);
+        const tapeNumber = tapeNumberMatch ? parseInt(tapeNumberMatch[0]) : null;
+        
         for (const tape of tapes) {
+            // Only show tapes whose date has arrived (or passed)
+            if (tape.key > today) {
+                continue;
+            }
+            
             const clue = await fetchArchiveClue(source.basePath, tape.path);
             entries.push({
                 packSlug: pack.slug,
@@ -236,6 +250,8 @@ async function buildArchiveEntries() {
                 basePath: source.basePath,
                 tapeKey: tape.key,
                 tapePath: tape.path,
+                tapeNumber: tapeNumber,
+                releaseDate: tape.key,
                 clue
             });
         }
@@ -1514,7 +1530,21 @@ async function loadSelectedTape() {
     state.persistProgress = false;
     state.dateKey = `${state.selectedPackSlug}:${state.selectedTapeKey}`;
 
-    els.puzzleDate.textContent = `Set: ${state.selectedPackLabel} | Tape: ${state.selectedTapeKey}`;
+    // Format date for display
+    const dateObj = new Date(state.selectedReleaseDate + "T00:00:00");
+    const formattedDate = dateObj.toLocaleDateString('en-US', { 
+        month: 'long', 
+        day: 'numeric', 
+        year: 'numeric',
+        timeZone: 'Australia/Melbourne'
+    });
+    
+    if (state.selectedTapeNumber) {
+        els.puzzleDate.innerHTML = `<span style="font-size: 1rem; font-weight: 800;">Mystery Mixtape #${state.selectedTapeNumber}</span><br><span style="font-size: 0.7rem; opacity: 0.85;">(released ${formattedDate}, Australian Eastern Standard Time)</span>`;
+    } else {
+        els.puzzleDate.textContent = `Set: ${state.selectedPackLabel} | Tape: ${state.selectedTapeKey}`;
+    }
+    
     setStatusMessage(`Loaded ${state.selectedPackLabel} / ${state.selectedTapeKey}.`);
     buildTimelineWaveformData();
     render();
@@ -1527,6 +1557,8 @@ async function loadTapeFromArchiveItem(item) {
     state.sourceLabel = item.packLabel;
     state.selectedTapeKey = item.tapeKey;
     state.selectedTapePath = item.tapePath;
+    state.selectedTapeNumber = item.tapeNumber;
+    state.selectedReleaseDate = item.releaseDate;
     try {
         await loadSelectedTape();
     } catch (error) {
@@ -1553,22 +1585,24 @@ async function setupTapePicker() {
         return;
     }
 
-    // Default to Tape 8 (or first tape if not found)
-    const tape8Entry = state.archiveEntries.find(entry => entry.packSlug === "tape 8");
-    if (tape8Entry) {
-        await loadTapeFromArchiveItem(tape8Entry);
+    // Default to the most recent tape by tape number that has been released
+    const today = getAestDateKey();
+    
+    // Filter tapes that have been released (releaseDate <= today)
+    const releasedTapes = state.archiveEntries.filter(entry => entry.releaseDate <= today);
+    
+    if (releasedTapes.length > 0) {
+        // Sort by tape number descending and take the highest
+        releasedTapes.sort((a, b) => (b.tapeNumber || 0) - (a.tapeNumber || 0));
+        const mostRecentTape = releasedTapes[0];
+        try {
+            await loadTapeFromArchiveItem(mostRecentTape);
+        } catch (error) {
+            console.error("Failed to auto-load tape:", error);
+            openArchiveModal();
+        }
     } else {
-        // Fallback to showing archive modal if Tape 8 not found
-        state.phase = "ready";
-        state.puzzle = null;
-        state.startedAtMs = null;
-        state.endedAtMs = null;
-        state.wrongGuesses = 0;
-        state.guesses = [];
-        state.timelineCurrentSec = 0;
-        els.puzzleDate.textContent = "Select a tape from Archive.";
-        setStatusMessage("Open Archive and choose a tape.", "ok");
-        render();
+        // No released tapes yet - show archive modal
         openArchiveModal();
     }
 }
@@ -1578,9 +1612,8 @@ function generateShareText() {
         return "";
     }
 
-    // Extract tape number from selectedTapeKey (e.g., "Tape 3" -> "3")
-    const tapeMatch = state.selectedTapeKey.match(/\d+/);
-    const tapeNumber = tapeMatch ? tapeMatch[0] : "?";
+    // Use the tape number from state
+    const tapeNumber = state.selectedTapeNumber || "?";
 
     // Total elapsed time in seconds
     const totalSeconds = elapsedSeconds();
