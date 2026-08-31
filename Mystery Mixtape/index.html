@@ -10,7 +10,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=IBM+Plex+Mono:wght@400;600&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20">
+    <link rel="stylesheet" href="style.css?v=24">
 </head>
 
 <body class="mm-body">
@@ -66,12 +66,17 @@
             </form>
 
             <section id="reveal-panel" class="case-panel hidden" aria-label="Answer and tracklist">
-                <div class="answer-display">
-                    <p id="answer-text" class="answer-text"></p>
-                    <button id="share-btn" class="share-btn" type="button">Share Results</button>
-                </div>
-                <div class="case-shell">
-                    <div id="song-reveal-list" class="reveal-table"></div>
+                <div class="reveal-content">
+                    <div class="answer-share-section">
+                        <p id="answer-text" class="answer-text"></p>
+                        <div class="share-controls">
+                            <pre id="share-preview" class="share-preview"></pre>
+                            <button id="share-btn" class="share-btn" type="button">Share Results</button>
+                        </div>
+                    </div>
+                    <div class="case-shell">
+                        <div id="song-reveal-list" class="reveal-table"></div>
+                    </div>
                 </div>
             </section>
 
@@ -115,7 +120,7 @@
         </div>
     </div>
 
-    <script type="module" src="js/game.js?v=16"></script>
+    <script type="module" src="js/game.js?v=21"></script>
 </body>
 
 </html>

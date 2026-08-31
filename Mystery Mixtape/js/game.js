@@ -36,6 +36,7 @@ const els = {
     revealPanel: document.getElementById("reveal-panel"),
     revealList: document.getElementById("song-reveal-list"),
     shareBtn: document.getElementById("share-btn"),
+    sharePreview: document.getElementById("share-preview"),
     confettiLayer: document.getElementById("confetti-layer"),
     rulesBtn: document.getElementById("rules-btn"),
     rulesModal: document.getElementById("rules-modal"),
@@ -1327,6 +1328,12 @@ function renderReveal() {
         row.append(indexCell, titleCell, artistCell);
         els.revealList.appendChild(row);
     });
+
+    // Update share preview
+    if (els.sharePreview) {
+        const shareText = generateShareText();
+        els.sharePreview.textContent = shareText;
+    }
 }
 
 function renderCassetteState() {
@@ -1434,7 +1441,7 @@ function renderGuessInputState() {
     if (!state.puzzle) {
         els.guessInput.placeholder = "Open Archive and choose a tape";
     } else if (!state.startedAtMs) {
-        els.guessInput.placeholder = "Press Enter to start";
+        els.guessInput.placeholder = "Enter answer here";
     } else {
         els.guessInput.placeholder = "Enter your guess here";
     }
@@ -1466,7 +1473,7 @@ function resetForNewTape() {
     drawTimelineWaveformPlaceholder();
     if (els.guessInput) {
         els.guessInput.value = "";
-        els.guessInput.placeholder = "Press Enter to start";
+        els.guessInput.placeholder = "Enter answer here";
     }
 }
 
@@ -1540,7 +1547,7 @@ async function loadSelectedTape() {
     });
 
     if (state.selectedTapeNumber) {
-        els.puzzleDate.innerHTML = `<span style="font-size: 1rem; font-weight: 800;">Mystery Mixtape #${state.selectedTapeNumber}</span><br><span style="font-size: 0.7rem; opacity: 0.85;">(released ${formattedDate}, Australian Eastern Standard Time)</span>`;
+        els.puzzleDate.innerHTML = `<span style="display: block; font-size: 1rem; font-weight: 800; text-align: center;">Mystery Mixtape #${state.selectedTapeNumber}</span><span style="display: block; font-size: 0.7rem; opacity: 0.85; text-align: center;">(released ${formattedDate}, Australian Eastern Standard Time)</span>`;
     } else {
         els.puzzleDate.textContent = `Set: ${state.selectedPackLabel} | Tape: ${state.selectedTapeKey}`;
     }
@@ -1645,10 +1652,9 @@ function generateShareText() {
             const squareStart = trackStart + (squareIdx * 2);
             const squareEnd = squareStart + 2;
 
-            // Check if this square is after the correct answer
+            // Check if this square is after the correct answer - stop here
             if (squareStart >= correctAnswerTime) {
-                squares.push("⬛");
-                continue;
+                break;
             }
 
             // Check if there was a guess during this interval
@@ -1670,12 +1676,7 @@ function generateShareText() {
                 }
             } else {
                 // No guess, just listening
-                // Only mark as listened if we actually reached this point
-                if (squareStart < correctAnswerTime) {
-                    squares.push("⬜️");
-                } else {
-                    squares.push("⬛");
-                }
+                squares.push("⬜️");
             }
         }
 

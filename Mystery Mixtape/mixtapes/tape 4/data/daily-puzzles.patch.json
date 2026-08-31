@@ -1,7 +1,7 @@
 {
   "timezone": "Australia/Melbourne",
   "puzzles": {
-    "2026-07-27": "data/puzzles/2026-07-27.json"
+    "2026-09-03": "data/puzzles/2026-09-03.json"
   },
-  "fallback": "data/puzzles/2026-07-27.json"
+  "fallback": "data/puzzles/2026-09-03.json"
 }
