@@ -10,7 +10,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=IBM+Plex+Mono:wght@400;600&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=24">
+    <link rel="stylesheet" href="style.css?v=26">
 </head>
 
 <body class="mm-body">
@@ -61,22 +61,22 @@
             <p id="cassette-status" class="cassette-status"></p>
 
             <form id="guess-form" class="guess-form-row">
-                <input id="guess-input" name="guess" type="text" autocomplete="off" placeholder="Press Enter to start">
+                <input id="guess-input" name="guess" type="text" autocomplete="off" placeholder="Enter answer here">
                 <button id="guess-submit-btn" type="submit" class="guess-submit-btn">Enter</button>
             </form>
 
+            <button id="give-up-btn" class="give-up-btn hidden" type="button">Give up</button>
+
+            <p id="answer-text" class="answer-text answer-inline hidden"></p>
+
             <section id="reveal-panel" class="case-panel hidden" aria-label="Answer and tracklist">
                 <div class="reveal-content">
-                    <div class="answer-share-section">
-                        <p id="answer-text" class="answer-text"></p>
-                        <div class="share-controls">
-                            <pre id="share-preview" class="share-preview"></pre>
-                            <button id="share-btn" class="share-btn" type="button">Share Results</button>
-                        </div>
-                    </div>
                     <div class="case-shell">
                         <div id="song-reveal-list" class="reveal-table"></div>
                     </div>
+                </div>
+                <div class="share-row">
+                    <button id="share-btn" class="share-btn" type="button" aria-label="Share results" title="Share results">⤴</button>
                 </div>
             </section>
 
@@ -117,10 +117,14 @@
                 <li>Guess the correct answer and the full tracklist will be revealed. You can also copy your result to
                     share with friends!</li>
             </ol>
+            <label class="rules-pref">
+                <input id="rules-hide-checkbox" type="checkbox">
+                Do not show this again on this device.
+            </label>
         </div>
     </div>
 
-    <script type="module" src="js/game.js?v=21"></script>
+    <script type="module" src="js/game.js?v=23"></script>
 </body>
 
 </html>

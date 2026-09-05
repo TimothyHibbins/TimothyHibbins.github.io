@@ -1,47 +1,68 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>JS Test</title>
     <style>
-        body { font-family: sans-serif; padding: 2rem; }
-        .hidden { display: none !important; }
-        #modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: grid; place-items: center; }
-        #modal-content { background: white; padding: 2rem; border-radius: 8px; }
+        body {
+            font-family: sans-serif;
+            padding: 2rem;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        #modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: grid;
+            place-items: center;
+        }
+
+        #modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+        }
     </style>
 </head>
+
 <body>
     <h1>JavaScript Test</h1>
     <button id="test-btn">Click Me</button>
     <div id="status">Waiting...</div>
-    
+
     <div id="modal" class="hidden">
         <div id="modal-content">
             <h2>Modal Opened!</h2>
             <button id="close-btn">Close</button>
         </div>
     </div>
-    
+
     <script type="module">
         console.log('Script loaded');
-        
+
         const testBtn = document.getElementById('test-btn');
         const modal = document.getElementById('modal');
         const closeBtn = document.getElementById('close-btn');
         const status = document.getElementById('status');
-        
+
         testBtn.addEventListener('click', () => {
             console.log('Button clicked');
             status.textContent = 'Button clicked!';
             modal.classList.remove('hidden');
         });
-        
+
         closeBtn.addEventListener('click', () => {
             console.log('Close clicked');
             modal.classList.add('hidden');
         });
-        
+
         status.textContent = 'Ready - JavaScript is working!';
         console.log('Event listeners attached');
     </script>
 </body>
+
 </html>
