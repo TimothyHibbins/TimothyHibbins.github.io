@@ -10,7 +10,8 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=IBM+Plex+Mono:wght@400;600&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=27">
+    <link rel="icon" type="image/svg+xml" href="custom SVGs/Tape.svg?v=3">
+    <link rel="stylesheet" href="style.css?v=47">
 </head>
 
 <body class="mm-body">
@@ -18,45 +19,46 @@
         <header class="game-topbar">
             <button id="archive-btn" class="archive-btn" type="button">Archive</button>
             <p id="puzzle-date" class="game-meta">Select a tape from the archive.</p>
-            <button id="rules-btn" class="rules-btn" type="button" aria-label="Show rules">?</button>
+            <div class="topbar-actions">
+                <button id="settings-btn" class="settings-btn" type="button" aria-label="Open settings">⚙</button>
+                <button id="rules-btn" class="rules-btn" type="button" aria-label="Show rules">?</button>
+            </div>
         </header>
 
         <main class="game-main">
             <h2 id="clue-title" class="prompt-title hidden">Clue</h2>
             <p id="clue-text" class="prompt-text hidden">Loading clue...</p>
 
-            <!-- Clue text above cassette -->
-            <p id="cassette-clue" class="cassette-clue">Open Archive and choose a tape.</p>
+            <div id="cassette-stage" class="cassette-stage">
+                <section id="mixtape-cassette" class="cassette" data-variant="graphite" aria-label="Mixtape display">
+                    <p id="cassette-clue" class="cassette-clue">Open Archive and choose a tape.</p>
+                    <div class="cassette-svg-container">
+                        <!-- Wheels positioned behind tape -->
+                        <img src="custom SVGs/Wheel A.svg" class="cassette-wheel" id="wheel-left" alt="">
+                        <img src="custom SVGs/Wheel B.svg" class="cassette-wheel" id="wheel-right" alt="">
 
-            <section id="mixtape-cassette" class="cassette" data-variant="graphite" aria-label="Mixtape display">
-                <div class="cassette-svg-container">
-                    <!-- Wheels positioned behind tape -->
-                    <img src="custom SVGs/Wheel A.svg" class="cassette-wheel" id="wheel-left" alt="">
-                    <img src="custom SVGs/Wheel B.svg" class="cassette-wheel" id="wheel-right" alt="">
+                        <!-- Tape image -->
+                        <img src="custom SVGs/Tape.svg?v=2" class="cassette-tape" alt="Cassette tape">
+                    </div>
 
-                    <!-- Tape image -->
-                    <img src="custom SVGs/Tape.svg" class="cassette-tape" alt="Cassette tape">
-                </div>
+                    <div id="cassette-tape-number" class="cassette-tape-number hidden"></div>
 
-                <!-- Click to start prompt -->
-                <div id="cassette-start-prompt" class="cassette-start-prompt hidden">Click cassette to start!</div>
-            </section>
+                    <!-- Click to start prompt -->
+                    <div id="cassette-start-prompt" class="cassette-start-prompt hidden">Click cassette to start!</div>
+                    <div id="cassette-transport-flash" class="cassette-transport-flash" aria-hidden="true"></div>
+                </section>
+            </div>
 
             <div id="transport-row" class="transport-row hidden">
-                <div class="transport-controls">
-                    <button id="transport-play-btn" class="transport-btn" type="button">Play</button>
-                    <p id="timeline-readout" class="timeline-readout">00:00 / 01:00</p>
-                </div>
                 <div class="timeline-wrap">
                     <div id="timeline-surface" class="timeline-surface" role="slider" tabindex="0" aria-label="Timeline"
                         aria-valuemin="0" aria-valuemax="60" aria-valuenow="0" aria-valuetext="00:00 / 01:00"
                         aria-disabled="true">
                         <canvas id="timeline-waveform" class="timeline-waveform" aria-hidden="true"></canvas>
-                        <div id="timeline-progress" class="timeline-progress" aria-hidden="true"></div>
-                        <div id="timeline-playhead" class="timeline-playhead" aria-hidden="true"></div>
-                        <div id="timeline-markers" class="timeline-markers" aria-hidden="true"></div>
+                        <div id="timeline-segments" class="timeline-segments" aria-hidden="true"></div>
+                        <div class="timeline-time-badge timeline-time-left" id="timeline-time-left">0:00</div>
+                        <div class="timeline-time-badge timeline-time-right" id="timeline-time-right">1:00</div>
                     </div>
-                    <div id="timeline-segments" class="timeline-segments" aria-hidden="true"></div>
                 </div>
             </div>
 
@@ -69,7 +71,14 @@
 
             <button id="give-up-btn" class="give-up-btn hidden" type="button">Give up</button>
 
-            <p id="answer-text" class="answer-text answer-inline hidden"></p>
+            <div id="result-band" class="result-band">
+                <p id="answer-text" class="answer-text answer-inline hidden"></p>
+
+                <div id="wrong-guesses-wrap" class="wrong-guesses hidden" aria-live="polite">
+                    <p class="wrong-heading">Wrong guesses</p>
+                    <ul id="wrong-guesses-list" class="wrong-guesses-list"></ul>
+                </div>
+            </div>
 
             <section id="reveal-panel" class="case-panel hidden" aria-label="Answer and tracklist">
                 <div class="reveal-content">
@@ -82,11 +91,6 @@
                         title="Share results">Share</button>
                 </div>
             </section>
-
-            <div id="wrong-guesses-wrap" class="wrong-guesses hidden" aria-live="polite">
-                <p class="wrong-heading">Wrong guesses</p>
-                <ul id="wrong-guesses-list" class="wrong-guesses-list"></ul>
-            </div>
 
         </main>
     </div>
@@ -127,7 +131,20 @@
         </div>
     </div>
 
-    <script type="module" src="js/game.js?v=24"></script>
+    <div id="settings-modal" class="rules-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="rules-card settings-card">
+            <div class="rules-head">
+                <h3 id="settings-title">Settings</h3>
+                <button id="settings-close-btn" class="rules-close-btn" type="button" aria-label="Close settings">x</button>
+            </div>
+            <label class="rules-pref">
+                <input id="settings-disable-pulse" type="checkbox">
+                Disable cassette pulse animation.
+            </label>
+        </div>
+    </div>
+
+    <script type="module" src="js/game.js?v=43"></script>
 </body>
 
 </html>

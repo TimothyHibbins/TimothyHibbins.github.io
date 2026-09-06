@@ -1,6 +1,6 @@
 import JSZip from "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm";
 
-const STORAGE_KEY = "mystery-mixtape.creator.v6";
+const STORAGE_KEY = "mystery-mixtape.creator.v7";
 const TRACK_COUNT = 6;
 const CLIP_SECONDS = 10;
 const CLIP_CONTEXT_SECONDS = 2;
@@ -14,6 +14,7 @@ const SOURCE_CANVAS_PIXELS_PER_SECOND = 220;
 
 const els = {
     themeClue: document.getElementById("theme-clue"),
+    themeClueAsk: document.getElementById("theme-clue-ask"),
     themeAnswer: document.getElementById("theme-answer"),
     themeAliases: document.getElementById("theme-aliases"),
     segmentsStrip: document.getElementById("segments-strip"),
@@ -59,6 +60,7 @@ function createEmptyTracks() {
         id: `track-${index + 1}`,
         title: "",
         artist: "",
+        link: "",
         sourceFileName: "",
         sourceFile: null,
         arrayBuffer: null,
@@ -114,6 +116,7 @@ function inferTitleFromFileName(fileName = "") {
 function saveDraft() {
     const payload = {
         themeClue: els.themeClue.value,
+        themeClueAsk: els.themeClueAsk.value,
         themeAnswer: els.themeAnswer.value,
         themeAliases: els.themeAliases.value,
         selectedTrackId: state.selectedTrackId,
@@ -121,6 +124,7 @@ function saveDraft() {
             id: track.id,
             title: track.title,
             artist: track.artist,
+            link: track.link,
             sourceFileName: track.sourceFileName,
             startSec: track.startSec
         }))
@@ -141,6 +145,7 @@ function restoreDraft() {
         }
 
         els.themeClue.value = payload.themeClue || "";
+        els.themeClueAsk.value = payload.themeClueAsk || "";
         els.themeAnswer.value = payload.themeAnswer || "";
         els.themeAliases.value = payload.themeAliases || "";
 
@@ -149,6 +154,7 @@ function restoreDraft() {
                 id: stored.id || `track-${index + 1}`,
                 title: stored.title || "",
                 artist: stored.artist || "",
+                link: stored.link || "",
                 sourceFileName: stored.sourceFileName || "",
                 sourceFile: null,
                 arrayBuffer: null,
@@ -605,6 +611,7 @@ function clearTrackAudio(track) {
     resetPreviewPosition(track);
     track.title = "";
     track.artist = "";
+    track.link = "";
     track.sourceFileName = "";
     track.sourceFile = null;
     track.arrayBuffer = null;
@@ -621,6 +628,7 @@ async function loadTrackFile(track, file) {
     track.sourceFileName = file.name;
     track.title = inferTitleFromFileName(file.name);
     track.artist = "";
+    track.link = "";
     track.arrayBuffer = await file.arrayBuffer();
     track.decoded = await audioContext.decodeAudioData(track.arrayBuffer.slice(0));
     track.durationSec = track.decoded.duration;
@@ -885,7 +893,7 @@ function renderSegmentsStrip() {
 
     const header = document.createElement("div");
     header.className = "segments-table-head";
-    ["", "#", "Song Title", "Artist(s)"].forEach((label, idx) => {
+    ["", "#", "Song Title", "Artist(s)", "Link"].forEach((label, idx) => {
         const cell = document.createElement("div");
         cell.className = "segments-table-head-cell";
         if (idx === 0) {
@@ -953,6 +961,9 @@ function renderSegmentsStrip() {
         const artistCell = document.createElement("div");
         artistCell.className = "segment-cell segment-artist-cell";
 
+        const linkCell = document.createElement("div");
+        linkCell.className = "segment-cell segment-link-cell";
+
         const titleInput = document.createElement("input");
         titleInput.type = "text";
         titleInput.placeholder = "Song";
@@ -981,8 +992,21 @@ function renderSegmentsStrip() {
         artistInput.className = "segment-inline-input";
         artistCell.appendChild(artistInput);
 
+        const linkInput = document.createElement("input");
+        linkInput.type = "url";
+        linkInput.placeholder = "https://...";
+        linkInput.value = track.link || "";
+        linkInput.addEventListener("mousedown", (event) => event.stopPropagation());
+        linkInput.addEventListener("click", (event) => event.stopPropagation());
+        linkInput.addEventListener("input", () => {
+            track.link = linkInput.value.trim();
+            saveDraft();
+        });
+        linkInput.className = "segment-inline-input";
+        linkCell.appendChild(linkInput);
+
         card.title = track.sourceFileName || "";
-        card.append(grip, indexCell, titleCell, artistCell);
+        card.append(grip, indexCell, titleCell, artistCell, linkCell);
         els.segmentsStrip.appendChild(card);
     });
 
@@ -1264,6 +1288,16 @@ function validateExport() {
         if (!track.title || !track.artist || !track.decoded) {
             return `Track ${i + 1} is incomplete.`;
         }
+        if (track.link) {
+            try {
+                const parsed = new URL(track.link);
+                if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+                    return `Track ${i + 1} link must use http or https.`;
+                }
+            } catch (error) {
+                return `Track ${i + 1} link is not a valid URL.`;
+            }
+        }
         if (track.startSec + CLIP_SECONDS > track.durationSec) {
             return `Track ${i + 1} clip exceeds source duration.`;
         }
@@ -1288,6 +1322,7 @@ async function exportZip() {
 
     const dateKey = todayAestDate();
     const clue = els.themeClue.value.trim();
+    const clueAskBold = els.themeClueAsk.value.trim();
     const answer = els.themeAnswer.value.trim();
     const aliases = parseAliasList(els.themeAliases.value)
         .filter((alias) => alias.toLowerCase() !== answer.toLowerCase());
@@ -1314,11 +1349,13 @@ async function exportZip() {
             date: dateKey,
             clueTitle: "Clue",
             clue,
+            clueAskBold,
             theme: answer,
             aliases,
             songs: state.tracks.map((track, i) => ({
                 title: track.title,
                 artist: track.artist,
+                link: track.link || "",
                 clipSrc: `data/clips/${clipFileNames[i]}`,
                 hint: ""
             }))
@@ -1371,6 +1408,7 @@ function clearAll() {
     state.selectedTrackId = "";
     state.hoverSec = null;
     els.themeClue.value = "";
+    els.themeClueAsk.value = "";
     els.themeAnswer.value = "";
     els.themeAliases.value = "";
     localStorage.removeItem(STORAGE_KEY);
@@ -1396,7 +1434,7 @@ function wireEvents() {
     els.downloadPackageBtn.addEventListener("click", exportZip);
     els.clearAllBtn.addEventListener("click", clearAll);
 
-    [els.themeClue, els.themeAnswer, els.themeAliases].forEach((el) => {
+    [els.themeClue, els.themeClueAsk, els.themeAnswer, els.themeAliases].forEach((el) => {
         el.addEventListener("input", saveDraft);
     });
 

@@ -5,6 +5,9 @@ const WRONG_GUESS_PENALTY_SECONDS = 10;
 const CLIP_PLAY_SECONDS = 10;
 const BUZZ_WINDOW_MS = 5000;
 const RULES_COOKIE_NAME = "mystery_mixtape_hide_rules";
+const COMPLETION_COOKIE_PREFIX = "mystery_mixtape_completion_";
+const COMPLETION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365 * 5;
+const SETTINGS_STORAGE_KEY = `${STORAGE_PREFIX}.settings`;
 
 const els = {
     puzzleDate: document.getElementById("puzzle-date"),
@@ -15,19 +18,20 @@ const els = {
     clueTitle: document.getElementById("clue-title"),
     clueText: document.getElementById("clue-text"),
     cassette: document.getElementById("mixtape-cassette"),
+    wheelLeft: document.getElementById("wheel-left"),
+    wheelRight: document.getElementById("wheel-right"),
     cassetteStatus: document.getElementById("cassette-status"),
     cassetteClue: document.getElementById("cassette-clue"),
+    cassetteTapeNumber: document.getElementById("cassette-tape-number"),
     cassetteStartPrompt: document.getElementById("cassette-start-prompt"),
+    cassetteTransportFlash: document.getElementById("cassette-transport-flash"),
     startBtn: document.getElementById("start-btn"),
     transportRow: document.getElementById("transport-row"),
-    transportPlayBtn: document.getElementById("transport-play-btn"),
     timelineSurface: document.getElementById("timeline-surface"),
     timelineWaveform: document.getElementById("timeline-waveform"),
-    timelineProgress: document.getElementById("timeline-progress"),
-    timelinePlayhead: document.getElementById("timeline-playhead"),
-    timelineMarkers: document.getElementById("timeline-markers"),
     timelineSegments: document.getElementById("timeline-segments"),
-    timelineReadout: document.getElementById("timeline-readout"),
+    timelineTimeLeft: document.getElementById("timeline-time-left"),
+    timelineTimeRight: document.getElementById("timeline-time-right"),
     roundMeta: document.getElementById("round-meta"),
     guessForm: document.getElementById("guess-form"),
     guessInput: document.getElementById("guess-input"),
@@ -41,6 +45,10 @@ const els = {
     shareBtn: document.getElementById("share-btn"),
     confettiLayer: document.getElementById("confetti-layer"),
     rulesBtn: document.getElementById("rules-btn"),
+    settingsBtn: document.getElementById("settings-btn"),
+    settingsModal: document.getElementById("settings-modal"),
+    settingsCloseBtn: document.getElementById("settings-close-btn"),
+    settingsDisablePulse: document.getElementById("settings-disable-pulse"),
     rulesModal: document.getElementById("rules-modal"),
     rulesCloseBtn: document.getElementById("rules-close-btn"),
     rulesHideCheckbox: document.getElementById("rules-hide-checkbox")
@@ -74,20 +82,28 @@ const state = {
     timelineCurrentSec: 0,
     isTimelinePlaying: false,
     timelineTickIntervalId: null,
+    timelineTickRafId: null,
     timelineTickStartSec: 0,
     timelineTickStartMs: 0,
     buzzActive: false,
     buzzDeadlineMs: 0,
     buzzTimerIntervalId: null,
     timelineWaveformPeaks: [],
+    timelineWaveformBaselines: [],
     timelineWaveformToken: 0,
     maxHeardSec: 0,
+    timelineScrubPointerId: null,
+    timelineScrubWasPlaying: false,
+    isTimelineScrubbing: false,
+    wheelLeftAngleDeg: 0,
+    wheelRightAngleDeg: 0,
     activePlayMs: 0,
     activePlayStartedAtMs: null,
     preserveTimelinePositionOnStop: false,
     sourceLabel: "",
     sourceBasePath: "",
-    persistProgress: true
+    persistProgress: true,
+    disableCassettePulse: false
 };
 
 let tickIntervalId = null;
@@ -121,6 +137,56 @@ function joinPath(basePath, path) {
     }
     const cleanBase = String(basePath).replace(/\/+$/, "");
     return `${cleanBase}/${cleanPath}`;
+}
+
+function escapeHtml(value) {
+    return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function applyBoldAskToken(clue, askText) {
+    const source = String(clue || "");
+    const ask = String(askText || "").trim();
+    if (!ask) {
+        return source;
+    }
+    const sourceLower = source.toLowerCase();
+    const askLower = ask.toLowerCase();
+    const index = sourceLower.indexOf(askLower);
+    if (index < 0) {
+        return source;
+    }
+    const head = source.slice(0, index);
+    const match = source.slice(index, index + ask.length);
+    const tail = source.slice(index + ask.length);
+    return `${head}**${match}**${tail}`;
+}
+
+function clueToSafeHtml(clueText, clueAskBold) {
+    const clueWithAsk = applyBoldAskToken(String(clueText || ""), clueAskBold);
+    const parts = clueWithAsk.split(/(\*\*[^*]+\*\*)/g);
+
+    return parts
+        .map((part) => {
+            if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+                return `<strong>${escapeHtml(part.slice(2, -2))}</strong>`;
+            }
+            return escapeHtml(part);
+        })
+        .join("");
+}
+
+function isLikelySafeHttpUrl(value) {
+    try {
+        const parsed = new URL(String(value || ""));
+        return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch (error) {
+        return false;
+    }
 }
 
 async function fetchJson(path, notFoundOk = false) {
@@ -250,6 +316,8 @@ async function buildArchiveEntries() {
                 continue;
             }
 
+            const completion = getTapeCompletionRecord(pack.slug, tape.key);
+
             const clue = await fetchArchiveClue(source.basePath, tape.path);
             entries.push({
                 packSlug: pack.slug,
@@ -259,7 +327,8 @@ async function buildArchiveEntries() {
                 tapePath: tape.path,
                 tapeNumber: tapeNumber,
                 releaseDate: tape.key,
-                clue
+                clue,
+                completion
             });
         }
     }
@@ -273,6 +342,7 @@ function renderArchiveList() {
     els.archiveList.innerHTML = "";
 
     for (const item of state.archiveEntries) {
+        const completion = getTapeCompletionRecord(item.packSlug, item.tapeKey);
         const row = document.createElement("button");
         row.type = "button";
         row.className = "archive-tape-row";
@@ -280,7 +350,10 @@ function renderArchiveList() {
         row.dataset.tapeKey = item.tapeKey;
         row.innerHTML = `
             <span class="archive-tape-id">${item.packLabel} / ${item.tapeKey}</span>
-            <span class="archive-tape-clue">${item.clue}</span>
+            <span class="archive-tape-info">
+                <span class="archive-tape-clue">${item.clue}</span>
+                <span class="archive-tape-result ${completion ? `result-${completion.result}` : ""}">${completion ? formatCompletionSummary(completion) : "Not played"}</span>
+            </span>
         `;
         row.addEventListener("click", async () => {
             await loadTapeFromArchiveItem(item);
@@ -373,16 +446,77 @@ function clearCookieValue(name) {
     document.cookie = `${encodeURIComponent(name)}=; path=/; max-age=0; SameSite=Lax`;
 }
 
+function encodeCookieSuffix(value) {
+    return String(value || "")
+        .trim()
+        .replace(/[^a-z0-9]+/gi, "_")
+        .replace(/^_+|_+$/g, "") || "unknown";
+}
+
+function completionCookieName(packSlug, tapeKey) {
+    return `${COMPLETION_COOKIE_PREFIX}${encodeCookieSuffix(packSlug)}__${encodeCookieSuffix(tapeKey)}`;
+}
+
+function getTapeCompletionRecord(packSlug, tapeKey) {
+    const serialized = getCookieValue(completionCookieName(packSlug, tapeKey));
+    if (!serialized) {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(serialized);
+        if (parsed && typeof parsed === "object") {
+            return parsed;
+        }
+    } catch (error) {
+        return null;
+    }
+
+    return null;
+}
+
+function setTapeCompletionRecord({ packSlug, tapeKey, result, wrongGuesses = 0, guesses = 0, scoreSeconds = 0 }) {
+    if (!packSlug || !tapeKey || !result) {
+        return;
+    }
+
+    const payload = {
+        result,
+        wrongGuesses: Number(wrongGuesses || 0),
+        guesses: Number(guesses || 0),
+        scoreSeconds: Number(scoreSeconds || 0),
+        completedAt: nowMs()
+    };
+
+    setCookieValue(completionCookieName(packSlug, tapeKey), JSON.stringify(payload), COMPLETION_COOKIE_MAX_AGE_SECONDS);
+}
+
+function formatCompletionSummary(record) {
+    if (!record || typeof record !== "object") {
+        return "";
+    }
+
+    const resultLabel = record.result === "solved" ? "Solved" : record.result === "gaveup" ? "DNF" : "Completed";
+    const details = [];
+    if (Number.isFinite(Number(record.guesses)) && Number(record.guesses) > 0) {
+        details.push(`${Number(record.guesses)} guess${Number(record.guesses) === 1 ? "" : "es"}`);
+    }
+    if (Number.isFinite(Number(record.wrongGuesses)) && Number(record.wrongGuesses) > 0) {
+        details.push(`${Number(record.wrongGuesses)} wrong`);
+    }
+    if (Number.isFinite(Number(record.scoreSeconds)) && Number(record.scoreSeconds) > 0) {
+        details.push(formatClock(Math.floor(Number(record.scoreSeconds))));
+    }
+
+    return details.length ? `${resultLabel} • ${details.join(" • ")}` : resultLabel;
+}
+
 function shouldAutoShowRules() {
-    return getCookieValue(RULES_COOKIE_NAME) !== "1";
+    return false;
 }
 
 function getActiveElapsedMs() {
-    let total = state.activePlayMs;
-    if (state.activePlayStartedAtMs) {
-        total += Math.max(0, nowMs() - state.activePlayStartedAtMs);
-    }
-    return Math.max(0, total);
+    return Math.max(0, Math.floor(clampTimelineSec(state.timelineCurrentSec) * 1000));
 }
 
 function startActivePlayTimerIfNeeded() {
@@ -407,7 +541,7 @@ function elapsedSeconds() {
     if (!state.startedAtMs) {
         return 0;
     }
-    return Math.max(0, Math.floor(getActiveElapsedMs() / 1000));
+    return Math.max(0, Math.floor(clampTimelineSec(state.timelineCurrentSec)));
 }
 
 function currentScoreSeconds() {
@@ -418,6 +552,12 @@ function formatClock(totalSeconds) {
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function formatClockCompact(totalSeconds) {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
 function timelineDurationSec() {
@@ -433,6 +573,151 @@ function clampTimelineSec(value) {
         return 0;
     }
     return Math.max(0, Math.min(duration, Number(value) || 0));
+}
+
+function showCassetteTransportFlash(mode) {
+    if (!els.cassetteTransportFlash) {
+        return;
+    }
+    const symbol = mode === "pause" ? "❚❚" : "▶";
+    els.cassetteTransportFlash.textContent = symbol;
+    els.cassetteTransportFlash.classList.remove("flash");
+    // Force reflow so repeated toggles restart the animation.
+    void els.cassetteTransportFlash.offsetWidth;
+    els.cassetteTransportFlash.classList.add("flash");
+}
+
+function getTimelineAmplitudeAtSec(sec) {
+    const tracks = state.timelineWaveformPeaks;
+    if (!Array.isArray(tracks) || !tracks.length) {
+        return 0;
+    }
+    const duration = timelineDurationSec();
+    const clampedSec = Math.max(0, Math.min(duration, Number(sec) || 0));
+    const trackIndex = Math.min(tracks.length - 1, Math.floor(clampedSec / CLIP_PLAY_SECONDS));
+    const peaks = tracks[trackIndex];
+    if (!(peaks instanceof Float32Array) || !peaks.length) {
+        return 0;
+    }
+    const trackStartSec = trackIndex * CLIP_PLAY_SECONDS;
+    const localTrackRatio = Math.max(0, Math.min(0.999, (clampedSec - trackStartSec) / CLIP_PLAY_SECONDS));
+    const sampleIndex = Math.min(peaks.length - 1, Math.floor(localTrackRatio * peaks.length));
+    const amp = Math.max(0, Math.min(1, Number(peaks[sampleIndex]) || 0));
+    const baselineTrack = state.timelineWaveformBaselines[trackIndex];
+    const baseline = baselineTrack instanceof Float32Array
+        ? Math.max(0, Math.min(0.95, Number(baselineTrack[sampleIndex]) || 0))
+        : Math.max(0, Math.min(0.95, Number(baselineTrack) || 0));
+    const relative = (amp - baseline) / Math.max(0.05, 1 - baseline);
+    return Math.max(0, Math.min(1, relative));
+}
+
+function estimateTrackBaseline(peaks) {
+    if (!(peaks instanceof Float32Array) || !peaks.length) {
+        return 0.18;
+    }
+    const sorted = Array.from(peaks).sort((a, b) => a - b);
+    const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor(sorted.length * 0.55)));
+    return Math.max(0.06, Math.min(0.85, sorted[idx]));
+}
+
+function buildAdaptiveBaselineEnvelope(peaks, radius = 10) {
+    if (!(peaks instanceof Float32Array) || !peaks.length) {
+        return new Float32Array(0);
+    }
+    const baseline = new Float32Array(peaks.length);
+    const windowRadius = Math.max(2, Math.floor(radius));
+
+    for (let i = 0; i < peaks.length; i += 1) {
+        const start = Math.max(0, i - windowRadius);
+        const end = Math.min(peaks.length - 1, i + windowRadius);
+        const window = [];
+        for (let j = start; j <= end; j += 1) {
+            window.push(peaks[j]);
+        }
+        window.sort((a, b) => a - b);
+        const floorIdx = Math.max(0, Math.min(window.length - 1, Math.floor(window.length * 0.3)));
+        baseline[i] = window[floorIdx];
+    }
+
+    for (let i = 0; i < baseline.length; i += 1) {
+        baseline[i] = Math.max(0.04, Math.min(0.86, baseline[i]));
+    }
+
+    return baseline;
+}
+
+function renderCassetteMotion() {
+    const timelineSec = clampTimelineSec(state.timelineCurrentSec);
+    // Keep wheel angle deterministic from timeline position so pause/resume never resets.
+    state.wheelLeftAngleDeg = timelineSec * 156;
+    state.wheelRightAngleDeg = -timelineSec * 119;
+
+    if (els.wheelLeft) {
+        els.wheelLeft.style.transform = `rotate(${state.wheelLeftAngleDeg.toFixed(3)}deg)`;
+    }
+    if (els.wheelRight) {
+        els.wheelRight.style.transform = `rotate(${state.wheelRightAngleDeg.toFixed(3)}deg)`;
+    }
+
+    const isPlaying = state.isSequencePlaying || state.isTimelinePlaying;
+    const amp = isPlaying ? getTimelineAmplitudeAtSec(timelineSec) : 0;
+    const beatEnergy = Math.max(0, (amp - 0.04) / 0.96);
+    const pulseScale = state.disableCassettePulse
+        ? 1
+        : (isPlaying ? 1 + Math.pow(beatEnergy, 0.66) * 0.0225 : 1);
+    if (els.cassette) {
+        els.cassette.style.setProperty("--cassette-pulse-scale", pulseScale.toFixed(4));
+    }
+}
+
+function fitCassetteClueText() {
+    if (!els.cassetteClue) {
+        return;
+    }
+    const clueEl = els.cassetteClue;
+    clueEl.style.removeProperty("--cassette-clue-size");
+
+    const computed = window.getComputedStyle(clueEl);
+    const startSize = Math.max(10, parseFloat(computed.fontSize) || 16);
+    let nextSize = startSize;
+    const minSize = 8;
+
+    clueEl.style.setProperty("--cassette-clue-size", `${nextSize}px`);
+
+    for (let i = 0; i < 26; i += 1) {
+        const tooTall = clueEl.scrollHeight > clueEl.clientHeight + 1;
+        const tooWide = clueEl.scrollWidth > clueEl.clientWidth + 1;
+        if (!tooTall && !tooWide) {
+            break;
+        }
+        nextSize = Math.max(minSize, nextSize - 0.6);
+        clueEl.style.setProperty("--cassette-clue-size", `${nextSize}px`);
+        if (nextSize <= minSize) {
+            break;
+        }
+    }
+}
+
+function persistSettings() {
+    const payload = {
+        disableCassettePulse: Boolean(state.disableCassettePulse)
+    };
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));
+}
+
+function hydrateSettings() {
+    const serialized = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!serialized) {
+        return;
+    }
+    try {
+        const parsed = JSON.parse(serialized);
+        if (parsed && typeof parsed === "object") {
+            state.disableCassettePulse = Boolean(parsed.disableCassettePulse);
+        }
+    } catch (error) {
+        // Ignore malformed settings and continue with defaults.
+    }
 }
 
 function clearBuzzTimerInterval() {
@@ -544,18 +829,42 @@ function buildWavePeaksFromBuffer(buffer, binCount) {
         return peaks;
     }
 
+    const bassSignal = new Float32Array(data.length);
+    const lowPassHz = 185;
+    const alpha = Math.exp((-2 * Math.PI * lowPassHz) / Math.max(1, buffer.sampleRate));
+    let low = 0;
+    for (let i = 0; i < data.length; i += 1) {
+        low = alpha * low + (1 - alpha) * data[i];
+        bassSignal[i] = low;
+    }
+
     const samplesPerBin = Math.max(1, Math.floor(data.length / bins));
     for (let i = 0; i < bins; i += 1) {
         const start = i * samplesPerBin;
         const end = Math.min(data.length, start + samplesPerBin);
-        let maxAbs = 0;
+        let sumAbs = 0;
+        let sumBassAbs = 0;
+        let count = 0;
         for (let j = start; j < end; j += 1) {
-            const v = Math.abs(data[j]);
-            if (v > maxAbs) {
-                maxAbs = v;
-            }
+            sumAbs += Math.abs(data[j]);
+            sumBassAbs += Math.abs(bassSignal[j]);
+            count += 1;
         }
-        peaks[i] = maxAbs;
+        const fullBand = count ? sumAbs / count : 0;
+        const bassBand = count ? sumBassAbs / count : 0;
+        peaks[i] = Math.max(0, (fullBand * 0.32) + (bassBand * 0.68));
+    }
+
+    let maxPeak = 0;
+    for (let i = 0; i < peaks.length; i += 1) {
+        if (peaks[i] > maxPeak) {
+            maxPeak = peaks[i];
+        }
+    }
+    if (maxPeak > 0) {
+        for (let i = 0; i < peaks.length; i += 1) {
+            peaks[i] = Math.min(1, peaks[i] / maxPeak);
+        }
     }
 
     return peaks;
@@ -583,53 +892,93 @@ function renderTimelineWaveform() {
     }
 
     const duration = timelineDurationSec();
-    const revealLimitSec = state.phase === "solved" || state.phase === "gaveup"
-        ? duration
+    const reachedSec = state.phase === "solved" || state.phase === "gaveup"
+        ? Math.max(0, Math.min(duration, state.timelineCurrentSec))
         : Math.max(0, Math.min(duration, state.maxHeardSec));
 
-    const midY = height / 2;
-    const segmentWidth = width / tracks.length;
-    ctx.strokeStyle = "rgba(255,255,255,0.96)";
-    ctx.lineWidth = Math.max(1, Math.floor((window.devicePixelRatio || 1)));
-    ctx.globalAlpha = 0.95;
+    const deviceScale = canvas.getBoundingClientRect().width > 0 ? width / canvas.getBoundingClientRect().width : 1;
+    const edgePad = Math.max(0, Math.round(12 * deviceScale));
+    const usedWidth = Math.max(1, width - edgePad * 2);
+    const totalBars = Math.max(1, usedWidth);
+    const stepWidth = usedWidth / totalBars;
+    const offsetX = edgePad;
 
-    for (let trackIndex = 0; trackIndex < tracks.length; trackIndex += 1) {
-        const peaks = tracks[trackIndex];
-        if (!(peaks instanceof Float32Array) || !peaks.length) {
-            continue;
-        }
+    if (els.timelineSegments) {
+        els.timelineSegments.style.setProperty("--wave-offset-x", `${offsetX}px`);
+    }
 
-        const xStart = trackIndex * segmentWidth;
-        const localWidth = segmentWidth;
-        for (let i = 0; i < peaks.length; i += 1) {
-            const x = xStart + (i / peaks.length) * localWidth;
-            if (duration > 0) {
-                const secAtX = (x / width) * duration;
-                if (secAtX > revealLimitSec) {
-                    continue;
+    const tintColor = new Array(totalBars).fill(null);
+    const tintAlpha = new Array(totalBars).fill(0);
+    const trail = [1, 0.9, 0.78, 0.66, 0.54, 0.42, 0.3, 0.22, 0.16, 0.1, 0.06];
+
+    if (duration > 0 && state.startedAtMs && Array.isArray(state.guesses)) {
+        for (const guess of state.guesses) {
+            if (!guess) {
+                continue;
+            }
+            const guessSec = typeof guess.timelineSec === "number"
+                ? guess.timelineSec
+                : typeof guess.atMs === "number"
+                    ? Math.max(0, Math.min(duration, (guess.atMs - state.startedAtMs) / 1000))
+                    : 0;
+            const relSec = Math.max(0, Math.min(duration, guessSec));
+            const startIndex = Math.max(0, Math.min(totalBars - 1, Math.floor((relSec / duration) * totalBars)));
+            const color = guess.result === "correct" ? "74, 222, 128" : "251, 113, 133";
+            for (let i = 0; i < trail.length; i += 1) {
+                const idx = startIndex + i;
+                if (idx >= totalBars) {
+                    break;
+                }
+                if (trail[i] > tintAlpha[idx]) {
+                    tintAlpha[idx] = trail[i];
+                    tintColor[idx] = color;
                 }
             }
-            const amp = Math.max(0.015, Math.min(1, peaks[i]));
-            const bar = amp * (height * 0.48);
-            ctx.beginPath();
-            ctx.moveTo(x + 0.5, midY - bar);
-            ctx.lineTo(x + 0.5, midY + bar);
-            ctx.stroke();
         }
     }
 
-    ctx.globalAlpha = 1;
+    for (let globalBarIndex = 0; globalBarIndex < totalBars; globalBarIndex += 1) {
+        const secAtPoint = duration > 0 ? (globalBarIndex / Math.max(1, totalBars - 1)) * duration : 0;
+        const reached = secAtPoint <= reachedSec;
+        const x = offsetX + Math.floor(globalBarIndex * stepWidth);
+        const nextX = globalBarIndex === totalBars - 1 ? offsetX + usedWidth : offsetX + Math.floor((globalBarIndex + 1) * stepWidth);
+        const barWidth = Math.max(1, nextX - x);
+
+        const trackIndex = Math.min(tracks.length - 1, Math.floor(secAtPoint / CLIP_PLAY_SECONDS));
+        const peaks = tracks[trackIndex];
+        let amp = 0.08;
+        if (peaks instanceof Float32Array && peaks.length) {
+            const trackStartSec = trackIndex * CLIP_PLAY_SECONDS;
+            const localTrackRatio = Math.max(0, Math.min(0.999, (secAtPoint - trackStartSec) / CLIP_PLAY_SECONDS));
+            const sampleIndex = Math.min(peaks.length - 1, Math.floor(localTrackRatio * peaks.length));
+            amp = Math.max(0.14, Math.min(0.98, Math.pow(peaks[sampleIndex], 0.52)));
+        }
+
+        const barHeight = Math.max(1, Math.floor(amp * (height - 4)));
+        const y = height - barHeight;
+        ctx.fillStyle = reached ? "rgba(255,255,255,0.88)" : "rgba(0,0,0,0.82)";
+        ctx.fillRect(x, y, barWidth, barHeight);
+
+        const tint = tintColor[globalBarIndex];
+        const alpha = tintAlpha[globalBarIndex];
+        if (tint && alpha > 0) {
+            ctx.fillStyle = `rgba(${tint}, ${Math.min(0.94, alpha)})`;
+            ctx.fillRect(Math.max(offsetX, x - 1), Math.max(0, y - 1), Math.min(width - x + 1, barWidth + 2), Math.min(height - y + 1, barHeight + 2));
+        }
+    }
 }
 
 async function buildTimelineWaveformData() {
     if (!state.puzzle || !Array.isArray(state.puzzle.songs)) {
         state.timelineWaveformPeaks = [];
+        state.timelineWaveformBaselines = [];
         renderTimelineWaveform();
         return;
     }
 
     const token = ++state.timelineWaveformToken;
     state.timelineWaveformPeaks = new Array(state.puzzle.songs.length).fill(null);
+    state.timelineWaveformBaselines = new Array(state.puzzle.songs.length).fill(null);
     renderTimelineWaveform();
 
     for (let i = 0; i < state.puzzle.songs.length; i += 1) {
@@ -648,6 +997,12 @@ async function buildTimelineWaveformData() {
                 return;
             }
             state.timelineWaveformPeaks[i] = buildWavePeaksFromBuffer(buffer, 140);
+            const envelope = buildAdaptiveBaselineEnvelope(state.timelineWaveformPeaks[i], 11);
+            if (envelope.length) {
+                state.timelineWaveformBaselines[i] = envelope;
+            } else {
+                state.timelineWaveformBaselines[i] = estimateTrackBaseline(state.timelineWaveformPeaks[i]);
+            }
             renderTimelineWaveform();
         } catch (error) {
             // Ignore waveform extraction failures per clip; playback errors are handled elsewhere.
@@ -656,11 +1011,14 @@ async function buildTimelineWaveformData() {
 }
 
 function stopTimelineTick() {
-    if (!state.timelineTickIntervalId) {
-        return;
+    if (state.timelineTickIntervalId) {
+        clearInterval(state.timelineTickIntervalId);
+        state.timelineTickIntervalId = null;
     }
-    clearInterval(state.timelineTickIntervalId);
-    state.timelineTickIntervalId = null;
+    if (state.timelineTickRafId) {
+        cancelAnimationFrame(state.timelineTickRafId);
+        state.timelineTickRafId = null;
+    }
 }
 
 function startTimelineTick(startSec, segmentDurationSec) {
@@ -668,7 +1026,7 @@ function startTimelineTick(startSec, segmentDurationSec) {
     state.timelineTickStartSec = clampTimelineSec(startSec);
     state.timelineTickStartMs = nowMs();
 
-    state.timelineTickIntervalId = setInterval(() => {
+    const step = () => {
         const elapsed = (nowMs() - state.timelineTickStartMs) / 1000;
         state.timelineCurrentSec = clampTimelineSec(
             Math.min(state.timelineTickStartSec + elapsed, state.timelineTickStartSec + segmentDurationSec)
@@ -677,33 +1035,15 @@ function startTimelineTick(startSec, segmentDurationSec) {
             state.maxHeardSec = Math.max(state.maxHeardSec, state.timelineCurrentSec);
         }
         renderTimeline();
-    }, 80);
-}
 
-function renderTimelineMarkers() {
-    if (!els.timelineMarkers) {
-        return;
-    }
-
-    const duration = timelineDurationSec();
-    els.timelineMarkers.innerHTML = "";
-    if (!duration || !state.startedAtMs) {
-        return;
-    }
-
-    for (const guess of state.guesses) {
-        if (!guess || typeof guess.atMs !== "number") {
-            continue;
+        if (elapsed < segmentDurationSec && (state.isSequencePlaying || state.isTimelinePlaying)) {
+            state.timelineTickRafId = requestAnimationFrame(step);
+        } else {
+            state.timelineTickRafId = null;
         }
+    };
 
-        const relSec = Math.max(0, (guess.atMs - state.startedAtMs) / 1000);
-        const pct = Math.max(0, Math.min(100, (relSec / duration) * 100));
-        const marker = document.createElement("span");
-        marker.className = `timeline-marker write ${guess.result === "correct" ? "correct" : "wrong"}`;
-        marker.style.left = `${pct}%`;
-        marker.title = `${guess.result === "correct" ? "Answer" : "Wrong"}: ${guess.value}`;
-        els.timelineMarkers.appendChild(marker);
-    }
+    state.timelineTickRafId = requestAnimationFrame(step);
 }
 
 function renderTimelineSegments() {
@@ -720,44 +1060,39 @@ function renderTimelineSegments() {
     for (let i = 0; i < trackCount; i += 1) {
         const segment = document.createElement("span");
         segment.className = "timeline-segment";
-        segment.dataset.track = `song ${i + 1}`;
+        segment.textContent = `Song ${i + 1}`;
         els.timelineSegments.appendChild(segment);
     }
 }
 
 function renderTimeline() {
     const duration = timelineDurationSec();
-    const terminalSolved = state.phase === "solved";
+    const timelineInteractive = state.phase === "solved" || state.phase === "gaveup";
     const clampedSec = clampTimelineSec(state.timelineCurrentSec);
-    const pct = duration ? Math.max(0, Math.min(100, (clampedSec / duration) * 100)) : 0;
 
     if (els.timelineSurface) {
-        els.timelineSurface.classList.toggle("seekable", terminalSolved);
-        els.timelineSurface.setAttribute("aria-disabled", terminalSolved ? "false" : "true");
+        els.timelineSurface.classList.toggle("seekable", timelineInteractive);
+        els.timelineSurface.setAttribute("aria-disabled", timelineInteractive ? "false" : "true");
         els.timelineSurface.setAttribute("aria-valuemin", "0");
         els.timelineSurface.setAttribute("aria-valuemax", String(Math.floor(duration || 60)));
         els.timelineSurface.setAttribute("aria-valuenow", String(Math.floor(clampedSec)));
         els.timelineSurface.setAttribute(
             "aria-valuetext",
-            `${formatClock(Math.floor(clampedSec))} / ${formatClock(Math.floor(duration || 60))}`
+            `${formatClockCompact(Math.floor(clampedSec))} / ${formatClockCompact(Math.floor(duration || 60))}`
         );
     }
 
-    if (els.timelineProgress) {
-        els.timelineProgress.style.width = `${pct}%`;
+    if (els.timelineTimeLeft) {
+        els.timelineTimeLeft.textContent = formatClockCompact(Math.floor(clampedSec));
     }
 
-    if (els.timelinePlayhead) {
-        els.timelinePlayhead.style.left = `${pct}%`;
-    }
-
-    if (els.timelineReadout) {
-        els.timelineReadout.textContent = `${formatClock(Math.floor(clampedSec))} / ${formatClock(Math.floor(duration || 60))}`;
+    if (els.timelineTimeRight) {
+        els.timelineTimeRight.textContent = formatClockCompact(Math.floor(duration || 60));
     }
 
     renderTimelineWaveform();
+    renderCassetteMotion();
     renderTimelineSegments();
-    renderTimelineMarkers();
 }
 
 function setStatusMessage(message, tone = "") {
@@ -1011,17 +1346,20 @@ async function playClipForWindow(song, index, token, options = {}) {
                 }
                 settled = true;
 
-                if (state.preserveTimelinePositionOnStop) {
-                    const playedSec = Math.max(0, (nowMs() - playStartedMs) / 1000);
-                    state.timelineCurrentSec = clampTimelineSec(timelineStartSec + Math.min(duration, playedSec));
-                    state.preserveTimelinePositionOnStop = false;
-                } else {
-                    state.timelineCurrentSec = clampTimelineSec(timelineStartSec + duration);
+                // Ignore stale clip-end cursor updates after a manual seek/pause changed tokens.
+                if (token === state.sequencePlaybackToken) {
+                    if (state.preserveTimelinePositionOnStop) {
+                        const playedSec = Math.max(0, (nowMs() - playStartedMs) / 1000);
+                        state.timelineCurrentSec = clampTimelineSec(timelineStartSec + Math.min(duration, playedSec));
+                        state.preserveTimelinePositionOnStop = false;
+                    } else {
+                        state.timelineCurrentSec = clampTimelineSec(timelineStartSec + duration);
+                    }
+                    if (state.phase !== "solved" && state.phase !== "gaveup") {
+                        state.maxHeardSec = Math.max(state.maxHeardSec, state.timelineCurrentSec);
+                    }
+                    renderTimeline();
                 }
-                if (state.phase !== "solved" && state.phase !== "gaveup") {
-                    state.maxHeardSec = Math.max(state.maxHeardSec, state.timelineCurrentSec);
-                }
-                renderTimeline();
 
                 if (state.currentAudioTimeoutId) {
                     clearTimeout(state.currentAudioTimeoutId);
@@ -1077,6 +1415,8 @@ async function playMixtapeFromCursor(startSec = 0) {
         setStatusMessage("Mixtape is already playing.", "warn");
         return;
     }
+
+    showCassetteTransportFlash("play");
 
     const duration = timelineDurationSec();
     let cursor = clampTimelineSec(startSec);
@@ -1134,9 +1474,12 @@ async function playMixtapeSequence() {
     await playMixtapeFromCursor(0);
 }
 
-function pauseTransportPlayback() {
+function pauseTransportPlayback({ showFlash = true, preservePosition = true } = {}) {
+    if (showFlash) {
+        showCassetteTransportFlash("pause");
+    }
     stopActivePlayTimer();
-    state.preserveTimelinePositionOnStop = true;
+    state.preserveTimelinePositionOnStop = Boolean(preservePosition);
     state.isSequencePlaying = false;
     state.isTimelinePlaying = false;
     state.sequencePlaybackToken += 1;
@@ -1146,8 +1489,8 @@ function pauseTransportPlayback() {
 }
 
 async function playTimelineFromCursor() {
-    if (!state.puzzle || state.phase !== "solved") {
-        setStatusMessage("Timeline scrub is unlocked after solving the theme.", "warn");
+    if (!state.puzzle || (state.phase !== "solved" && state.phase !== "gaveup")) {
+        setStatusMessage("Timeline scrub is unlocked after solving or giving up.", "warn");
         return;
     }
 
@@ -1160,6 +1503,8 @@ async function playTimelineFromCursor() {
         setStatusMessage("Timeline already playing.", "warn");
         return;
     }
+
+    showCassetteTransportFlash("play");
 
     state.isTimelinePlaying = true;
     state.sequencePlaybackToken += 1;
@@ -1217,12 +1562,7 @@ async function onTransportPlayPause() {
         return;
     }
 
-    if (state.phase === "gaveup") {
-        setStatusMessage("Round already finished.", "warn");
-        return;
-    }
-
-    if (state.phase === "solved") {
+    if (state.phase === "solved" || state.phase === "gaveup") {
         await playTimelineFromCursor();
         return;
     }
@@ -1301,7 +1641,7 @@ function submitGuess(rawGuess) {
         stopActivePlayTimer();
         state.phase = "solved";
         state.endedAtMs = nowMs();
-        state.guesses.push({ value: guess, result: "correct", atMs: state.endedAtMs });
+        state.guesses.push({ value: guess, result: "correct", atMs: state.endedAtMs, timelineSec: clampTimelineSec(state.timelineCurrentSec) });
 
         state.preserveTimelinePositionOnStop = true;
         state.sequencePlaybackToken += 1;
@@ -1311,11 +1651,19 @@ function submitGuess(rawGuess) {
 
         stopClock();
         triggerSuccessEffects();
+        setTapeCompletionRecord({
+            packSlug: state.selectedPackSlug,
+            tapeKey: state.selectedTapeKey,
+            result: "solved",
+            wrongGuesses: state.wrongGuesses,
+            guesses: state.guesses.length,
+            scoreSeconds: currentScoreSeconds()
+        });
         setStatusMessage("Correct. Theme solved.", "ok");
     } else {
         state.phase = "running";
         state.wrongGuesses += 1;
-        state.guesses.push({ value: guess, result: "wrong", atMs: nowMs() });
+        state.guesses.push({ value: guess, result: "wrong", atMs: nowMs(), timelineSec: clampTimelineSec(state.timelineCurrentSec) });
         setStatusMessage("Not it. Keep guessing.", "bad");
     }
 
@@ -1347,6 +1695,15 @@ function giveUp() {
     updateBuzzTimerUi();
     stopAnyClip();
     stopClock();
+
+    setTapeCompletionRecord({
+        packSlug: state.selectedPackSlug,
+        tapeKey: state.selectedTapeKey,
+        result: "gaveup",
+        wrongGuesses: state.wrongGuesses,
+        guesses: state.guesses.length,
+        scoreSeconds: currentScoreSeconds()
+    });
 
     setStatusMessage("Round ended. Marked as DNF.", "warn");
     persistGameState();
@@ -1384,16 +1741,17 @@ function renderAnswerLine() {
 
     if (state.phase === "solved" || state.phase === "gaveup") {
         els.answerText.classList.remove("hidden");
-        let answerText = `Answer: ${state.puzzle.theme}`;
+        const answerText = escapeHtml(state.puzzle.theme);
+        let noteHtml = "";
 
         if (state.phase === "solved" && state.guesses.length > 0) {
             const correctGuess = state.guesses.find((g) => g.result === "correct");
             if (correctGuess && normalizeTheme(correctGuess.value) !== normalizeTheme(state.puzzle.theme)) {
-                answerText += ` (You guessed: ${correctGuess.value})`;
+                noteHtml = `<span class="answer-note">You guessed: ${escapeHtml(correctGuess.value)}</span>`;
             }
         }
 
-        els.answerText.textContent = answerText;
+        els.answerText.innerHTML = `<span class="answer-kicker">Answer:</span><span class="answer-value">${answerText}</span>${noteHtml}`;
     } else {
         els.answerText.classList.add("hidden");
         els.answerText.textContent = "";
@@ -1412,7 +1770,7 @@ function renderReveal() {
 
     const header = document.createElement("div");
     header.className = "reveal-row head";
-    ["#", "Song Title", "Artist(s)"].forEach((label) => {
+    ["#", "Song Title", "Artist(s)", "Link"].forEach((label) => {
         const cell = document.createElement("div");
         cell.textContent = label;
         header.appendChild(cell);
@@ -1432,7 +1790,20 @@ function renderReveal() {
         const artistCell = document.createElement("div");
         artistCell.textContent = song.artist;
 
-        row.append(indexCell, titleCell, artistCell);
+        const linkCell = document.createElement("div");
+        if (isLikelySafeHttpUrl(song.link)) {
+            const anchor = document.createElement("a");
+            anchor.href = song.link;
+            anchor.target = "_blank";
+            anchor.rel = "noopener noreferrer";
+            anchor.className = "reveal-link";
+            anchor.textContent = "Open";
+            linkCell.appendChild(anchor);
+        } else {
+            linkCell.textContent = "-";
+        }
+
+        row.append(indexCell, titleCell, artistCell, linkCell);
         els.revealList.appendChild(row);
     });
 
@@ -1450,6 +1821,7 @@ function renderCassetteState() {
     const showStartPrompt = state.phase !== "solved"
         && state.phase !== "gaveup"
         && state.puzzle
+        && !state.startedAtMs
         && !state.isSequencePlaying
         && !state.isTimelinePlaying;
     if (els.cassetteStartPrompt) {
@@ -1475,26 +1847,19 @@ function renderCassetteState() {
     }
 }
 
+function renderCassetteTapeNumber() {
+    if (!els.cassetteTapeNumber) {
+        return;
+    }
+    els.cassetteTapeNumber.classList.add("hidden");
+    els.cassetteTapeNumber.textContent = "";
+}
+
 function renderTransportState() {
-    const playable = state.phase !== "loading" && state.phase !== "missing";
     const hasPuzzle = Boolean(state.puzzle);
-    const isAnyPlayback = state.isSequencePlaying || state.isTimelinePlaying;
 
     if (els.transportRow) {
         els.transportRow.classList.toggle("hidden", !hasPuzzle);
-    }
-
-    if (els.transportPlayBtn) {
-        els.transportPlayBtn.disabled = !playable || !hasPuzzle || state.phase === "gaveup";
-        if (isAnyPlayback) {
-            els.transportPlayBtn.textContent = "⏸";
-            els.transportPlayBtn.setAttribute("aria-label", "Pause");
-            els.transportPlayBtn.setAttribute("title", "Pause");
-        } else {
-            els.transportPlayBtn.textContent = "▶";
-            els.transportPlayBtn.setAttribute("aria-label", "Play");
-            els.transportPlayBtn.setAttribute("title", "Play");
-        }
     }
 
     renderTimeline();
@@ -1524,6 +1889,7 @@ function renderClue() {
         els.clueText.textContent = "";
         if (els.cassetteClue) {
             els.cassetteClue.textContent = "Open Archive and choose a tape.";
+            fitCassetteClueText();
         }
         return;
     }
@@ -1532,7 +1898,8 @@ function renderClue() {
     els.clueTitle.textContent = "";
     els.clueText.textContent = "";
     if (els.cassetteClue) {
-        els.cassetteClue.textContent = clueText;
+        els.cassetteClue.innerHTML = clueToSafeHtml(clueText, state.puzzle.clueAskBold || "");
+        fitCassetteClueText();
     }
 }
 
@@ -1555,6 +1922,7 @@ function render() {
     renderClue();
     renderRoundMeta();
     renderCassetteState();
+    renderCassetteTapeNumber();
     renderTransportState();
     renderGuessInputState();
     renderGiveUpButton();
@@ -1564,8 +1932,11 @@ function render() {
 }
 
 function resetForNewTape() {
-    pauseTransportPlayback();
+    pauseTransportPlayback({ showFlash: false });
     stopClock();
+    state.isTimelineScrubbing = false;
+    state.timelineScrubPointerId = null;
+    state.timelineScrubWasPlaying = false;
     state.puzzle = null;
     state.phase = "ready";
     state.startedAtMs = null;
@@ -1575,8 +1946,11 @@ function resetForNewTape() {
     state.timelineCurrentSec = 0;
     state.isTimelinePlaying = false;
     state.timelineWaveformPeaks = [];
+    state.timelineWaveformBaselines = [];
     state.timelineWaveformToken += 1;
     state.maxHeardSec = 0;
+    state.wheelLeftAngleDeg = 0;
+    state.wheelRightAngleDeg = 0;
     state.activePlayMs = 0;
     state.activePlayStartedAtMs = null;
     drawTimelineWaveformPlaceholder();
@@ -1805,6 +2179,7 @@ function openArchiveModal() {
 
     console.log('[DEBUG] Removing hidden class from modal');
     console.log('[DEBUG] Modal classList before:', els.archiveModal.classList.toString());
+    renderArchiveList();
     els.archiveModal.classList.remove("hidden");
     console.log('[DEBUG] Modal classList after:', els.archiveModal.classList.toString());
     console.log('[DEBUG] Modal display:', window.getComputedStyle(els.archiveModal).display);
@@ -1833,6 +2208,27 @@ function closeRulesModal() {
     els.rulesModal.classList.add("hidden");
 }
 
+function openSettingsModal() {
+    if (els.settingsDisablePulse) {
+        els.settingsDisablePulse.checked = Boolean(state.disableCassettePulse);
+    }
+    if (els.settingsModal) {
+        els.settingsModal.classList.remove("hidden");
+    }
+}
+
+function closeSettingsModal() {
+    if (!els.settingsModal || els.settingsModal.classList.contains("hidden")) {
+        return;
+    }
+    if (els.settingsDisablePulse) {
+        state.disableCassettePulse = Boolean(els.settingsDisablePulse.checked);
+        persistSettings();
+        renderCassetteMotion();
+    }
+    els.settingsModal.classList.add("hidden");
+}
+
 function timelinePointerToSec(event) {
     if (!els.timelineSurface) {
         return 0;
@@ -1846,15 +2242,80 @@ function timelinePointerToSec(event) {
 }
 
 function seekTimeline(nextSec, { restartIfPlaying = true } = {}) {
-    if (state.phase !== "solved") {
-        setStatusMessage("Timeline seeking unlocks after solving the theme.", "warn");
+    if (state.phase !== "solved" && state.phase !== "gaveup") {
+        setStatusMessage("Timeline seeking unlocks after solving or giving up.", "warn");
         return;
     }
     state.timelineCurrentSec = clampTimelineSec(nextSec);
     renderTimeline();
 
     if (restartIfPlaying && state.isTimelinePlaying) {
-        pauseTransportPlayback();
+        pauseTransportPlayback({ showFlash: false, preservePosition: false });
+        playTimelineFromCursor();
+    }
+}
+
+function beginTimelineScrub(event) {
+    if (state.phase !== "solved" && state.phase !== "gaveup") {
+        setStatusMessage("Timeline seeking unlocks after solving or giving up.", "warn");
+        return;
+    }
+
+    if (!els.timelineSurface) {
+        return;
+    }
+
+    state.isTimelineScrubbing = true;
+    state.timelineScrubPointerId = typeof event.pointerId === "number" ? event.pointerId : null;
+    state.timelineScrubWasPlaying = state.isTimelinePlaying;
+
+    if (state.timelineScrubWasPlaying) {
+        pauseTransportPlayback({ showFlash: false, preservePosition: false });
+    }
+
+    if (typeof event.pointerId === "number" && typeof els.timelineSurface.setPointerCapture === "function") {
+        try {
+            els.timelineSurface.setPointerCapture(event.pointerId);
+        } catch (error) {
+            // Pointer capture can fail on some platforms.
+        }
+    }
+
+    seekTimeline(timelinePointerToSec(event), { restartIfPlaying: false });
+}
+
+function updateTimelineScrub(event) {
+    if (!state.isTimelineScrubbing) {
+        return;
+    }
+    if (state.timelineScrubPointerId !== null && typeof event.pointerId === "number" && event.pointerId !== state.timelineScrubPointerId) {
+        return;
+    }
+    seekTimeline(timelinePointerToSec(event), { restartIfPlaying: false });
+}
+
+function endTimelineScrub(event) {
+    if (!state.isTimelineScrubbing) {
+        return;
+    }
+    if (state.timelineScrubPointerId !== null && typeof event.pointerId === "number" && event.pointerId !== state.timelineScrubPointerId) {
+        return;
+    }
+
+    if (els.timelineSurface && state.timelineScrubPointerId !== null && typeof els.timelineSurface.releasePointerCapture === "function") {
+        try {
+            els.timelineSurface.releasePointerCapture(state.timelineScrubPointerId);
+        } catch (error) {
+            // Ignore release errors.
+        }
+    }
+
+    const resumeTimeline = state.timelineScrubWasPlaying;
+    state.isTimelineScrubbing = false;
+    state.timelineScrubPointerId = null;
+    state.timelineScrubWasPlaying = false;
+
+    if (resumeTimeline && (state.phase === "solved" || state.phase === "gaveup")) {
         playTimelineFromCursor();
     }
 }
@@ -1881,12 +2342,6 @@ function wireEvents() {
         });
     }
 
-    if (els.transportPlayBtn) {
-        els.transportPlayBtn.addEventListener("click", () => {
-            onTransportPlayPause();
-        });
-    }
-
     // Cassette click to start
     if (els.cassette) {
         els.cassette.addEventListener("click", async () => {
@@ -1895,12 +2350,24 @@ function wireEvents() {
     }
 
     if (els.timelineSurface) {
-        els.timelineSurface.addEventListener("click", (event) => {
-            seekTimeline(timelinePointerToSec(event));
+        els.timelineSurface.addEventListener("pointerdown", (event) => {
+            beginTimelineScrub(event);
+        });
+
+        els.timelineSurface.addEventListener("pointermove", (event) => {
+            updateTimelineScrub(event);
+        });
+
+        els.timelineSurface.addEventListener("pointerup", (event) => {
+            endTimelineScrub(event);
+        });
+
+        els.timelineSurface.addEventListener("pointercancel", (event) => {
+            endTimelineScrub(event);
         });
 
         els.timelineSurface.addEventListener("keydown", (event) => {
-            if (state.phase !== "solved") {
+            if (state.phase !== "solved" && state.phase !== "gaveup") {
                 return;
             }
             const duration = timelineDurationSec() || 60;
@@ -1926,6 +2393,18 @@ function wireEvents() {
             }
         });
     }
+
+    window.addEventListener("pointermove", (event) => {
+        updateTimelineScrub(event);
+    });
+
+    window.addEventListener("pointerup", (event) => {
+        endTimelineScrub(event);
+    });
+
+    window.addEventListener("pointercancel", (event) => {
+        endTimelineScrub(event);
+    });
 
     if (els.guessForm) {
         els.guessForm.addEventListener("submit", async (event) => {
@@ -1960,6 +2439,22 @@ function wireEvents() {
         els.rulesBtn.addEventListener("click", openRulesModal);
     }
 
+    if (els.settingsBtn) {
+        els.settingsBtn.addEventListener("click", openSettingsModal);
+    }
+
+    if (els.settingsCloseBtn) {
+        els.settingsCloseBtn.addEventListener("click", closeSettingsModal);
+    }
+
+    if (els.settingsDisablePulse) {
+        els.settingsDisablePulse.addEventListener("change", () => {
+            state.disableCassettePulse = Boolean(els.settingsDisablePulse.checked);
+            persistSettings();
+            renderCassetteMotion();
+        });
+    }
+
     if (els.rulesCloseBtn) {
         els.rulesCloseBtn.addEventListener("click", closeRulesModal);
     }
@@ -1982,22 +2477,42 @@ function wireEvents() {
         });
     }
 
+    if (els.settingsModal) {
+        els.settingsModal.addEventListener("click", (event) => {
+            if (event.target === els.settingsModal) {
+                closeSettingsModal();
+            }
+        });
+    }
+
     window.addEventListener("keydown", (event) => {
         if (event.code === "Escape") {
             closeRulesModal();
             closeArchiveModal();
+            closeSettingsModal();
         }
     });
 
     window.addEventListener("resize", () => {
         renderTimelineWaveform();
+        fitCassetteClueText();
     });
 }
 
 async function init() {
     try {
         console.log('[DEBUG] init() called');
+        hydrateSettings();
         wireEvents();
+        if (els.rulesModal) {
+            els.rulesModal.classList.add("hidden");
+        }
+        if (els.archiveModal) {
+            els.archiveModal.classList.add("hidden");
+        }
+        if (els.settingsModal) {
+            els.settingsModal.classList.add("hidden");
+        }
         render();
 
         try {

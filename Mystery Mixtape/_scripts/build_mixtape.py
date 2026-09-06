@@ -23,6 +23,7 @@ class SongJob:
     artist: str
     source_file_name: str
     start_sec: int
+    link: str = ""
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,6 +70,7 @@ def parse_songs(raw_songs: list[dict[str, Any]]) -> list[SongJob]:
             artist = str(song["artist"]).strip()
             source_file_name = str(song["sourceFileName"]).strip()
             start_sec = int(song["startSec"])
+            link = str(song.get("link") or song.get("songLink") or "").strip()
         except KeyError as exc:
             raise ValueError(f"Song {idx} missing field {exc}") from exc
 
@@ -77,7 +79,7 @@ def parse_songs(raw_songs: list[dict[str, Any]]) -> list[SongJob]:
         if start_sec < 0:
             raise ValueError(f"Song {idx} startSec must be >= 0")
 
-        parsed.append(SongJob(title=title, artist=artist, source_file_name=source_file_name, start_sec=start_sec))
+        parsed.append(SongJob(title=title, artist=artist, source_file_name=source_file_name, start_sec=start_sec, link=link))
 
     return parsed
 
@@ -151,12 +153,15 @@ def write_puzzle_json(project_root: Path, job: dict[str, Any], songs: list[SongJ
 
     puzzle = {
         "date": date_key,
+        "clue": str(job.get("clue") or job.get("themeClue") or ""),
+        "clueAskBold": str(job.get("clueAskBold") or job.get("themeClueAsk") or "").strip(),
         "theme": str(job["theme"]),
         "aliases": [str(alias) for alias in aliases],
         "songs": [
             {
                 "title": song.title,
                 "artist": song.artist,
+                "link": song.link,
                 "clipSrc": clip_path,
                 "hint": ""
             }
