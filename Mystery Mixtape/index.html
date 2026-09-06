@@ -11,7 +11,7 @@
         href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=IBM+Plex+Mono:wght@400;600&display=swap"
         rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="custom SVGs/Tape.svg?v=3">
-    <link rel="stylesheet" href="style.css?v=62">
+    <link rel="stylesheet" href="style.css?v=63">
 </head>
 
 <body class="mm-body">
@@ -20,7 +20,13 @@
             <button id="archive-btn" class="archive-btn" type="button">Archive</button>
             <p id="puzzle-date" class="game-meta">Select a tape from the archive.</p>
             <div class="topbar-actions">
-                <button id="settings-btn" class="settings-btn" type="button" aria-label="Open settings">⚙</button>
+                <button id="settings-btn" class="settings-btn" type="button" aria-label="Open settings">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true">
+                        <path fill="currentColor"
+                            d="M495.9 166.6c3.2 8.7 .5 18.4-6.4 24.6l-43.3 39.4c1.1 8.3 1.7 16.8 1.7 25.4s-.6 17.1-1.7 25.4l43.3 39.4c6.9 6.2 9.6 15.9 6.4 24.6c-4.4 11.9-9.7 23.3-15.8 34.3l-4.7 8.1c-6.6 11-14 21.4-22.1 31.2c-5.9 7.2-15.7 9.6-24.5 6.8l-55.7-17.7c-13.4 10.3-28.2 18.9-44 25.4l-12.5 57.1c-2 9.1-9 16.3-18.2 17.8c-13.8 2.3-28 3.5-42.5 3.5s-28.7-1.2-42.5-3.5c-9.2-1.5-16.2-8.7-18.2-17.8l-12.5-57.1c-15.8-6.5-30.6-15.1-44-25.4L83.1 425.9c-8.8 2.8-18.6 .3-24.5-6.8c-8.1-9.8-15.5-20.2-22.1-31.2l-4.7-8.1c-6.1-11-11.4-22.4-15.8-34.3c-3.2-8.7-.5-18.4 6.4-24.6l43.3-39.4C64.6 273.1 64 264.6 64 256s.6-17.1 1.7-25.4L22.4 191.2c-6.9-6.2-9.6-15.9-6.4-24.6c4.4-11.9 9.7-23.3 15.8-34.3l4.7-8.1c6.6-11 14-21.4 22.1-31.2c5.9-7.2 15.7-9.6 24.5-6.8l55.7 17.7c13.4-10.3 28.2-18.9 44-25.4l12.5-57.1c2-9.1 9-16.3 18.2-17.8C227.3 1.2 241.5 0 256 0s28.7 1.2 42.5 3.5c9.2 1.5 16.2 8.7 18.2 17.8l12.5 57.1c15.8 6.5 30.6 15.1 44 25.4l55.7-17.7c8.8-2.8 18.6-.3 24.5 6.8c8.1 9.8 15.5 20.2 22.1 31.2l4.7 8.1c6.1 11 11.4 22.4 15.8 34.3zM256 336a80 80 0 1 0 0-160 80 80 0 1 0 0 160z">
+                        </path>
+                    </svg>
+                </button>
                 <button id="rules-btn" class="rules-btn" type="button" aria-label="Show rules">?</button>
             </div>
         </header>
@@ -118,16 +124,41 @@
                 <h3 id="rules-title">How To Play</h3>
                 <button id="rules-close-btn" class="rules-close-btn" type="button" aria-label="Close rules">x</button>
             </div>
+            <p>Welcome to Mystery Mixtape!<br>
+                <br>
+                In this daily musical quiz game, you listen to a special mixtape containing 10-second clips from six
+                different
+                songs, ordered from least known to most famous.
+                Your goal is to answer a question about what they have in common from listening to as little of the tape
+                as possible with as few guesses as possible—but there is no time limit or guess limit.<br>
+                <br>
+                The commonality is usually in the songs' titles, either a shared word or related words, but it may
+                sometimes
+                be something else about the songs. This will always be specified in the question, so read it carefully
+                before you start the tape.<br>
+                <br>
+                Guess the correct answer (or give up) and a table with the full list of songs will be revealed.<br>
+                <br>
+                A few tips to keep in mind:
+            </p>
+
             <ol class="rules-list">
-                <li>Read the question carefully before you start the tape. Different tapes will feature different
-                    question types, but all are about something in common across all the tapes.</li>
-                <li>Questions will always be specific enough that you can know the answer from just one song.</li>
-                <li>A tape contains clips from six songs, 10-second each, back to back.</li>
-                <li>Lyrics containing the title of a song will never be part of the clip.</li>
-                <li>You can guess as many times as you like.</li>
-                <li>Guess the correct answer and the full tracklist will be revealed. You can also copy your result to
-                    share with friends!</li>
+                <li>You can pause and unpause by clicking/tapping the tape.</li>
+                <li>Answers will always be gettable from any one song.</li>
+                <li>A song's 10-second clip will never contain its title in the lyrics you hear.</li>
+                <li>Answers are case-insensitive.</li>
+                <li>Alternate ways of writing the answer may be accepted (e.g. LA will be accepted for Los Angeles).
+                </li>
             </ol>
+
+            <p>
+                A new mystery mixtape releases every midnight, Melbourne time (AEST). You can also play through the
+                entire archive of
+                past mixtapes at your leisure.<br>
+                <br>
+                Have fun, and good luck!
+            </p>
+
             <label class="rules-pref">
                 <input id="rules-hide-checkbox" type="checkbox">
                 Do not show this again on this device.
@@ -150,7 +181,7 @@
         </div>
     </div>
 
-    <script type="module" src="js/game.js?v=54"></script>
+    <script type="module" src="js/game.js?v=55"></script>
 </body>
 
 </html>

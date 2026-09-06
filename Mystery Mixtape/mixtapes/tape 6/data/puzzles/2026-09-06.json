@@ -1,0 +1,57 @@
+{
+  "date": "2026-09-06",
+  "clueTitle": "Clue",
+  "clue": "What **media franchise** were these songs written for?",
+  "clueAskBold": "",
+  "theme": "James Bond",
+  "aliases": [
+    "Bond",
+    "007",
+    "Bond films",
+    "Bond movies"
+  ],
+  "songs": [
+    {
+      "title": "Live And Let Die",
+      "artist": "Paul McCartney",
+      "link": "https://youtu.be/08saJgLmytU?si=ceG21PIDvanPVZtL",
+      "clipSrc": "data/clips/2026-09-06__1__paul-mccartney-live-and-let-die.wav",
+      "hint": ""
+    },
+    {
+      "title": "A View to a Kill",
+      "artist": "Duran Duran",
+      "link": "https://youtu.be/hJzotJUlQws?si=21VlPhuB2aAGVZFs",
+      "clipSrc": "data/clips/2026-09-06__2__duran-duran-a-view-to-a-kill.wav",
+      "hint": ""
+    },
+    {
+      "title": "You Know My Name",
+      "artist": "Chris Cornell",
+      "link": "https://youtu.be/0p7WZRL6I-8?si=rgaLB7sK4aAXAMsg",
+      "clipSrc": "data/clips/2026-09-06__3__chris-cornell-you-know-my-name.wav",
+      "hint": ""
+    },
+    {
+      "title": "Writing's On The Wall",
+      "artist": "Sam Smith",
+      "link": "https://youtu.be/l5wlpOhuhnE?si=_wasSzEyrAe_Muu7",
+      "clipSrc": "data/clips/2026-09-06__4__sam-smith-writing-s-on-the-wall.wav",
+      "hint": ""
+    },
+    {
+      "title": "No Time To Die",
+      "artist": "Billie Eilish",
+      "link": "https://youtu.be/GB_S2qFh5lU?si=j8wNvGhUpTCxlIB9",
+      "clipSrc": "data/clips/2026-09-06__5__billie-eilish-no-time-to-die.wav",
+      "hint": ""
+    },
+    {
+      "title": "Skyfall",
+      "artist": "Adele",
+      "link": "https://youtu.be/DeumyOzKqgI?si=CZYEn3wPxbgF2Wja",
+      "clipSrc": "data/clips/2026-09-06__6__adele-skyfall.wav",
+      "hint": ""
+    }
+  ]
+}

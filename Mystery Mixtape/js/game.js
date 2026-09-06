@@ -305,16 +305,19 @@ function extractTapeEntries(dailyIndex) {
     return entries;
 }
 
-async function fetchArchiveClue(basePath, tapePath) {
+async function fetchArchivePuzzle(basePath, tapePath) {
     try {
         const response = await fetch(encodeURI(joinPath(basePath, tapePath)));
         if (!response.ok) {
-            return "Could not load clue";
+            return { clue: "Could not load clue", clueAskBold: "" };
         }
         const puzzle = await response.json();
-        return String(puzzle?.clue || "No clue available").trim() || "No clue available";
+        return {
+            clue: String(puzzle?.clue || "No clue available").trim() || "No clue available",
+            clueAskBold: String(puzzle?.clueAskBold || "").trim()
+        };
     } catch (error) {
-        return "Could not load clue";
+        return { clue: "Could not load clue", clueAskBold: "" };
     }
 }
 
@@ -338,7 +341,7 @@ async function buildArchiveEntries() {
 
             const completion = getTapeCompletionRecord(pack.slug, tape.key);
 
-            const clue = await fetchArchiveClue(source.basePath, tape.path);
+            const archivePuzzle = await fetchArchivePuzzle(source.basePath, tape.path);
             entries.push({
                 packSlug: pack.slug,
                 packLabel: pack.label,
@@ -347,7 +350,8 @@ async function buildArchiveEntries() {
                 tapePath: tape.path,
                 tapeNumber: tapeNumber,
                 releaseDate: tape.key,
-                clue,
+                clue: archivePuzzle.clue,
+                clueAskBold: archivePuzzle.clueAskBold,
                 completion
             });
         }
@@ -371,7 +375,7 @@ function renderArchiveList() {
         row.innerHTML = `
             <span class="archive-tape-id">${item.packLabel} / ${item.tapeKey}</span>
             <span class="archive-tape-info">
-                <span class="archive-tape-clue">${item.clue}</span>
+                <span class="archive-tape-clue">${clueToSafeHtml(item.clue, item.clueAskBold || "")}</span>
                 <span class="archive-tape-result ${completion ? `result-${completion.result}` : ""}">${completion ? formatCompletionSummary(completion) : "Not played"}</span>
             </span>
         `;
