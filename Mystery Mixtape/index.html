@@ -11,7 +11,7 @@
         href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=IBM+Plex+Mono:wght@400;600&display=swap"
         rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="custom SVGs/Tape.svg?v=3">
-    <link rel="stylesheet" href="style.css?v=47">
+    <link rel="stylesheet" href="style.css?v=61">
 </head>
 
 <body class="mm-body">
@@ -64,18 +64,17 @@
 
             <p id="cassette-status" class="cassette-status"></p>
 
-            <form id="guess-form" class="guess-form-row">
-                <input id="guess-input" name="guess" type="text" autocomplete="off" placeholder="Enter answer here">
-                <button id="guess-submit-btn" type="submit" class="guess-submit-btn">Enter</button>
-            </form>
-
             <button id="give-up-btn" class="give-up-btn hidden" type="button">Give up</button>
 
             <div id="result-band" class="result-band">
-                <p id="answer-text" class="answer-text answer-inline hidden"></p>
+                <form id="answer-text" class="answer-text answer-inline guess-form-row answer-entry-row">
+                    <span class="answer-kicker">Answer:</span>
+                    <input id="guess-input" name="guess" type="text" autocomplete="off" autocapitalize="words"
+                        placeholder="type answer here">
+                </form>
 
                 <div id="wrong-guesses-wrap" class="wrong-guesses hidden" aria-live="polite">
-                    <p class="wrong-heading">Wrong guesses</p>
+                    <p class="wrong-heading">Incorrect guesses:</p>
                     <ul id="wrong-guesses-list" class="wrong-guesses-list"></ul>
                 </div>
             </div>
@@ -86,9 +85,14 @@
                         <div id="song-reveal-list" class="reveal-table"></div>
                     </div>
                 </div>
-                <div class="share-row">
-                    <button id="share-btn" class="share-btn" type="button" aria-label="Share results"
-                        title="Share results">Share</button>
+                <div class="share-block">
+                    <div class="share-row">
+                        <span class="share-prefix">Click to copy:</span>
+                        <button id="share-btn" class="share-btn" type="button" aria-label="Copy share text"
+                            title="Copy share text"></button>
+                    </div>
+                    <p class="share-note">Perfect for sharing how you went via Instagram Notes, Twitter, or group chats!
+                    </p>
                 </div>
             </section>
 
@@ -100,7 +104,7 @@
     <div id="archive-modal" class="rules-modal hidden" role="dialog" aria-modal="true" aria-labelledby="archive-title">
         <div class="rules-card archive-card-wrap">
             <div class="rules-head">
-                <h3 id="archive-title">Tape Archive</h3>
+                <h3 id="archive-title">Archive</h3>
                 <button id="archive-close-btn" class="rules-close-btn" type="button"
                     aria-label="Close archive">x</button>
             </div>
@@ -146,7 +150,7 @@
         </div>
     </div>
 
-    <script type="module" src="js/game.js?v=43"></script>
+    <script type="module" src="js/game.js?v=51"></script>
 </body>
 
 </html>

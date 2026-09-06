@@ -33,7 +33,7 @@ const els = {
     timelineTimeLeft: document.getElementById("timeline-time-left"),
     timelineTimeRight: document.getElementById("timeline-time-right"),
     roundMeta: document.getElementById("round-meta"),
-    guessForm: document.getElementById("guess-form"),
+    guessForm: document.getElementById("answer-text"),
     guessInput: document.getElementById("guess-input"),
     guessSubmitBtn: document.querySelector(".guess-submit-btn"),
     giveUpBtn: document.getElementById("give-up-btn"),
@@ -92,6 +92,7 @@ const state = {
     timelineWaveformBaselines: [],
     timelineWaveformToken: 0,
     maxHeardSec: 0,
+    timelineHoverSec: null,
     timelineScrubPointerId: null,
     timelineScrubWasPlaying: false,
     isTimelineScrubbing: false,
@@ -100,6 +101,8 @@ const state = {
     activePlayMs: 0,
     activePlayStartedAtMs: null,
     preserveTimelinePositionOnStop: false,
+    revealRenderedToken: "",
+    revealAnimationPlayed: false,
     sourceLabel: "",
     sourceBasePath: "",
     persistProgress: true,
@@ -587,6 +590,61 @@ function showCassetteTransportFlash(mode) {
     els.cassetteTransportFlash.classList.add("flash");
 }
 
+function capitalizeFirstLetter(value) {
+    const text = String(value || "").trim();
+    if (!text) {
+        return "";
+    }
+    return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function playCassetteTransportClick(mode) {
+    try {
+        const ctx = getAudioContext();
+        if (ctx.state === "suspended") {
+            ctx.resume().catch(() => {
+                // Ignore resume failures; clicks are non-critical.
+            });
+        }
+
+        const now = ctx.currentTime;
+        const gain = ctx.createGain();
+        const highpass = ctx.createBiquadFilter();
+        highpass.type = "highpass";
+        highpass.frequency.setValueAtTime(mode === "pause" ? 540 : 760, now);
+
+        const noiseBuffer = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * 0.045)), ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < data.length; i += 1) {
+            const decay = 1 - (i / data.length);
+            data[i] = (Math.random() * 2 - 1) * decay;
+        }
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = noiseBuffer;
+
+        const thump = ctx.createOscillator();
+        thump.type = "triangle";
+        thump.frequency.setValueAtTime(mode === "pause" ? 140 : 180, now);
+
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.linearRampToValueAtTime(0.1, now + 0.002);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+
+        noise.connect(highpass);
+        thump.connect(highpass);
+        highpass.connect(gain);
+        gain.connect(ctx.destination);
+
+        noise.start(now);
+        noise.stop(now + 0.045);
+        thump.start(now);
+        thump.stop(now + 0.03);
+    } catch (error) {
+        // Ignore click synthesis errors to avoid blocking gameplay interactions.
+    }
+}
+
 function getTimelineAmplitudeAtSec(sec) {
     const tracks = state.timelineWaveformPeaks;
     if (!Array.isArray(tracks) || !tracks.length) {
@@ -892,7 +950,8 @@ function renderTimelineWaveform() {
     }
 
     const duration = timelineDurationSec();
-    const reachedSec = state.phase === "solved" || state.phase === "gaveup"
+    const isTerminalPhase = state.phase === "solved" || state.phase === "gaveup";
+    const reachedSec = isTerminalPhase
         ? Math.max(0, Math.min(duration, state.timelineCurrentSec))
         : Math.max(0, Math.min(duration, state.maxHeardSec));
 
@@ -937,9 +996,21 @@ function renderTimelineWaveform() {
         }
     }
 
+    const mainHeight = Math.max(1, Math.floor(height * 0.75));
+    const reflectionHeight = Math.max(1, height - mainHeight);
+    const reflectionScale = 1 / 3;
+    let hoverStartSec = null;
+    let hoverEndSec = null;
+
+    if (isTerminalPhase && Number.isFinite(state.timelineHoverSec) && duration > 0) {
+        hoverStartSec = Math.max(0, Math.min(duration, Math.min(state.timelineCurrentSec, state.timelineHoverSec)));
+        hoverEndSec = Math.max(0, Math.min(duration, Math.max(state.timelineCurrentSec, state.timelineHoverSec)));
+    }
+
     for (let globalBarIndex = 0; globalBarIndex < totalBars; globalBarIndex += 1) {
         const secAtPoint = duration > 0 ? (globalBarIndex / Math.max(1, totalBars - 1)) * duration : 0;
         const reached = secAtPoint <= reachedSec;
+        const inHoverSpan = hoverStartSec !== null && hoverEndSec !== null && secAtPoint >= hoverStartSec && secAtPoint <= hoverEndSec;
         const x = offsetX + Math.floor(globalBarIndex * stepWidth);
         const nextX = globalBarIndex === totalBars - 1 ? offsetX + usedWidth : offsetX + Math.floor((globalBarIndex + 1) * stepWidth);
         const barWidth = Math.max(1, nextX - x);
@@ -954,18 +1025,32 @@ function renderTimelineWaveform() {
             amp = Math.max(0.14, Math.min(0.98, Math.pow(peaks[sampleIndex], 0.52)));
         }
 
-        const barHeight = Math.max(1, Math.floor(amp * (height - 4)));
-        const y = height - barHeight;
-        ctx.fillStyle = reached ? "rgba(255,255,255,0.88)" : "rgba(0,0,0,0.82)";
-        ctx.fillRect(x, y, barWidth, barHeight);
+        const barHeight = Math.max(1, Math.floor(amp * Math.max(1, mainHeight - 2)));
+        const mainY = mainHeight - barHeight;
+        if (reached) {
+            ctx.fillStyle = inHoverSpan ? "rgba(222, 226, 232, 0.92)" : "rgba(255,255,255,0.88)";
+        } else {
+            ctx.fillStyle = inHoverSpan ? "rgba(146, 98, 106, 0.92)" : "rgba(118, 52, 58, 0.92)";
+        }
+        ctx.fillRect(x, mainY, barWidth, barHeight);
+
+        const reflectedBarHeight = Math.max(1, Math.floor(barHeight * reflectionScale));
+        if (reached) {
+            ctx.fillStyle = inHoverSpan ? "rgba(176, 184, 196, 0.48)" : "rgba(255,255,255,0.38)";
+        } else {
+            ctx.fillStyle = inHoverSpan ? "rgba(106, 60, 68, 0.62)" : "rgba(85, 37, 43, 0.56)";
+        }
+        ctx.fillRect(x, mainHeight, barWidth, Math.min(reflectionHeight, reflectedBarHeight));
 
         const tint = tintColor[globalBarIndex];
         const alpha = tintAlpha[globalBarIndex];
         if (tint && alpha > 0) {
-            ctx.fillStyle = `rgba(${tint}, ${Math.min(0.94, alpha)})`;
-            ctx.fillRect(Math.max(offsetX, x - 1), Math.max(0, y - 1), Math.min(width - x + 1, barWidth + 2), Math.min(height - y + 1, barHeight + 2));
+            const tintOpacity = Math.min(0.6, 0.14 + alpha * 0.4);
+            ctx.fillStyle = `rgba(${tint}, ${tintOpacity})`;
+            ctx.fillRect(x, 0, barWidth, height);
         }
     }
+
 }
 
 async function buildTimelineWaveformData() {
@@ -1417,6 +1502,7 @@ async function playMixtapeFromCursor(startSec = 0) {
     }
 
     showCassetteTransportFlash("play");
+    playCassetteTransportClick("play");
 
     const duration = timelineDurationSec();
     let cursor = clampTimelineSec(startSec);
@@ -1477,6 +1563,7 @@ async function playMixtapeSequence() {
 function pauseTransportPlayback({ showFlash = true, preservePosition = true } = {}) {
     if (showFlash) {
         showCassetteTransportFlash("pause");
+        playCassetteTransportClick("pause");
     }
     stopActivePlayTimer();
     state.preserveTimelinePositionOnStop = Boolean(preservePosition);
@@ -1505,6 +1592,7 @@ async function playTimelineFromCursor() {
     }
 
     showCassetteTransportFlash("play");
+    playCassetteTransportClick("play");
 
     state.isTimelinePlaying = true;
     state.sequencePlaybackToken += 1;
@@ -1565,6 +1653,11 @@ async function onTransportPlayPause() {
     if (state.phase === "solved" || state.phase === "gaveup") {
         await playTimelineFromCursor();
         return;
+    }
+
+    const isInitialStart = !state.startedAtMs;
+    if (isInitialStart && els.guessInput) {
+        els.guessInput.focus();
     }
 
     await playMixtapeFromCursor(state.timelineCurrentSec);
@@ -1730,32 +1823,33 @@ function renderGiveUpButton() {
 }
 
 function renderAnswerLine() {
-    if (!els.answerText) {
+    if (!els.answerText || !els.guessInput) {
         return;
     }
 
-    if (!state.puzzle) {
-        els.answerText.classList.add("hidden");
+    const isTerminal = state.phase === "solved" || state.phase === "gaveup";
+    els.answerText.classList.toggle("answer-revealed", isTerminal);
+
+    if (isTerminal && state.puzzle) {
+        els.guessInput.value = capitalizeFirstLetter(state.puzzle.theme);
+        els.guessInput.disabled = true;
+    } else if (!state.puzzle) {
+        els.guessInput.value = "";
+    }
+}
+
+function renderShareCta() {
+    if (!els.shareBtn) {
         return;
     }
-
-    if (state.phase === "solved" || state.phase === "gaveup") {
-        els.answerText.classList.remove("hidden");
-        const answerText = escapeHtml(state.puzzle.theme);
-        let noteHtml = "";
-
-        if (state.phase === "solved" && state.guesses.length > 0) {
-            const correctGuess = state.guesses.find((g) => g.result === "correct");
-            if (correctGuess && normalizeTheme(correctGuess.value) !== normalizeTheme(state.puzzle.theme)) {
-                noteHtml = `<span class="answer-note">You guessed: ${escapeHtml(correctGuess.value)}</span>`;
-            }
-        }
-
-        els.answerText.innerHTML = `<span class="answer-kicker">Answer:</span><span class="answer-value">${answerText}</span>${noteHtml}`;
-    } else {
-        els.answerText.classList.add("hidden");
-        els.answerText.textContent = "";
+    const shareText = generateShareText();
+    if (!shareText) {
+        els.shareBtn.textContent = "Share text unavailable";
+        els.shareBtn.disabled = true;
+        return;
     }
+    els.shareBtn.textContent = shareText;
+    els.shareBtn.disabled = false;
 }
 
 function renderReveal() {
@@ -1765,6 +1859,15 @@ function renderReveal() {
     if (!isTerminal || !state.puzzle) {
         return;
     }
+
+    renderShareCta();
+
+    const revealToken = `${state.selectedPackSlug}|${state.selectedTapeKey}|${state.phase}`;
+    if (state.revealRenderedToken === revealToken) {
+        return;
+    }
+    state.revealRenderedToken = revealToken;
+    const shouldAnimateRows = !state.revealAnimationPlayed;
 
     els.revealList.innerHTML = "";
 
@@ -1779,7 +1882,10 @@ function renderReveal() {
 
     state.puzzle.songs.forEach((song, index) => {
         const row = document.createElement("div");
-        row.className = "reveal-row";
+        row.className = shouldAnimateRows ? "reveal-row reveal-animate" : "reveal-row";
+        if (shouldAnimateRows) {
+            row.style.animationDelay = `${index * 90}ms`;
+        }
 
         const indexCell = document.createElement("div");
         indexCell.textContent = String(index + 1);
@@ -1806,6 +1912,10 @@ function renderReveal() {
         row.append(indexCell, titleCell, artistCell, linkCell);
         els.revealList.appendChild(row);
     });
+
+    if (shouldAnimateRows) {
+        state.revealAnimationPlayed = true;
+    }
 
 }
 
@@ -1876,7 +1986,7 @@ function renderWrongGuesses() {
     els.wrongGuessesList.innerHTML = "";
     for (const guess of wrong) {
         const li = document.createElement("li");
-        li.textContent = guess.value;
+        li.textContent = capitalizeFirstLetter(guess.value);
         els.wrongGuessesList.appendChild(li);
     }
 }
@@ -1909,12 +2019,11 @@ function renderGuessInputState() {
     const canGuess = playable && !terminal && Boolean(state.puzzle);
     els.guessInput.disabled = !canGuess;
     els.guessInput.classList.toggle("correct", state.phase === "solved");
-    els.guessForm.classList.toggle("hidden", terminal);
 
     if (!state.puzzle) {
-        els.guessInput.placeholder = "Open Archive and choose a tape";
+        els.guessInput.placeholder = "type answer here";
     } else {
-        els.guessInput.placeholder = "Enter answer here";
+        els.guessInput.placeholder = "type answer here";
     }
 }
 
@@ -1948,15 +2057,18 @@ function resetForNewTape() {
     state.timelineWaveformPeaks = [];
     state.timelineWaveformBaselines = [];
     state.timelineWaveformToken += 1;
+    state.timelineHoverSec = null;
     state.maxHeardSec = 0;
     state.wheelLeftAngleDeg = 0;
     state.wheelRightAngleDeg = 0;
     state.activePlayMs = 0;
     state.activePlayStartedAtMs = null;
+    state.revealRenderedToken = "";
+    state.revealAnimationPlayed = false;
     drawTimelineWaveformPlaceholder();
     if (els.guessInput) {
         els.guessInput.value = "";
-        els.guessInput.placeholder = "Enter answer here";
+        els.guessInput.placeholder = "type answer here";
     }
 }
 
@@ -2156,7 +2268,7 @@ async function shareResults() {
 
     try {
         await navigator.clipboard.writeText(shareText);
-        const originalText = els.shareBtn.textContent;
+        const originalText = shareText;
         els.shareBtn.textContent = "Copied!";
         setTimeout(() => {
             els.shareBtn.textContent = originalText;
@@ -2241,6 +2353,32 @@ function timelinePointerToSec(event) {
     return clampTimelineSec(ratio * timelineDurationSec());
 }
 
+function updateTimelineHover(event) {
+    if (!els.timelineSurface) {
+        return;
+    }
+    if (state.phase !== "solved" && state.phase !== "gaveup") {
+        if (state.timelineHoverSec !== null) {
+            state.timelineHoverSec = null;
+            renderTimelineWaveform();
+        }
+        return;
+    }
+    const nextSec = timelinePointerToSec(event);
+    if (!Number.isFinite(state.timelineHoverSec) || Math.abs(state.timelineHoverSec - nextSec) > 0.05) {
+        state.timelineHoverSec = nextSec;
+        renderTimelineWaveform();
+    }
+}
+
+function clearTimelineHover() {
+    if (state.timelineHoverSec === null) {
+        return;
+    }
+    state.timelineHoverSec = null;
+    renderTimelineWaveform();
+}
+
 function seekTimeline(nextSec, { restartIfPlaying = true } = {}) {
     if (state.phase !== "solved" && state.phase !== "gaveup") {
         setStatusMessage("Timeline seeking unlocks after solving or giving up.", "warn");
@@ -2266,6 +2404,7 @@ function beginTimelineScrub(event) {
     }
 
     state.isTimelineScrubbing = true;
+    state.timelineHoverSec = null;
     state.timelineScrubPointerId = typeof event.pointerId === "number" ? event.pointerId : null;
     state.timelineScrubWasPlaying = state.isTimelinePlaying;
 
@@ -2356,6 +2495,9 @@ function wireEvents() {
 
         els.timelineSurface.addEventListener("pointermove", (event) => {
             updateTimelineScrub(event);
+            if (!state.isTimelineScrubbing) {
+                updateTimelineHover(event);
+            }
         });
 
         els.timelineSurface.addEventListener("pointerup", (event) => {
@@ -2364,6 +2506,10 @@ function wireEvents() {
 
         els.timelineSurface.addEventListener("pointercancel", (event) => {
             endTimelineScrub(event);
+        });
+
+        els.timelineSurface.addEventListener("pointerleave", () => {
+            clearTimelineHover();
         });
 
         els.timelineSurface.addEventListener("keydown", (event) => {
@@ -2432,6 +2578,18 @@ function wireEvents() {
                 els.guessInput.value = "";
             }
             els.guessInput.focus();
+        });
+    }
+
+    if (els.guessInput) {
+        els.guessInput.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter") {
+                return;
+            }
+            event.preventDefault();
+            if (els.guessForm && typeof els.guessForm.requestSubmit === "function") {
+                els.guessForm.requestSubmit();
+            }
         });
     }
 
