@@ -1,7 +1,7 @@
 {
   "date": "2026-07-27",
   "clueTitle": "Clue",
-  "clue": "What concept is named in all of the titles of these songs?",
+  "clue": "What **concept** is named in these songs' titles?",
   "theme": "karma",
   "aliases": [],
   "songs": [

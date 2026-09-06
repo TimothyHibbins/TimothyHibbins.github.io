@@ -38,6 +38,14 @@
 
             <div class="head-actions">
                 <p class="muted mini-note">Tracks complete: <span id="song-count">0</span>/6</p>
+                <select id="catalog-pack-select" class="creator-tape-select" aria-label="Select mixtape pack"></select>
+                <select id="catalog-tape-select" class="creator-tape-select" aria-label="Select tape"></select>
+                <button id="catalog-load-btn" class="small-btn" type="button">Load Tape</button>
+                <button id="save-over-tape-btn" class="primary-btn" type="button">Download Tape JSON</button>
+                <label id="import-mixtape-btn" class="small-btn upload-all-label" for="import-mixtape-input"
+                    tabindex="0">Import Package/JSON</label>
+                <input id="import-mixtape-input" type="file" accept=".zip,.json,application/zip,application/json"
+                    class="hidden-file-input">
                 <label id="upload-all-btn" class="small-btn upload-all-label" for="upload-all-input" tabindex="0">Upload
                     6 Tracks</label>
                 <input id="upload-all-input" type="file" accept="audio/*" multiple class="hidden-file-input">
@@ -71,7 +79,7 @@
         </section>
     </main>
 
-    <script type="module" src="js/creator.js"></script>
+    <script type="module" src="js/creator.js?v=6"></script>
 </body>
 
 </html>

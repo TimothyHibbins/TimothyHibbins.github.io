@@ -1,6 +1,7 @@
 import JSZip from "https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm";
 
 const STORAGE_KEY = "mystery-mixtape.creator.v7";
+const MIXTAPE_MANIFEST_PATH = "mixtapes/index.json";
 const TRACK_COUNT = 6;
 const CLIP_SECONDS = 10;
 const CLIP_CONTEXT_SECONDS = 2;
@@ -22,6 +23,12 @@ const els = {
     selectedClipCanvas: document.getElementById("selected-clip-canvas"),
     selectedFileCanvas: document.getElementById("selected-file-canvas"),
     songCount: document.getElementById("song-count"),
+    catalogPackSelect: document.getElementById("catalog-pack-select"),
+    catalogTapeSelect: document.getElementById("catalog-tape-select"),
+    catalogLoadBtn: document.getElementById("catalog-load-btn"),
+    saveOverTapeBtn: document.getElementById("save-over-tape-btn"),
+    importMixtapeBtn: document.getElementById("import-mixtape-btn"),
+    importMixtapeInput: document.getElementById("import-mixtape-input"),
     uploadAllBtn: document.getElementById("upload-all-btn"),
     uploadAllInput: document.getElementById("upload-all-input"),
     combinedPreviewBtn: document.getElementById("combined-preview-btn"),
@@ -38,8 +45,80 @@ const state = {
     selectedTrackId: "",
     dragSourceId: "",
     hoverSec: null,
-    dragClip: null
+    dragClip: null,
+    catalogPacks: [],
+    currentLoadedTape: null,
+    loadedPuzzleDate: "",
+    loadedPuzzleClueTitle: "Clue"
 };
+
+async function fetchJson(path, notFoundOk = false) {
+    const response = await fetch(encodeURI(path));
+    if (!response.ok) {
+        if (notFoundOk && response.status === 404) {
+            return null;
+        }
+        throw new Error(`Could not load ${path}.`);
+    }
+    return response.json();
+}
+
+function joinPath(basePath, path) {
+    const cleanPath = String(path || "").replace(/^\.\//, "");
+    if (!cleanPath) {
+        return cleanPath;
+    }
+    if (!basePath) {
+        return cleanPath;
+    }
+    const cleanBase = String(basePath).replace(/\/+$/, "");
+    return `${cleanBase}/${cleanPath}`;
+}
+
+function extractTapeEntries(dailyIndex) {
+    const entries = [];
+
+    if (dailyIndex && typeof dailyIndex.puzzles === "object" && !Array.isArray(dailyIndex.puzzles)) {
+        for (const [key, value] of Object.entries(dailyIndex.puzzles)) {
+            if (typeof value === "string" && value.trim()) {
+                entries.push({ key, label: key, path: value.trim() });
+            }
+        }
+    }
+
+    if (Array.isArray(dailyIndex?.puzzles)) {
+        for (const item of dailyIndex.puzzles) {
+            if (!item || typeof item !== "object") {
+                continue;
+            }
+            const path = String(item.file || item.path || "").trim();
+            if (!path) {
+                continue;
+            }
+            const key = String(item.date || item.id || item.title || path).trim();
+            entries.push({ key, label: key, path });
+        }
+    }
+
+    entries.sort((a, b) => String(a.key).localeCompare(String(b.key)));
+    return entries;
+}
+
+async function loadIndexForPack(slug) {
+    const basePath = `mixtapes/${slug}`;
+    const patchPath = joinPath(basePath, "data/daily-puzzles.patch.json");
+    const fullPath = joinPath(basePath, "data/daily-puzzles.json");
+
+    let dailyIndex = await fetchJson(patchPath, true);
+    if (!dailyIndex) {
+        dailyIndex = await fetchJson(fullPath, true);
+    }
+    if (!dailyIndex) {
+        throw new Error(`Mixtape "${slug}" has no daily index.`);
+    }
+
+    return { basePath, dailyIndex };
+}
 
 function computeSourceCanvasWidth(durationSec) {
     if (!Number.isFinite(durationSec) || durationSec <= 0) {
@@ -61,6 +140,7 @@ function createEmptyTracks() {
         title: "",
         artist: "",
         link: "",
+        clipSrc: "",
         sourceFileName: "",
         sourceFile: null,
         arrayBuffer: null,
@@ -113,6 +193,24 @@ function inferTitleFromFileName(fileName = "") {
         .trim();
 }
 
+function inferFileNameFromPath(path = "") {
+    const text = String(path || "").trim();
+    if (!text) {
+        return "";
+    }
+    const normalized = text.replace(/\\/g, "/");
+    const index = normalized.lastIndexOf("/");
+    return index >= 0 ? normalized.slice(index + 1) : normalized;
+}
+
+function normalizePathForLookup(path = "") {
+    return String(path || "")
+        .replace(/\\/g, "/")
+        .replace(/^\.?\//, "")
+        .replace(/^\/+/, "")
+        .trim();
+}
+
 function saveDraft() {
     const payload = {
         themeClue: els.themeClue.value,
@@ -125,6 +223,7 @@ function saveDraft() {
             title: track.title,
             artist: track.artist,
             link: track.link,
+            clipSrc: track.clipSrc,
             sourceFileName: track.sourceFileName,
             startSec: track.startSec
         }))
@@ -155,6 +254,7 @@ function restoreDraft() {
                 title: stored.title || "",
                 artist: stored.artist || "",
                 link: stored.link || "",
+                clipSrc: stored.clipSrc || "",
                 sourceFileName: stored.sourceFileName || "",
                 sourceFile: null,
                 arrayBuffer: null,
@@ -612,6 +712,7 @@ function clearTrackAudio(track) {
     track.title = "";
     track.artist = "";
     track.link = "";
+    track.clipSrc = "";
     track.sourceFileName = "";
     track.sourceFile = null;
     track.arrayBuffer = null;
@@ -782,6 +883,359 @@ async function handleBulkFiles(fileList) {
     }
 
     setStatus("Loaded 6 tracks.", "ok");
+}
+
+async function fetchAndDecodeClip(track, clipSrc) {
+    const response = await fetch(encodeURI(clipSrc));
+    if (!response.ok) {
+        throw new Error(`Could not load clip at ${clipSrc}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    track.arrayBuffer = arrayBuffer;
+    track.decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    track.durationSec = track.decoded.duration;
+    track.startSec = 0;
+    track.sourceCanvasW = computeSourceCanvasWidth(track.durationSec);
+    track.sourceCanvasH = SOURCE_CANVAS_HEIGHT;
+    resetPreviewPosition(track);
+    computeWaveformImage(track);
+}
+
+async function decodeClipFromArrayBuffer(track, arrayBuffer) {
+    track.arrayBuffer = arrayBuffer;
+    track.decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    track.durationSec = track.decoded.duration;
+    track.startSec = 0;
+    track.sourceCanvasW = computeSourceCanvasWidth(track.durationSec);
+    track.sourceCanvasH = SOURCE_CANVAS_HEIGHT;
+    resetPreviewPosition(track);
+    computeWaveformImage(track);
+}
+
+async function applyImportedPuzzle(payload, loadClip) {
+    if (!payload || typeof payload !== "object") {
+        throw new Error("Selected file does not contain a mixtape object.");
+    }
+    if (!Array.isArray(payload.songs) || payload.songs.length !== TRACK_COUNT) {
+        throw new Error(`Mixtape must contain exactly ${TRACK_COUNT} songs.`);
+    }
+
+    stopAllPreviews();
+    state.hoverSec = null;
+    state.selectedTrackId = "";
+
+    els.themeClue.value = String(payload.clue || "").trim();
+    els.themeClueAsk.value = String(payload.clueAskBold || "").trim();
+    els.themeAnswer.value = String(payload.theme || "").trim();
+    state.loadedPuzzleDate = String(payload.date || "").trim();
+    state.loadedPuzzleClueTitle = String(payload.clueTitle || "Clue").trim() || "Clue";
+    els.themeAliases.value = Array.isArray(payload.aliases)
+        ? payload.aliases.map((item) => String(item || "").trim()).filter(Boolean).join(", ")
+        : "";
+
+    const failures = [];
+
+    for (let i = 0; i < TRACK_COUNT; i += 1) {
+        const incoming = payload.songs[i] || {};
+        const track = state.tracks[i];
+        clearTrackAudio(track);
+
+        track.title = String(incoming.title || "").trim();
+        track.artist = String(incoming.artist || "").trim();
+        track.link = String(incoming.link || "").trim();
+
+        const clipSrc = String(incoming.clipSrc || "").trim();
+        if (!clipSrc) {
+            failures.push(`Track ${i + 1}: missing clipSrc`);
+            continue;
+        }
+
+        track.clipSrc = clipSrc;
+        track.sourceFileName = inferFileNameFromPath(clipSrc);
+
+        try {
+            await loadClip(track, clipSrc);
+        } catch (error) {
+            clearTrackAudio(track);
+            track.title = String(incoming.title || "").trim();
+            track.artist = String(incoming.artist || "").trim();
+            track.link = String(incoming.link || "").trim();
+            track.clipSrc = clipSrc;
+            track.sourceFileName = inferFileNameFromPath(clipSrc);
+            failures.push(`Track ${i + 1}: ${track.sourceFileName || clipSrc}`);
+        }
+    }
+
+    updateSongCount();
+    saveDraft();
+    renderSegmentsStrip();
+    renderCanvases();
+
+    if (failures.length) {
+        setStatus(
+            `Imported clue/answers and track metadata, but some clips could not be loaded (${failures.length}). Re-upload those tracks to re-export.`,
+            "warn"
+        );
+        return;
+    }
+
+    setStatus("Mixtape imported and ready to edit/download.", "ok");
+}
+
+async function importMixtapeJson(file) {
+    if (!file) {
+        return;
+    }
+
+    setStatus("Importing mixtape JSON...", "warn");
+
+    let payload;
+    try {
+        payload = JSON.parse(await file.text());
+    } catch (error) {
+        setStatus("Selected file is not valid JSON.", "bad");
+        return;
+    }
+
+    try {
+        await applyImportedPuzzle(payload, async (track, clipSrc) => {
+            await fetchAndDecodeClip(track, clipSrc);
+        });
+    } catch (error) {
+        setStatus(error.message || "Import failed.", "bad");
+    }
+}
+
+async function importMixtapeZip(file) {
+    if (!file) {
+        return;
+    }
+
+    setStatus("Importing mixtape package...", "warn");
+
+    let zip;
+    try {
+        zip = await JSZip.loadAsync(await file.arrayBuffer());
+    } catch (error) {
+        setStatus("Selected file is not a valid ZIP package.", "bad");
+        return;
+    }
+
+    const allEntries = Object.entries(zip.files)
+        .filter(([, entry]) => !entry.dir)
+        .map(([name]) => normalizePathForLookup(name));
+
+    const puzzlePath = allEntries.find((name) => /(?:^|\/)data\/puzzles\/[^/]+\.json$/i.test(name));
+    if (!puzzlePath) {
+        setStatus("ZIP package is missing data/puzzles/*.json.", "bad");
+        return;
+    }
+
+    const puzzleEntry = zip.file(puzzlePath);
+    if (!puzzleEntry) {
+        setStatus("Could not read puzzle JSON from package.", "bad");
+        return;
+    }
+
+    let payload;
+    try {
+        payload = JSON.parse(await puzzleEntry.async("string"));
+    } catch (error) {
+        setStatus("Puzzle JSON in ZIP is invalid.", "bad");
+        return;
+    }
+
+    try {
+        await applyImportedPuzzle(payload, async (track, clipSrc) => {
+            const normalizedClip = normalizePathForLookup(clipSrc);
+            const clipPath = allEntries.find((name) => name === normalizedClip || name.endsWith(`/${normalizedClip}`));
+            if (!clipPath) {
+                throw new Error(`Missing clip in zip: ${clipSrc}`);
+            }
+            const clipEntry = zip.file(clipPath);
+            if (!clipEntry) {
+                throw new Error(`Missing clip in zip: ${clipSrc}`);
+            }
+            const clipBuffer = await clipEntry.async("arraybuffer");
+            await decodeClipFromArrayBuffer(track, clipBuffer);
+        });
+    } catch (error) {
+        setStatus(error.message || "Import failed.", "bad");
+    }
+}
+
+function renderCatalogPackOptions() {
+    if (!els.catalogPackSelect) {
+        return;
+    }
+    els.catalogPackSelect.innerHTML = "";
+    for (const pack of state.catalogPacks) {
+        const option = document.createElement("option");
+        option.value = pack.slug;
+        option.textContent = pack.label;
+        els.catalogPackSelect.appendChild(option);
+    }
+}
+
+function renderCatalogTapeOptions() {
+    if (!els.catalogTapeSelect || !els.catalogPackSelect) {
+        return;
+    }
+    const slug = String(els.catalogPackSelect.value || "");
+    const pack = state.catalogPacks.find((item) => item.slug === slug) || state.catalogPacks[0];
+    els.catalogTapeSelect.innerHTML = "";
+    if (!pack) {
+        return;
+    }
+    for (const tape of pack.tapes) {
+        const option = document.createElement("option");
+        option.value = tape.key;
+        option.textContent = tape.label;
+        els.catalogTapeSelect.appendChild(option);
+    }
+}
+
+async function loadCatalogPacks() {
+    const manifest = await fetchJson(MIXTAPE_MANIFEST_PATH, true);
+    if (!manifest || !Array.isArray(manifest.packs) || !manifest.packs.length) {
+        throw new Error("No mixtape packs found in mixtapes/index.json.");
+    }
+
+    const packs = [];
+    for (const item of manifest.packs) {
+        const slug = String(item?.slug || "").trim();
+        if (!slug) {
+            continue;
+        }
+        const label = String(item?.label || slug).trim() || slug;
+        try {
+            const { basePath, dailyIndex } = await loadIndexForPack(slug);
+            const tapes = extractTapeEntries(dailyIndex);
+            if (!tapes.length) {
+                continue;
+            }
+            packs.push({ slug, label, basePath, tapes });
+        } catch (error) {
+            // Skip packs that cannot be read.
+        }
+    }
+
+    if (!packs.length) {
+        throw new Error("No readable tapes found in mixtape packs.");
+    }
+
+    state.catalogPacks = packs;
+    renderCatalogPackOptions();
+    renderCatalogTapeOptions();
+}
+
+async function loadSelectedCatalogTape() {
+    const packSlug = String(els.catalogPackSelect?.value || "");
+    const tapeKey = String(els.catalogTapeSelect?.value || "");
+    const pack = state.catalogPacks.find((item) => item.slug === packSlug);
+    if (!pack) {
+        setStatus("Pick a pack first.", "warn");
+        return;
+    }
+    const tape = pack.tapes.find((item) => item.key === tapeKey) || pack.tapes[0];
+    if (!tape) {
+        setStatus("No tape found for selected pack.", "warn");
+        return;
+    }
+
+    const puzzlePath = joinPath(pack.basePath, tape.path);
+    setStatus(`Loading ${pack.label} / ${tape.key}...`, "warn");
+
+    let payload;
+    try {
+        payload = await fetchJson(puzzlePath);
+    } catch (error) {
+        setStatus(error.message || "Could not load selected tape.", "bad");
+        return;
+    }
+
+    try {
+        await applyImportedPuzzle(payload, async (track, clipSrc) => {
+            const resolvedClip = joinPath(pack.basePath, clipSrc);
+            await fetchAndDecodeClip(track, resolvedClip);
+        });
+        state.currentLoadedTape = {
+            packSlug: pack.slug,
+            packLabel: pack.label,
+            tapeKey: tape.key,
+            puzzleRelativePath: normalizePathForLookup(puzzlePath)
+        };
+        setStatus(`Loaded ${pack.label} / ${tape.key}. Ready to save over or re-download.`, "ok");
+    } catch (error) {
+        setStatus(error.message || "Failed to load selected tape.", "bad");
+    }
+}
+
+function getTrackClipPath(track) {
+    const explicit = String(track.clipSrc || "").trim();
+    if (explicit) {
+        return explicit;
+    }
+    const fallback = String(track.sourceFileName || "").trim();
+    if (!fallback) {
+        return "";
+    }
+    return `data/clips/${fallback}`;
+}
+
+function downloadTextFile(filename, content) {
+    const blob = new Blob([content], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+}
+
+function buildPuzzleObjectForSave() {
+    const integrated = integrateBoldAskIntoClue(els.themeClue.value, els.themeClueAsk.value);
+    const aliases = parseAliasList(els.themeAliases.value)
+        .filter((alias) => alias.toLowerCase() !== String(els.themeAnswer.value || "").trim().toLowerCase());
+
+    return {
+        date: state.loadedPuzzleDate || todayAestDate(),
+        clueTitle: state.loadedPuzzleClueTitle || "Clue",
+        clue: integrated.clue,
+        clueAskBold: integrated.clueAskBold,
+        theme: String(els.themeAnswer.value || "").trim(),
+        aliases,
+        songs: state.tracks.map((track) => ({
+            title: String(track.title || "").trim(),
+            artist: String(track.artist || "").trim(),
+            link: String(track.link || "").trim(),
+            clipSrc: getTrackClipPath(track),
+            hint: ""
+        }))
+    };
+}
+
+async function saveOverCurrentTape() {
+    if (!state.currentLoadedTape?.puzzleRelativePath) {
+        setStatus("Load a tape from the mixtape selectors first.", "warn");
+        return;
+    }
+
+    if (!String(els.themeClue.value || "").trim()) {
+        setStatus("Clue is required.", "bad");
+        return;
+    }
+    if (!String(els.themeAnswer.value || "").trim()) {
+        setStatus("Answer is required.", "bad");
+        return;
+    }
+
+    const puzzle = buildPuzzleObjectForSave();
+    const serialized = `${JSON.stringify(puzzle, null, 2)}\n`;
+    const fallbackName = String(state.currentLoadedTape.puzzleRelativePath || "tape.json").split("/").pop() || "tape.json";
+
+    downloadTextFile(fallbackName, serialized);
+    setStatus(`Downloaded ${fallbackName}. Replace the original tape JSON with this file.`, "ok");
 }
 
 function startPreview(track) {
@@ -1313,6 +1767,51 @@ function parseAliasList(value) {
         .filter(Boolean);
 }
 
+function integrateBoldAskIntoClue(clueText, askText) {
+    const clue = String(clueText || "").trim();
+    const ask = String(askText || "").trim();
+
+    if (!clue) {
+        return { clue: "", clueAskBold: "" };
+    }
+
+    // If clue already contains inline markdown bold markers, keep them authoritative.
+    if (clue.includes("**")) {
+        return { clue, clueAskBold: "" };
+    }
+
+    if (!ask) {
+        return { clue, clueAskBold: "" };
+    }
+
+    const parts = ask
+        .split(/\s+/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+
+    if (!parts.length) {
+        return { clue, clueAskBold: "" };
+    }
+
+    const pattern = parts.join("[^A-Za-z0-9]+?");
+    const matchResult = new RegExp(pattern, "i").exec(clue);
+    if (!matchResult || matchResult.index < 0) {
+        return { clue, clueAskBold: ask };
+    }
+
+    const index = matchResult.index;
+    const matchedText = matchResult[0];
+    const head = clue.slice(0, index);
+    const match = clue.slice(index, index + matchedText.length);
+    const tail = clue.slice(index + matchedText.length);
+
+    return {
+        clue: `${head}**${match}**${tail}`,
+        clueAskBold: ""
+    };
+}
+
 async function exportZip() {
     const problem = validateExport();
     if (problem) {
@@ -1321,8 +1820,9 @@ async function exportZip() {
     }
 
     const dateKey = todayAestDate();
-    const clue = els.themeClue.value.trim();
-    const clueAskBold = els.themeClueAsk.value.trim();
+    const integrated = integrateBoldAskIntoClue(els.themeClue.value, els.themeClueAsk.value);
+    const clue = integrated.clue;
+    const clueAskBold = integrated.clueAskBold;
     const answer = els.themeAnswer.value.trim();
     const aliases = parseAliasList(els.themeAliases.value)
         .filter((alias) => alias.toLowerCase() !== answer.toLowerCase());
@@ -1418,6 +1918,45 @@ function clearAll() {
 }
 
 function wireEvents() {
+    if (els.catalogPackSelect) {
+        els.catalogPackSelect.addEventListener("change", () => {
+            renderCatalogTapeOptions();
+        });
+    }
+
+    if (els.catalogLoadBtn) {
+        els.catalogLoadBtn.addEventListener("click", async () => {
+            await loadSelectedCatalogTape();
+        });
+    }
+
+    if (els.saveOverTapeBtn) {
+        els.saveOverTapeBtn.addEventListener("click", async () => {
+            await saveOverCurrentTape();
+        });
+    }
+
+    if (els.importMixtapeBtn && els.importMixtapeInput) {
+        els.importMixtapeBtn.addEventListener("keydown", (event) => {
+            if (event.code !== "Space" && event.code !== "Enter") {
+                return;
+            }
+            event.preventDefault();
+            openFilePicker(els.importMixtapeInput);
+        });
+
+        els.importMixtapeInput.addEventListener("change", async () => {
+            const [file] = Array.from(els.importMixtapeInput.files || []);
+            const name = String(file?.name || "").toLowerCase();
+            if (name.endsWith(".zip")) {
+                await importMixtapeZip(file || null);
+            } else {
+                await importMixtapeJson(file || null);
+            }
+            els.importMixtapeInput.value = "";
+        });
+    }
+
     els.uploadAllBtn.addEventListener("keydown", (event) => {
         if (event.code !== "Space" && event.code !== "Enter") {
             return;
@@ -1465,6 +2004,9 @@ function init() {
     renderSegmentsStrip();
     renderCanvases();
     wireEvents();
+    loadCatalogPacks().catch((error) => {
+        setStatus(error.message || "Could not load mixtape catalog.", "warn");
+    });
 }
 
 window.addEventListener("beforeunload", () => {

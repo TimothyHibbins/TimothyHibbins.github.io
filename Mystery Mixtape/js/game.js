@@ -157,20 +157,37 @@ function applyBoldAskToken(clue, askText) {
     if (!ask) {
         return source;
     }
-    const sourceLower = source.toLowerCase();
-    const askLower = ask.toLowerCase();
-    const index = sourceLower.indexOf(askLower);
-    if (index < 0) {
+
+    const parts = ask
+        .split(/\s+/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+
+    if (!parts.length) {
         return source;
     }
+
+    // Match phrase in a tolerant way so minor punctuation/spacing differences still bold correctly.
+    const pattern = parts.join("[^A-Za-z0-9]+?");
+    const matchResult = new RegExp(pattern, "i").exec(source);
+    if (!matchResult || matchResult.index < 0) {
+        return source;
+    }
+
+    const index = matchResult.index;
+    const matchedText = matchResult[0];
     const head = source.slice(0, index);
-    const match = source.slice(index, index + ask.length);
-    const tail = source.slice(index + ask.length);
+    const match = source.slice(index, index + matchedText.length);
+    const tail = source.slice(index + matchedText.length);
     return `${head}**${match}**${tail}`;
 }
 
 function clueToSafeHtml(clueText, clueAskBold) {
-    const clueWithAsk = applyBoldAskToken(String(clueText || ""), clueAskBold);
+    const rawClue = String(clueText || "");
+    const clueWithAsk = rawClue.includes("**")
+        ? rawClue
+        : applyBoldAskToken(rawClue, clueAskBold);
     const parts = clueWithAsk.split(/(\*\*[^*]+\*\*)/g);
 
     return parts
@@ -2008,7 +2025,8 @@ function renderClue() {
     els.clueTitle.textContent = "";
     els.clueText.textContent = "";
     if (els.cassetteClue) {
-        els.cassetteClue.innerHTML = clueToSafeHtml(clueText, state.puzzle.clueAskBold || "");
+        const clueHtml = clueToSafeHtml(clueText, state.puzzle.clueAskBold || "");
+        els.cassetteClue.innerHTML = `<span class="cassette-clue-text">${clueHtml}</span>`;
         fitCassetteClueText();
     }
 }

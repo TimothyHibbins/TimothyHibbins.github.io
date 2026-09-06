@@ -1,49 +1,56 @@
 {
-  "date": "2026-07-27",
-  "clueTitle": "Clue",
-  "clue": "What type of song is named in the titles of all of these songs?",
-  "theme": "anthem",
-  "aliases": [
-    "national anthem",
-    "anthems",
-    "national anthems"
-  ],
-  "songs": [
-    {
-      "title": "The National Anthem",
-      "artist": "Radiohead",
-      "clipSrc": "data/clips/2026-07-27__1__radiohead-the-national-anthem.wav",
-      "hint": ""
-    },
-    {
-      "title": "Anthem Part Two",
-      "artist": "blink-182",
-      "clipSrc": "data/clips/2026-07-27__2__blink-182-anthem-part-two.wav",
-      "hint": ""
-    },
-    {
-      "title": "Anthems For A Seventeen Year Old Girl",
-      "artist": "Broken Social Scene",
-      "clipSrc": "data/clips/2026-07-27__3__broken-social-scene-anthems-for-a-seventeen-year-old.wav",
-      "hint": ""
-    },
-    {
-      "title": "No. 1 Party Anthem",
-      "artist": "Arctic Monkeys",
-      "clipSrc": "data/clips/2026-07-27__4__arctic-monkeys-no-1-party-anthem-1080p-25fps-h264-12.wav",
-      "hint": ""
-    },
-    {
-      "title": "Lana Del Rey National Anthem (Lyrics) (1080p 60fps H264 128kbit AAC)",
-      "artist": "Lana Del Ray",
-      "clipSrc": "data/clips/2026-07-27__5__lana-del-ray-lana-del-rey-national-anthem-lyrics-108.wav",
-      "hint": ""
-    },
-    {
-      "title": "Party Rock Anthem",
-      "artist": "LMFAO",
-      "clipSrc": "data/clips/2026-07-27__6__lmfao-party-rock-anthem.wav",
-      "hint": ""
-    }
-  ]
+    "date": "2026-09-06",
+    "clueTitle": "Clue",
+    "clue": "What **word for a type of song** is used in these songs' titles?",
+    "clueAskBold": "",
+    "theme": "anthem",
+    "aliases": [
+        "national anthem",
+        "anthems",
+        "national anthems"
+    ],
+    "songs": [
+        {
+            "title": "The National Anthem",
+            "artist": "Radiohead",
+            "link": "https://youtu.be/NfQD1QiQ9o4?si=neQd3JVmCZBUynuV",
+            "clipSrc": "data/clips/2026-09-06__1__radiohead-the-national-anthem.wav",
+            "hint": ""
+        },
+        {
+            "title": "Anthem Part Two",
+            "artist": "blink-182",
+            "link": "https://youtu.be/oafhO8tFS38?si=qZAyuO-vXT_wlWkV",
+            "clipSrc": "data/clips/2026-09-06__2__blink-182-anthem-part-two.wav",
+            "hint": ""
+        },
+        {
+            "title": "Anthems For A Seventeen Year Old Girl",
+            "artist": "Broken Social Scene",
+            "link": "https://youtu.be/wLaDksDOcE4?si=CqhAr_-UZkAAeJzO",
+            "clipSrc": "data/clips/2026-09-06__3__broken-social-scene-anthems-for-a-seventeen-year-old.wav",
+            "hint": ""
+        },
+        {
+            "title": "No. 1 Party Anthem",
+            "artist": "Arctic Monkeys",
+            "link": "https://youtu.be/mGUjVbsYG6E?si=TIDnQhvJQDH5gnUM",
+            "clipSrc": "data/clips/2026-09-06__4__arctic-monkeys-no-1-party-anthem.wav",
+            "hint": ""
+        },
+        {
+            "title": "National Anthem",
+            "artist": "Lana Del Ray",
+            "link": "https://www.youtube.com/watch?v=sxDdEPED0h8&list=OLAK5uy_kEKv6Vp2ARWF_B7mXO9e5cQpFGEMBh2bE&index=6",
+            "clipSrc": "data/clips/2026-09-06__5__lana-del-ray-national-anthem.wav",
+            "hint": ""
+        },
+        {
+            "title": "Party Rock Anthem",
+            "artist": "LMFAO",
+            "link": "https://youtu.be/tsMDKjb54EM?si=nWLIgZDxT1f4RpeB",
+            "clipSrc": "data/clips/2026-09-06__6__lmfao-party-rock-anthem.wav",
+            "hint": ""
+        }
+    ]
 }

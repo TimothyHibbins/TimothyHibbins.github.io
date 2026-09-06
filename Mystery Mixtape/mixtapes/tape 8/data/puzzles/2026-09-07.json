@@ -1,7 +1,7 @@
 {
   "date": "2026-07-24",
   "clueTitle": "Clue",
-  "clue": "What city is referenced in the titles of all of these songs?",
+  "clue": "What **city** is referenced in these songs' titles?",
   "theme": "New York City",
   "aliases": [
     "New York",

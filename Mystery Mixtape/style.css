@@ -377,6 +377,10 @@ body.mm-body:not(.creator-page) {
     color: #ffffff;
 }
 
+.cassette-clue-text {
+    display: inline;
+}
+
 /* Click-to-start overlay on cassette */
 .cassette-start-prompt {
     position: absolute;
@@ -1415,12 +1419,13 @@ body.mm-body:not(.creator-page) {
 
 /* Creator mode: combined timeline builder */
 body.creator-page {
-    overflow: hidden;
+    overflow: auto;
 }
 
 .creator-shell {
     width: 100vw;
-    height: 100vh;
+    min-height: 100vh;
+    height: auto;
     padding: 0;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
@@ -1462,6 +1467,21 @@ body.creator-page {
     flex-wrap: wrap;
 }
 
+.hidden-file-input {
+    display: none;
+}
+
+.creator-tape-select {
+    border: 1px solid var(--edge);
+    background: #fff;
+    color: var(--ink);
+    border-radius: 8px;
+    padding: 0.2rem 0.34rem;
+    font-size: 0.74rem;
+    font-weight: 700;
+    max-width: 180px;
+}
+
 .mini-note {
     font-size: 0.72rem;
     margin-right: auto;
@@ -1469,10 +1489,11 @@ body.creator-page {
 
 .segment-strip {
     padding: 0.2rem;
-    overflow: hidden;
+    overflow: auto;
     display: grid;
     grid-template-rows: auto 1fr;
     gap: 0.22rem;
+    min-height: 280px;
 }
 
 .selected-editor-canvases {

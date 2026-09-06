@@ -1,7 +1,7 @@
 {
   "date": "2026-07-27",
   "clueTitle": "Clue",
-  "clue": "What type of person is named in each of these songs titles?",
+  "clue": "What **title for a person** is used in these songs' titles?",
   "theme": "queen",
   "aliases": [
     "a queen",

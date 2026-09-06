@@ -1,9 +1,13 @@
 {
   "date": "2026-07-24",
   "clueTitle": "Clue",
-  "clue": "What set of names with both scientific and mythological meanings do each of these song titles draw from?",
+  "clue": "What scientific/mythological group do these songs' titles contain names for the members of?",
   "theme": "planets",
-  "aliases": [],
+  "aliases": [
+    "Roman gods",
+    "Roman pantheon",
+    "the planets"
+  ],
   "songs": [
     {
       "title": "Mercury",
