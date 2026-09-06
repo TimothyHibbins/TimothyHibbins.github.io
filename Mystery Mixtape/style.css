@@ -131,12 +131,21 @@ body.mm-body:not(.creator-page) {
 }
 
 .game-topbar {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    position: relative;
+    display: flex;
     align-items: center;
-    gap: 0.46rem;
     width: min(760px, 100%);
     margin: 0 auto;
+}
+
+.game-topbar .archive-btn,
+.game-topbar .rules-btn {
+    position: relative;
+    z-index: 1;
+}
+
+.game-topbar .rules-btn {
+    margin-left: auto;
 }
 
 .archive-btn {
@@ -206,6 +215,10 @@ body.mm-body:not(.creator-page) {
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(100%, 440px);
 }
 
 .game-meta-title {
@@ -220,6 +233,11 @@ body.mm-body:not(.creator-page) {
     font-size: clamp(0.78rem, 1.2vw, 0.95rem);
     opacity: 0.9;
     line-height: 1.25;
+}
+
+.timezone-link {
+    color: inherit;
+    text-decoration: underline;
 }
 
 .rules-btn {
@@ -238,7 +256,7 @@ body.mm-body:not(.creator-page) {
     width: min(760px, 100%);
     margin: 0.04rem auto 0;
     display: grid;
-    grid-template-rows: auto auto auto auto auto auto auto minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(4.8rem, auto) auto auto auto auto auto minmax(0, 1fr);
     gap: 0.36rem;
     min-height: 0;
 }
@@ -271,7 +289,7 @@ body.mm-body:not(.creator-page) {
 
 .prompt-text {
     text-align: center;
-    font-size: 0.78rem;
+    font-size: 1rem;
     font-weight: 700;
     letter-spacing: 0.03em;
     text-transform: uppercase;
@@ -322,7 +340,7 @@ body.mm-body:not(.creator-page) {
     color: rgba(255, 255, 255, 0.95);
     font-weight: 700;
     max-width: clamp(500px, 70vw, 700px);
-    min-height: 3.1em;
+    min-height: clamp(4.1rem, 8vh, 5.8rem);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -418,8 +436,15 @@ body.mm-body:not(.creator-page) {
     justify-self: center;
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 0.5rem;
+    gap: 0.45rem;
     align-items: center;
+}
+
+.transport-controls {
+    display: grid;
+    grid-template-rows: auto auto;
+    gap: 0.15rem;
+    align-items: start;
 }
 
 .transport-row.hidden {
@@ -447,8 +472,8 @@ body.mm-body:not(.creator-page) {
 .timeline-wrap {
     position: relative;
     display: grid;
-    grid-template-rows: 34px auto auto;
-    gap: 0.22rem;
+    grid-template-rows: 34px auto;
+    gap: 0;
 }
 
 .timeline-surface {
@@ -508,9 +533,9 @@ body.mm-body:not(.creator-page) {
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: 1fr;
-    gap: 1px;
-    height: 12px;
-    border-radius: 4px;
+    gap: 0;
+    height: 14px;
+    border-radius: 0 0 6px 6px;
     overflow: hidden;
     background: rgba(255, 255, 255, 0.25);
     position: relative;
@@ -532,8 +557,8 @@ body.mm-body:not(.creator-page) {
     left: 50%;
     transform: translateX(-50%);
     top: 0;
-    font-size: 0.58rem;
-    line-height: 12px;
+    font-size: 0.52rem;
+    line-height: 14px;
     color: rgba(255, 255, 255, 0.85);
     font-weight: 700;
 }
@@ -898,7 +923,7 @@ body.mm-body:not(.creator-page) {
 
 .answer-text {
     margin: 0;
-    font-size: clamp(1rem, 2vw, 1.3rem);
+    font-size: clamp(1.12rem, 2.2vw, 1.48rem);
     font-weight: 700;
     color: rgba(255, 255, 255, 0.95);
     line-height: 1.4;
@@ -912,7 +937,7 @@ body.mm-body:not(.creator-page) {
 }
 
 .share-btn {
-    width: 48px;
+    width: 112px;
     height: 48px;
     border-radius: 999px;
     margin: 0;
@@ -920,7 +945,7 @@ body.mm-body:not(.creator-page) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.35rem;
+    font-size: 0.98rem;
     line-height: 1;
     border: 1px solid rgba(255, 255, 255, 0.85);
     background: rgba(255, 255, 255, 0.24);
@@ -995,7 +1020,7 @@ body.mm-body:not(.creator-page) {
 
 .reveal-row {
     display: grid;
-    grid-template-columns: 22px minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: 18px minmax(0, 1fr) minmax(0, 1fr);
     gap: 0.4rem;
     align-items: center;
     padding: 0.48rem 0;
@@ -1438,11 +1463,22 @@ body.creator-page {
     }
 
     .transport-row {
-        grid-template-columns: 1fr;
+        grid-template-columns: auto 1fr;
+        align-items: start;
     }
 
     .transport-btn {
-        width: 100%;
+        width: 74px;
+    }
+
+    .transport-controls {
+        grid-template-rows: auto auto;
+        gap: 0.14rem;
+    }
+
+    .timeline-readout {
+        text-align: center;
+        align-self: center;
     }
 
     .guess-form-row {
@@ -1460,7 +1496,7 @@ body.creator-page {
     .cassette-clue {
         font-size: clamp(1.03rem, 4.2vw, 1.28rem);
         margin-bottom: clamp(0.4rem, 0.8vh, 0.6rem);
-        min-height: 4.2em;
+        min-height: 4.8rem;
     }
 
     .reveal-content {

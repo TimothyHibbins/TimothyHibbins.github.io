@@ -720,7 +720,7 @@ function renderTimelineSegments() {
     for (let i = 0; i < trackCount; i += 1) {
         const segment = document.createElement("span");
         segment.className = "timeline-segment";
-        segment.dataset.track = String(i + 1);
+        segment.dataset.track = `song ${i + 1}`;
         els.timelineSegments.appendChild(segment);
     }
 }
@@ -1648,15 +1648,13 @@ async function loadSelectedTape() {
 
     // Format date for display
     const dateObj = new Date(state.selectedReleaseDate + "T00:00:00");
-    const formattedDate = dateObj.toLocaleDateString('en-US', {
-        month: 'long',
-        day: 'numeric',
-        year: 'numeric',
-        timeZone: 'Australia/Melbourne'
-    });
-
     if (state.selectedTapeNumber) {
-        els.puzzleDate.innerHTML = `<span class="game-meta-title">Mystery Mixtape #${state.selectedTapeNumber}</span><span class="game-meta-sub">(released ${formattedDate}, AEST)</span>`;
+        const dayOnly = dateObj.toLocaleDateString('en-US', {
+            month: 'long',
+            day: 'numeric',
+            timeZone: 'Australia/Melbourne'
+        });
+        els.puzzleDate.innerHTML = `<span class="game-meta-title">Mystery Mixtape #${state.selectedTapeNumber}</span><span class="game-meta-sub">${dayOnly} (<a class="timezone-link" href="https://en.wikipedia.org/wiki/Australian_Eastern_Standard_Time" target="_blank" rel="noreferrer">AEST</a>)</span>`;
     } else {
         els.puzzleDate.textContent = `Set: ${state.selectedPackLabel} | Tape: ${state.selectedTapeKey}`;
     }
