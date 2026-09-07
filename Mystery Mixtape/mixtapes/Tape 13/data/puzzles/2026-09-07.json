@@ -1,0 +1,57 @@
+{
+  "date": "2026-09-07",
+  "clueTitle": "Clue",
+  "clue": "What film(s) are these songs associated with?",
+  "clueAskBold": "**film(s)**",
+  "theme": "Top Gun: Maverick",
+  "aliases": [
+    "Top Gun",
+    "Top Gun Maverick",
+    "Top Gun movies",
+    "Top Gun films"
+  ],
+  "songs": [
+    {
+      "title": "Darkstar",
+      "artist": "Harold Faltermeyer & Lorne Balfe",
+      "link": "https://youtu.be/fzCztwt8BO4?si=EKNYzlXYf4EXe_oj",
+      "clipSrc": "data/clips/2026-09-07__1__harold-faltermeyer-lorne-balfe-darkstar.wav",
+      "hint": ""
+    },
+    {
+      "title": "Hold My Hand",
+      "artist": "Lady Gaga",
+      "link": "https://youtu.be/Yx3K3g4CtoQ?si=nICZgIGJDKnhXes2",
+      "clipSrc": "data/clips/2026-09-07__2__lady-gaga-hold-my-hand.wav",
+      "hint": ""
+    },
+    {
+      "title": "I Ain't Worried",
+      "artist": "OneRepublic",
+      "link": "https://youtu.be/mNEUkkoUoIA?si=T9PSiRA9dQEccgDr",
+      "clipSrc": "data/clips/2026-09-07__3__onerepublic-i-ain-t-worried.wav",
+      "hint": ""
+    },
+    {
+      "title": "Danger Zone",
+      "artist": "Kenny Loggins",
+      "link": "https://youtu.be/yK0P1Bk8Cx4?si=326IneBGlj3n6KXH",
+      "clipSrc": "data/clips/2026-09-07__4__kenny-loggins-danger-zone.wav",
+      "hint": ""
+    },
+    {
+      "title": "Top Gun Anthem",
+      "artist": "Harold Faltermeyer",
+      "link": "https://youtu.be/NI8U9Bc4XOE?si=rL0vrC3jbanLdmk-",
+      "clipSrc": "data/clips/2026-09-07__5__harold-faltermeyer-top-gun-anthem.wav",
+      "hint": ""
+    },
+    {
+      "title": "Great Balls Of Fire (Live)",
+      "artist": "Miles Teller",
+      "link": "https://youtu.be/m5xn15ApVtM?si=IarFHMSVY4p9vQBa",
+      "clipSrc": "data/clips/2026-09-07__6__miles-teller-great-balls-of-fire-live.wav",
+      "hint": ""
+    }
+  ]
+}

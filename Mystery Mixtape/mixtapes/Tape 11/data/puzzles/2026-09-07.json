@@ -1,0 +1,54 @@
+{
+  "date": "2026-09-07",
+  "clueTitle": "Clue",
+  "clue": "What **unit of time** is referenced in these songs tiles?",
+  "clueAskBold": "",
+  "theme": "months",
+  "aliases": [
+    "month"
+  ],
+  "songs": [
+    {
+      "title": "April Come She Will",
+      "artist": "Simon & Garfunkel",
+      "link": "https://youtu.be/6NWjRmfnmIk?si=m3bgkp19U67pyhOF",
+      "clipSrc": "data/clips/2026-09-07__1__simon-garfunkel-april-come-she-will.wav",
+      "hint": ""
+    },
+    {
+      "title": "My December",
+      "artist": "Linkin Park",
+      "link": "https://youtu.be/9DCdCoQ49u8?si=7O9almzOaarbz-6J",
+      "clipSrc": "data/clips/2026-09-07__2__linkin-park-my-december.wav",
+      "hint": ""
+    },
+    {
+      "title": "September",
+      "artist": "James Arthur",
+      "link": "https://youtu.be/RxkvWTjJJ68?si=73pSGDzb5K3ftpUz",
+      "clipSrc": "data/clips/2026-09-07__3__james-arthur-september.wav",
+      "hint": ""
+    },
+    {
+      "title": "October",
+      "artist": "Alessia Cara",
+      "link": "https://youtu.be/ueG1fSHNndo?si=hBng3Yd5SiJGEH_5",
+      "clipSrc": "data/clips/2026-09-07__4__alessia-cara-october.wav",
+      "hint": ""
+    },
+    {
+      "title": "September",
+      "artist": "Earth Wind & Fire",
+      "link": "https://youtu.be/3cKtSlsYVEU?si=739cI8zBJx3aoBEi",
+      "clipSrc": "data/clips/2026-09-07__5__earth-wind-fire-september.wav",
+      "hint": ""
+    },
+    {
+      "title": "Back To December",
+      "artist": "Taylor Swift",
+      "link": "https://youtu.be/qc2Z-OX9wnc?si=T1O1Aad7gBKyrw9g",
+      "clipSrc": "data/clips/2026-09-07__6__taylor-swift-back-to-december.wav",
+      "hint": ""
+    }
+  ]
+}

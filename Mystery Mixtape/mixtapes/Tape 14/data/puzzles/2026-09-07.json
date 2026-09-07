@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-07",
+  "clueTitle": "Clue",
+  "clue": "What is the **first word** of these songs' titles?",
+  "clueAskBold": "",
+  "theme": "Don't",
+  "aliases": [],
+  "songs": [
+    {
+      "title": "Don't Tell Me",
+      "artist": "Ruel",
+      "link": "https://youtu.be/ZxkIhMCmNtQ?si=_x2lz4UULwqs09dZ",
+      "clipSrc": "data/clips/2026-09-07__1__ruel-don-t-tell-me.wav",
+      "hint": ""
+    },
+    {
+      "title": "Don't Hold Back",
+      "artist": "The Potbelleez",
+      "link": "https://youtu.be/uPOpXsWD8hQ?si=d-ho3FrDJSOv2SQ2",
+      "clipSrc": "data/clips/2026-09-07__2__the-potbelleez-don-t-hold-back.wav",
+      "hint": ""
+    },
+    {
+      "title": "Don't Dream It's Over",
+      "artist": "Crowded House",
+      "link": "https://youtu.be/J9gKyRmic20?si=uF1vBJMBWWpa6sD3",
+      "clipSrc": "data/clips/2026-09-07__3__crowded-house-don-t-dream-it-s-over.wav",
+      "hint": ""
+    },
+    {
+      "title": "Dont Threaten Me With A Good Time",
+      "artist": "Panic! At The Disco",
+      "link": "https://youtu.be/H5NqIsnyTG8?si=iI9JJ86xaEyaccjJ",
+      "clipSrc": "data/clips/2026-09-07__4__panic-at-the-disco-dont-threaten-me-with-a-good-time.wav",
+      "hint": ""
+    },
+    {
+      "title": "Don't Stop 'Til You Get Enough",
+      "artist": "Micheal Jackson",
+      "link": "https://youtu.be/n3qQtSRmHxo?si=MuK6_R454FEmJgZP",
+      "clipSrc": "data/clips/2026-09-07__5__micheal-jackson-don-t-stop-til-you-get-enough.wav",
+      "hint": ""
+    },
+    {
+      "title": "Don't You Worry Child",
+      "artist": "Swedish House Mafia",
+      "link": "https://youtu.be/1y6smkh6c-0?si=JC-pjg7m-GlaIrqU",
+      "clipSrc": "data/clips/2026-09-07__6__swedish-house-mafia-don-t-you-worry-child.wav",
+      "hint": ""
+    }
+  ]
+}

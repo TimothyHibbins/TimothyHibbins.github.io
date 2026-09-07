@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-07",
+  "clueTitle": "Clue",
+  "clue": "What **do the numbers represent** in these songs' titles?",
+  "clueAskBold": "",
+  "theme": "Years",
+  "aliases": [],
+  "songs": [
+    {
+      "title": "1984",
+      "artist": "David Bowie",
+      "link": "https://youtu.be/x2xfpMMQIJ8?si=H4-Sb_jrOiCpMwl4",
+      "clipSrc": "data/clips/2026-09-07__1__david-bowie-1984.wav",
+      "hint": ""
+    },
+    {
+      "title": "1812 Overture",
+      "artist": "Tchaikovsky",
+      "link": "https://youtu.be/VbxgYlcNxE8?si=gdyWX4iLlGZUQ6tD",
+      "clipSrc": "data/clips/2026-09-07__2__tchaikovsky-1812-overture.wav",
+      "hint": ""
+    },
+    {
+      "title": "1999",
+      "artist": "Prince",
+      "link": "https://youtu.be/weUhBGA8mxo?si=OmsumwpBPWy3hrvu",
+      "clipSrc": "data/clips/2026-09-07__3__prince-1999.wav",
+      "hint": ""
+    },
+    {
+      "title": "1950",
+      "artist": "King Princess",
+      "link": "https://youtu.be/LNxWTS25Tbk?si=meJhlsS17142OQc4",
+      "clipSrc": "data/clips/2026-09-07__4__king-princess-1950.wav",
+      "hint": ""
+    },
+    {
+      "title": "1955",
+      "artist": "Hilltop Hoods ft. Montaigne, Tom Thum",
+      "link": "https://youtu.be/4Fy0dNE8xGE?si=qpkKZL2osr_HbS_m",
+      "clipSrc": "data/clips/2026-09-07__5__hilltop-hoods-ft-montaigne-tom-thum-1955.wav",
+      "hint": ""
+    },
+    {
+      "title": "3005",
+      "artist": "Childish Gambino",
+      "link": "https://youtu.be/tG35R8F2j8k?si=4vgvYj4I3Pf0dpql",
+      "clipSrc": "data/clips/2026-09-07__6__childish-gambino-3005.wav",
+      "hint": ""
+    }
+  ]
+}

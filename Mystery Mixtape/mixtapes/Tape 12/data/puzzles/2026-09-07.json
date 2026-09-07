@@ -1,0 +1,57 @@
+{
+  "date": "2026-09-07",
+  "clueTitle": "Clue",
+  "clue": "What **word pattern** do these each of these songs titles' follow?",
+  "clueAskBold": "",
+  "theme": "Word Word Word",
+  "aliases": [
+    "same word three times",
+    "threefold repetition",
+    "repetition",
+    "repeated word"
+  ],
+  "songs": [
+    {
+      "title": "Cold Cold Cold",
+      "artist": "Cage The Elephant.",
+      "link": "https://youtu.be/n95eekfFZZg?si=8bwTm3V2hieOM2LW",
+      "clipSrc": "data/clips/2026-09-07__1__cage-the-elephant-cold-cold-cold.wav",
+      "hint": ""
+    },
+    {
+      "title": "Na Na Na (Na Na Na Na Na Na Na Na Na)",
+      "artist": "My Chemical Romance",
+      "link": "https://youtu.be/km5OXaB2Uu0?si=9GnHgfU7v31-FLZ_",
+      "clipSrc": "data/clips/2026-09-07__2__my-chemical-romance-na-na-na-na-na-na-na-na-na-na-na.wav",
+      "hint": ""
+    },
+    {
+      "title": "Gimme! Gimme! Gimme! (A Man After Midnight)",
+      "artist": "ABBA",
+      "link": "https://youtu.be/XEjLoHdbVeE?si=NJ2fF8KQtZP-77sg",
+      "clipSrc": "data/clips/2026-09-07__3__abba-gimme-gimme-gimme-a-man-after-midnight.wav",
+      "hint": ""
+    },
+    {
+      "title": "My My My!",
+      "artist": "Troye Sivan",
+      "link": "https://youtu.be/k5TqNsr6YuQ?si=yrsnUGRphnXmuXFv",
+      "clipSrc": "data/clips/2026-09-07__4__troye-sivan-my-my-my.wav",
+      "hint": ""
+    },
+    {
+      "title": "La La La",
+      "artist": "Naughty Boy ft. Sam Smith",
+      "link": "https://youtu.be/tM5xhFs5HHk?si=7S43s3-3OpuQjJz6",
+      "clipSrc": "data/clips/2026-09-07__5__naughty-boy-ft-sam-smith-la-la-la.wav",
+      "hint": ""
+    },
+    {
+      "title": "Money, Money, Money",
+      "artist": "ABBA",
+      "link": "https://youtu.be/ETxmCCsMoD0?si=pSjOWqgRCkONE8XG",
+      "clipSrc": "data/clips/2026-09-07__6__abba-money-money-money.wav",
+      "hint": ""
+    }
+  ]
+}

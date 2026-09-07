@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-07",
+  "clueTitle": "Clue",
+  "clue": "What **place name** features in these songs' titles?",
+  "clueAskBold": "",
+  "theme": "California",
+  "aliases": [],
+  "songs": [
+    {
+      "title": "California King Bed (Audio) [ oomeq fRQc]",
+      "artist": "Rihanna",
+      "link": "https://youtu.be/-oomeq_fRQc?si=NfvYxjdgBuLYYogI",
+      "clipSrc": "data/clips/2026-09-07__1__rihanna-california-king-bed-audio-oomeq-frqc.wav",
+      "hint": ""
+    },
+    {
+      "title": "California Love",
+      "artist": "2pac",
+      "link": "https://youtu.be/J7_bMdYfSws?si=b21PXELRB3wrYiL1",
+      "clipSrc": "data/clips/2026-09-07__2__2pac-california-love.wav",
+      "hint": ""
+    },
+    {
+      "title": "California Dreamin'",
+      "artist": "The Mamas & the Papas",
+      "link": "https://youtu.be/f7ztKV_BJyo?si=aeuGTXc_7BiAEI2v",
+      "clipSrc": "data/clips/2026-09-07__3__the-mamas-the-papas-california-dreamin.wav",
+      "hint": ""
+    },
+    {
+      "title": "Hotel California",
+      "artist": "Eagles",
+      "link": "https://youtu.be/dLl4PZtxia8?si=QuzAWUTxqxgMSKa3",
+      "clipSrc": "data/clips/2026-09-07__4__eagles-hotel-california.wav",
+      "hint": ""
+    },
+    {
+      "title": "Californication",
+      "artist": "Red Hot Chili Peppers",
+      "link": "https://youtu.be/YlUKcNNmywk?si=YNzzaoSVEcZjdvCG",
+      "clipSrc": "data/clips/2026-09-07__5__red-hot-chili-peppers-californication.wav",
+      "hint": ""
+    },
+    {
+      "title": "California Gurls",
+      "artist": "Katy Perry",
+      "link": "https://youtu.be/q7hK_liBVzk?si=fvzLjKeuc3ogZq0y",
+      "clipSrc": "data/clips/2026-09-07__6__katy-perry-california-gurls.wav",
+      "hint": ""
+    }
+  ]
+}

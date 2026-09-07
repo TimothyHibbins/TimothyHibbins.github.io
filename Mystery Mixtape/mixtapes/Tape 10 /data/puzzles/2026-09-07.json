@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-07",
+  "clueTitle": "Clue",
+  "clue": "What **single word** is used for these songs' titles?",
+  "clueAskBold": "",
+  "theme": "Photograph",
+  "aliases": [],
+  "songs": [
+    {
+      "title": "Photograph",
+      "artist": "Def Leppard",
+      "link": "https://youtu.be/D4dHr8evt6k?si=On8cn1LQ5JaR2i3Y",
+      "clipSrc": "data/clips/2026-09-07__1__def-leppard-photograph.wav",
+      "hint": ""
+    },
+    {
+      "title": "Photograph",
+      "artist": "Cody Fry",
+      "link": "https://youtu.be/KoG7O1fwoAc?si=svbZjTgLejfyva64",
+      "clipSrc": "data/clips/2026-09-07__2__cody-fry-photograph.wav",
+      "hint": ""
+    },
+    {
+      "title": "Photograph",
+      "artist": "Jaden",
+      "link": "https://youtu.be/jzaay2ZvHG8?si=vMT4Q2TukiEhBpRE",
+      "clipSrc": "data/clips/2026-09-07__3__jaden-photograph.wav",
+      "hint": ""
+    },
+    {
+      "title": "Photograph",
+      "artist": "J. Cole",
+      "link": "https://youtu.be/tIRi44nVNCA?si=Rzz6VhxQUwxfkaPI",
+      "clipSrc": "data/clips/2026-09-07__4__j-cole-photograph.wav",
+      "hint": ""
+    },
+    {
+      "title": "Photograph",
+      "artist": "Nickelback",
+      "link": "https://youtu.be/T3rXdeOvhNE?si=3rRfXbYz2DFCUSAD",
+      "clipSrc": "data/clips/2026-09-07__5__nickelback-photograph.wav",
+      "hint": ""
+    },
+    {
+      "title": "Photograph",
+      "artist": "Ed Sheeran",
+      "link": "https://youtu.be/nSDgHBxUbVQ?si=-84VBcqXwK_1SaIo",
+      "clipSrc": "data/clips/2026-09-07__6__ed-sheeran-photograph.wav",
+      "hint": ""
+    }
+  ]
+}

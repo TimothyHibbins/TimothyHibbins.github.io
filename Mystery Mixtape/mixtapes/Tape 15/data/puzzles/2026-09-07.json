@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-07",
+  "clueTitle": "Clue",
+  "clue": "What **colour word** is used in these songs' titles?",
+  "clueAskBold": "",
+  "theme": "Black",
+  "aliases": [],
+  "songs": [
+    {
+      "title": "Black Sheep (Brie Larson Vocal Version)",
+      "artist": "Metric ft. Brie Larson",
+      "link": "https://youtu.be/1xcSDYy3Dl4?si=WHGtVx1I2K2MTU50",
+      "clipSrc": "data/clips/2026-09-07__1__metric-ft-brie-larson-black-sheep-brie-larson-vocal-.wav",
+      "hint": ""
+    },
+    {
+      "title": "Supermassive Black Hole",
+      "artist": "Muse",
+      "link": "https://youtu.be/Xsp3_a-PMTw?si=Ky-jh0wiXVd9_yZm",
+      "clipSrc": "data/clips/2026-09-07__2__muse-supermassive-black-hole.wav",
+      "hint": ""
+    },
+    {
+      "title": "Back In Black",
+      "artist": "AC/DC",
+      "link": "https://youtu.be/pAgnJDJN4VA?si=zYQYhVTfLvTK-NYJ",
+      "clipSrc": "data/clips/2026-09-07__3__ac-dc-back-in-black.wav",
+      "hint": ""
+    },
+    {
+      "title": "Black Betty",
+      "artist": "Ram Jam",
+      "link": "https://youtu.be/4cn_woPvjQI?si=tbFhzqG4AN_e-z8-",
+      "clipSrc": "data/clips/2026-09-07__4__ram-jam-black-betty.wav",
+      "hint": ""
+    },
+    {
+      "title": "Black Skinhead",
+      "artist": "Kanye West",
+      "link": "https://youtu.be/q604eed4ad0?si=T6QKg9HA2Yfn-PwS",
+      "clipSrc": "data/clips/2026-09-07__5__kanye-west-black-skinhead.wav",
+      "hint": ""
+    },
+    {
+      "title": "Back To Black",
+      "artist": "Amy Winehouse",
+      "link": "https://youtu.be/TJAfLE39ZZ8?si=Tkf8T-iwIKggsJ-o",
+      "clipSrc": "data/clips/2026-09-07__6__amy-winehouse-back-to-black.wav",
+      "hint": ""
+    }
+  ]
+}

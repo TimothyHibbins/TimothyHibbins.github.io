@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-07",
+  "clueTitle": "Clue",
+  "clue": "What is the **first word** of these songs' titles?",
+  "clueAskBold": "",
+  "theme": "Eat",
+  "aliases": [],
+  "songs": [
+    {
+      "title": "Eat the Sea",
+      "artist": "cosmic reign.",
+      "link": "https://youtu.be/B7bOe_gcPbY?si=EAJgEHfJfRzAudn8",
+      "clipSrc": "data/clips/2026-09-07__1__cosmic-reign-eat-the-sea.wav",
+      "hint": ""
+    },
+    {
+      "title": "Eat Sleep Rave Repeat",
+      "artist": "Fatboy Slim, Riva Starr, Beardyman",
+      "link": "https://youtu.be/7Gi0OEOl84Y?si=LRIoQWQUzUAQVZR0",
+      "clipSrc": "data/clips/2026-09-07__2__fatboy-slim-riva-starr-beardyman-eat-sleep-rave-repe.wav",
+      "hint": ""
+    },
+    {
+      "title": "Eat Your Salad",
+      "artist": "Citi Zēni",
+      "link": "https://youtu.be/_TZ-unUAmQw?si=MrKcJDP67oZIJcXT",
+      "clipSrc": "data/clips/2026-09-07__3__citi-ze-ni-eat-your-salad.wav",
+      "hint": ""
+    },
+    {
+      "title": "Eat Your Man",
+      "artist": "Dom Dolla & Nelly Furtado",
+      "link": "https://youtu.be/4qS9JUnTwww?si=W7DVBncmYs4YYkP6",
+      "clipSrc": "data/clips/2026-09-07__4__dom-dolla-nelly-furtado-eat-your-man.wav",
+      "hint": ""
+    },
+    {
+      "title": "Eat Your Young",
+      "artist": "Hozier",
+      "link": "https://youtu.be/D9o_XTzYoa8?si=UALajXhv9aTQ95GU",
+      "clipSrc": "data/clips/2026-09-07__5__hozier-eat-your-young.wav",
+      "hint": ""
+    },
+    {
+      "title": "Eat It",
+      "artist": "\"Weird Al\" Yankovic",
+      "link": "https://youtu.be/ZcJjMnHoIBI?si=Vt-BOB4udgcmNIMW",
+      "clipSrc": "data/clips/2026-09-07__6__weird-al-yankovic-eat-it.wav",
+      "hint": ""
+    }
+  ]
+}

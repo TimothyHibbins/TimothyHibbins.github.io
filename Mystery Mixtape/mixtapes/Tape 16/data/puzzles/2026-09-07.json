@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-07",
+  "clueTitle": "Clue",
+  "clue": "What is the **first word** of these songs' titles?",
+  "clueAskBold": "",
+  "theme": "If",
+  "aliases": [],
+  "songs": [
+    {
+      "title": "If I'm Being Honest",
+      "artist": "dodie",
+      "link": "",
+      "clipSrc": "data/clips/2026-09-07__1__dodie-if-i-m-being-honest.wav",
+      "hint": ""
+    },
+    {
+      "title": "If You’re Too Shy (Let Me Know)",
+      "artist": "The 1975",
+      "link": "",
+      "clipSrc": "data/clips/2026-09-07__2__the-1975-if-you-re-too-shy-let-me-know.wav",
+      "hint": ""
+    },
+    {
+      "title": "If I Could Tell Her",
+      "artist": "Ben Platt & Laura Dreyfuss (from Dear Evan Hansen)",
+      "link": "",
+      "clipSrc": "data/clips/2026-09-07__3__ben-platt-laura-dreyfuss-from-dear-evan-hansen-if-i-.wav",
+      "hint": ""
+    },
+    {
+      "title": "If I Can't Have You",
+      "artist": "Shawn Mendes",
+      "link": "",
+      "clipSrc": "data/clips/2026-09-07__4__shawn-mendes-if-i-can-t-have-you.wav",
+      "hint": ""
+    },
+    {
+      "title": "If I Were A Boy",
+      "artist": "Beyoncé",
+      "link": "",
+      "clipSrc": "data/clips/2026-09-07__5__beyonce-if-i-were-a-boy.wav",
+      "hint": ""
+    },
+    {
+      "title": "If I Could Turn Back Time",
+      "artist": "Cher",
+      "link": "",
+      "clipSrc": "data/clips/2026-09-07__6__cher-if-i-could-turn-back-time.wav",
+      "hint": ""
+    }
+  ]
+}

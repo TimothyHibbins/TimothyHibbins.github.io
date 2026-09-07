@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-07",
+  "clueTitle": "Clue",
+  "clue": "What is the **first word** in these songs' titles?",
+  "clueAskBold": "",
+  "theme": "Good",
+  "aliases": [],
+  "songs": [
+    {
+      "title": "Good Vibrations",
+      "artist": "The Beach Boys",
+      "link": "https://youtu.be/jkPyB-g3asI?si=U57-xeKTW8h3_Z2D",
+      "clipSrc": "data/clips/2026-09-07__1__the-beach-boys-good-vibrations.wav",
+      "hint": ""
+    },
+    {
+      "title": "Good Without",
+      "artist": "Mimi Webb",
+      "link": "https://youtu.be/WLoWBe9BRP4?si=l1sL9u8WP_m1mCMG",
+      "clipSrc": "data/clips/2026-09-07__2__mimi-webb-good-without.wav",
+      "hint": ""
+    },
+    {
+      "title": "Good Life",
+      "artist": "G Eazy & Kehlani",
+      "link": "https://youtu.be/FG9M0aEpJGE?si=VCy9-lSHz-0uIqpG",
+      "clipSrc": "data/clips/2026-09-07__3__g-eazy-kehlani-good-life.wav",
+      "hint": ""
+    },
+    {
+      "title": "Good Days",
+      "artist": "SZA",
+      "link": "https://youtu.be/2p3zZoraK9g?si=kVjTmD0-11DxvUCf",
+      "clipSrc": "data/clips/2026-09-07__4__sza-good-days.wav",
+      "hint": ""
+    },
+    {
+      "title": "Good In Bed",
+      "artist": "Dua Lipa",
+      "link": "https://youtu.be/bJKr_XQIALk?si=iKU_EzIX3gzZljve",
+      "clipSrc": "data/clips/2026-09-07__5__dua-lipa-good-in-bed.wav",
+      "hint": ""
+    },
+    {
+      "title": "good 4 u",
+      "artist": "Olivia Rodrigo",
+      "link": "https://youtu.be/gNi_6U5Pm_o?si=ZKCYa7kKd4o6yY5f",
+      "clipSrc": "data/clips/2026-09-07__6__olivia-rodrigo-good-4-u.wav",
+      "hint": ""
+    }
+  ]
+}
