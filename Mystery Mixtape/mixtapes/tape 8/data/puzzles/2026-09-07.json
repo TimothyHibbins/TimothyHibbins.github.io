@@ -11,36 +11,42 @@
     {
       "title": "New York State of Mind",
       "artist": "Billy Joel",
+      "link": "https://youtu.be/F5LkGKJDc3Q?si=V7w0xDxSze1zf6oL",
       "clipSrc": "data/clips/2026-07-24__1__billy-joel-new-york-state-of-mind.wav",
       "hint": ""
     },
     {
       "title": "N.Y. State of Mind",
       "artist": "Nas",
+      "link": "https://youtu.be/hI8A14Qcv68?si=UwXGEvLjHdFCyPmP",
       "clipSrc": "data/clips/2026-07-24__2__nas-n-y-state-of-mind.wav",
       "hint": ""
     },
     {
       "title": "Welcome to New York",
       "artist": "Taylor Swift",
+      "link": "https://youtu.be/FsGdznlfE2U?si=cIT2rnuPRvqggZbm",
       "clipSrc": "data/clips/2026-07-24__3__taylor-swift-welcome-to-new-york.wav",
       "hint": ""
     },
     {
       "title": "Naked In Manhattan",
       "artist": "Chappell Roan",
+      "link": "https://youtu.be/QW2Alij7jlY?si=ReOGfSS00fsBf3Rq",
       "clipSrc": "data/clips/2026-07-24__4__chappell-roan-naked-in-manhattan.wav",
       "hint": ""
     },
     {
       "title": "Theme From New York, New York",
       "artist": "Frank Sinatra",
+      "link": "https://youtu.be/le1QF3uoQNg?si=arAGjtPSE2AslTMH",
       "clipSrc": "data/clips/2026-07-24__5__frank-sinatra-theme-from-new-york-new-york.wav",
       "hint": ""
     },
     {
       "title": "Empire State Of Mind",
       "artist": "Jay Z (Feat. Alicia Keys)",
+      "link": "https://youtu.be/vk6014HuxcE?si=1idBsiMnJIhdM_c4",
       "clipSrc": "data/clips/2026-07-24__6__jay-z-feat-alicia-keys-empire-state-of-mind.wav",
       "hint": ""
     }

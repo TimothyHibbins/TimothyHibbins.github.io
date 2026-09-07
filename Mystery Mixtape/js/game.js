@@ -8,6 +8,9 @@ const RULES_COOKIE_NAME = "mystery_mixtape_hide_rules";
 const COMPLETION_COOKIE_PREFIX = "mystery_mixtape_completion_";
 const COMPLETION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365 * 5;
 const SETTINGS_STORAGE_KEY = `${STORAGE_PREFIX}.settings`;
+const TRANSPORT_PLAY_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"></path></svg>`;
+const TRANSPORT_PAUSE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5.5h4v13H6zm8 0h4v13h-4z"></path></svg>`;
+const YOUTUBE_LINK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M29.41,9.26a3.5,3.5,0,0,0-2.47-2.47C24.76,6.2,16,6.2,16,6.2s-8.76,0-10.94.59A3.5,3.5,0,0,0,2.59,9.26,36.13,36.13,0,0,0,2,16a36.13,36.13,0,0,0,.59,6.74,3.5,3.5,0,0,0,2.47,2.47C7.24,25.8,16,25.8,16,25.8s8.76,0,10.94-.59a3.5,3.5,0,0,0,2.47-2.47A36.13,36.13,0,0,0,30,16,36.13,36.13,0,0,0,29.41,9.26ZM13.2,20.2V11.8L20.47,16Z"></path></svg>`;
 
 const els = {
     puzzleDate: document.getElementById("puzzle-date"),
@@ -42,6 +45,7 @@ const els = {
     revealPanel: document.getElementById("reveal-panel"),
     revealList: document.getElementById("song-reveal-list"),
     answerText: document.getElementById("answer-text"),
+    sharePrefix: document.querySelector(".share-prefix"),
     shareBtn: document.getElementById("share-btn"),
     confettiLayer: document.getElementById("confetti-layer"),
     rulesBtn: document.getElementById("rules-btn"),
@@ -110,6 +114,50 @@ const state = {
 };
 
 let tickIntervalId = null;
+let iosFocusKeepTopTimerId = null;
+
+function isIosSafariLike() {
+    const ua = navigator.userAgent || "";
+    const iOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const webKit = /WebKit/i.test(ua);
+    const excluded = /CriOS|FxiOS|EdgiOS|OPiOS/i.test(ua);
+    return iOS && webKit && !excluded;
+}
+
+function cassetteActionWord() {
+    const hasCoarsePointer = typeof window.matchMedia === "function"
+        && window.matchMedia("(pointer: coarse)").matches;
+    return hasCoarsePointer ? "Tap" : "Click";
+}
+
+function mitigateIosInputScrollJump() {
+    if (!els.guessInput || !els.cassette || !isIosSafariLike()) {
+        return;
+    }
+
+    const keepCassetteInView = () => {
+        const cassetteTop = els.cassette.getBoundingClientRect().top + window.scrollY;
+        window.scrollTo({ top: Math.max(0, Math.round(cassetteTop - 14)), behavior: "auto" });
+    };
+
+    els.guessInput.addEventListener("focus", () => {
+        keepCassetteInView();
+        window.setTimeout(keepCassetteInView, 40);
+        window.setTimeout(keepCassetteInView, 160);
+
+        if (iosFocusKeepTopTimerId) {
+            clearInterval(iosFocusKeepTopTimerId);
+        }
+        iosFocusKeepTopTimerId = window.setInterval(keepCassetteInView, 220);
+    });
+
+    els.guessInput.addEventListener("blur", () => {
+        if (iosFocusKeepTopTimerId) {
+            clearInterval(iosFocusKeepTopTimerId);
+            iosFocusKeepTopTimerId = null;
+        }
+    });
+}
 
 function getAestDateKey() {
     return new Intl.DateTimeFormat("en-CA", {
@@ -184,13 +232,15 @@ function applyBoldAskToken(clue, askText) {
 }
 
 function clueToSafeHtml(clueText, clueAskBold) {
-    const rawClue = String(clueText || "");
+    const rawClue = String(clueText || "")
+        .replace(/\s+/g, " ")
+        .trim();
     const clueWithAsk = rawClue.includes("**")
         ? rawClue
         : applyBoldAskToken(rawClue, clueAskBold);
     const parts = clueWithAsk.split(/(\*\*[^*]+\*\*)/g);
 
-    return parts
+    const html = parts
         .map((part) => {
             if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
                 return `<strong>${escapeHtml(part.slice(2, -2))}</strong>`;
@@ -198,12 +248,24 @@ function clueToSafeHtml(clueText, clueAskBold) {
             return escapeHtml(part);
         })
         .join("");
+
+    return html;
 }
 
 function isLikelySafeHttpUrl(value) {
     try {
         const parsed = new URL(String(value || ""));
         return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch (error) {
+        return false;
+    }
+}
+
+function isYouTubeUrl(value) {
+    try {
+        const parsed = new URL(String(value || ""));
+        const host = parsed.hostname.toLowerCase();
+        return host === "youtu.be" || host.endsWith("youtube.com");
     } catch (error) {
         return false;
     }
@@ -603,8 +665,7 @@ function showCassetteTransportFlash(mode) {
     if (!els.cassetteTransportFlash) {
         return;
     }
-    const symbol = mode === "pause" ? "❚❚" : "▶";
-    els.cassetteTransportFlash.textContent = symbol;
+    els.cassetteTransportFlash.innerHTML = mode === "pause" ? TRANSPORT_PAUSE_SVG : TRANSPORT_PLAY_SVG;
     els.cassetteTransportFlash.classList.remove("flash");
     // Force reflow so repeated toggles restart the animation.
     void els.cassetteTransportFlash.offsetWidth;
@@ -1676,8 +1737,7 @@ async function onTransportPlayPause() {
         return;
     }
 
-    const isInitialStart = !state.startedAtMs;
-    if (isInitialStart && els.guessInput) {
+    if (els.guessInput) {
         els.guessInput.focus();
     }
 
@@ -1860,6 +1920,11 @@ function renderAnswerLine() {
 }
 
 function renderShareCta() {
+    if (els.sharePrefix) {
+        const action = cassetteActionWord().toLowerCase();
+        els.sharePrefix.textContent = `${action} to copy:`;
+    }
+
     if (!els.shareBtn) {
         return;
     }
@@ -1894,8 +1959,13 @@ function renderReveal() {
 
     const header = document.createElement("div");
     header.className = "reveal-row head";
-    ["#", "Song Title", "Artist(s)", "Link"].forEach((label) => {
+    ["#", "Song Title", "Artist(s)", "Link"].forEach((label, index) => {
         const cell = document.createElement("div");
+        if (index === 2) {
+            cell.className = "reveal-artist-head";
+        } else if (index === 3) {
+            cell.className = "reveal-link-head";
+        }
         cell.textContent = label;
         header.appendChild(cell);
     });
@@ -1915,16 +1985,27 @@ function renderReveal() {
         titleCell.textContent = song.title;
 
         const artistCell = document.createElement("div");
+        artistCell.className = "reveal-artist-cell";
         artistCell.textContent = song.artist;
 
         const linkCell = document.createElement("div");
+        linkCell.className = "reveal-link-cell";
         if (isLikelySafeHttpUrl(song.link)) {
             const anchor = document.createElement("a");
             anchor.href = song.link;
             anchor.target = "_blank";
             anchor.rel = "noopener noreferrer";
             anchor.className = "reveal-link";
-            anchor.textContent = "Open";
+            if (isYouTubeUrl(song.link)) {
+                anchor.innerHTML = YOUTUBE_LINK_SVG;
+                const svg = anchor.querySelector("svg");
+                if (svg) {
+                    svg.classList.add("reveal-link-icon");
+                }
+                anchor.setAttribute("aria-label", "Open YouTube link");
+            } else {
+                anchor.textContent = "Open";
+            }
             linkCell.appendChild(anchor);
         } else {
             linkCell.textContent = "-";
@@ -1943,24 +2024,25 @@ function renderReveal() {
 function renderCassetteState() {
     const playable = state.phase !== "loading" && state.phase !== "missing";
     const terminal = state.phase === "solved" || state.phase === "gaveup";
+    const isPlaying = state.isSequencePlaying || state.isTimelinePlaying;
+    const canToggle = playable && !terminal && Boolean(state.puzzle);
+    const showStartPrompt = canToggle && !state.startedAtMs && !isPlaying;
 
-    els.cassette.classList.toggle("playing", state.isSequencePlaying || state.isTimelinePlaying);
+    els.cassette.classList.toggle("playing", isPlaying);
     els.cassette.classList.toggle("inactive", !playable || terminal);
     els.cassette.classList.toggle("flipped", terminal);
 
-    // Show/hide click-to-start prompt
-    const showStartPrompt = state.phase !== "solved"
-        && state.phase !== "gaveup"
-        && state.puzzle
-        && !state.startedAtMs
-        && !state.isSequencePlaying
-        && !state.isTimelinePlaying;
     if (els.cassetteStartPrompt) {
-        els.cassetteStartPrompt.classList.toggle("hidden", !showStartPrompt);
+        els.cassetteStartPrompt.classList.add("hidden");
+    }
 
-        // Change text based on mobile detection
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 640;
-        els.cassetteStartPrompt.textContent = isMobile ? "Tap cassette to start!" : "Click cassette to start!";
+    if (els.cassetteClue) {
+        if (showStartPrompt) {
+            const action = cassetteActionWord();
+            els.cassetteClue.innerHTML = `<span class="cassette-clue-main">${action} cassette to play/pause</span><span class="cassette-clue-note">If you do not hear sound, check if your device is silenced</span>`;
+        } else {
+            els.cassetteClue.textContent = "";
+        }
     }
 
     els.cassette.classList.toggle("ready", showStartPrompt);
@@ -2016,22 +2098,26 @@ function renderClue() {
     const defaultClue = "Listen carefully to all six clips and find the common thread.";
 
     if (!state.puzzle) {
-        els.clueTitle.textContent = "";
-        els.clueText.textContent = "";
-        if (els.cassetteClue) {
-            els.cassetteClue.textContent = "Open Archive and choose a tape.";
-            fitCassetteClueText();
+        if (els.clueTitle) {
+            els.clueTitle.classList.add("hidden");
+            els.clueTitle.textContent = "";
+        }
+        if (els.clueText) {
+            els.clueText.classList.remove("hidden");
+            els.clueText.textContent = "Open Archive and choose a tape.";
         }
         return;
     }
 
     const clueText = state.puzzle.clue || defaultClue;
-    els.clueTitle.textContent = "";
-    els.clueText.textContent = "";
-    if (els.cassetteClue) {
+    if (els.clueTitle) {
+        els.clueTitle.classList.add("hidden");
+        els.clueTitle.textContent = "";
+    }
+    if (els.clueText) {
         const clueHtml = clueToSafeHtml(clueText, state.puzzle.clueAskBold || "");
-        els.cassetteClue.innerHTML = `<span class="cassette-clue-text">${clueHtml}</span>`;
-        fitCassetteClueText();
+        els.clueText.classList.remove("hidden");
+        els.clueText.innerHTML = `<span class="prompt-text-line">${clueHtml}</span>`;
     }
 }
 
@@ -2684,6 +2770,7 @@ async function init() {
         console.log('[DEBUG] init() called');
         hydrateSettings();
         wireEvents();
+        mitigateIosInputScrollJump();
         if (els.rulesModal) {
             els.rulesModal.classList.add("hidden");
         }
