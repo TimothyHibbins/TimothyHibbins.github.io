@@ -356,8 +356,17 @@ body.mm-body:not(.creator-page) {
     border: none;
     outline: none;
     margin-inline: auto;
+}
+
+.cassette-svg-container {
+    position: absolute;
+    inset: 0;
     transform: scale(var(--cassette-pulse-scale, 1));
+    transform-origin: 50% 50%;
     transition: transform 70ms linear;
+    will-change: transform;
+    backface-visibility: hidden;
+    background: transparent;
 }
 
 .cassette[data-variant="smoke"] {
