@@ -1,6 +1,6 @@
 const DAILY_INDEX_PATH = "data/daily-puzzles.json";
 const MIXTAPE_MANIFEST_PATH = "mixtapes/index.json";
-const APP_VERSION = "2.8.2";
+const APP_VERSION = "2.8.3";
 const STORAGE_PREFIX = "mystery-mixtape.v1";
 const WRONG_GUESS_PENALTY_SECONDS = 10;
 const CLIP_PLAY_SECONDS = 10;
@@ -162,16 +162,12 @@ function mitigateIosInputScrollJump() {
 }
 
 function getAestDateKey() {
-    const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone: "Australia/Melbourne",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit"
-    }).formatToParts(new Date());
-
-    const year = parts.find((part) => part.type === "year")?.value || "0000";
-    const month = parts.find((part) => part.type === "month")?.value || "01";
-    const day = parts.find((part) => part.type === "day")?.value || "01";
+    // Keep release scheduling browser-stable by deriving date from UTC+10 directly.
+    const AEST_OFFSET_MS = 10 * 60 * 60 * 1000;
+    const aestNow = new Date(Date.now() + AEST_OFFSET_MS);
+    const year = aestNow.getUTCFullYear();
+    const month = String(aestNow.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(aestNow.getUTCDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
 }
 
