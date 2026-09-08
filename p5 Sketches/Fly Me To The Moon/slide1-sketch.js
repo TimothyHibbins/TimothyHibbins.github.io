@@ -2,6 +2,7 @@ function setup() {
 
     pixelDensity(1);
     createCanvas(windowWidth, windowHeight);
+    disableMobileGestureConflicts();
 
     rocketColor = color("#ff00b3ff");
     earthColor = color("#00ffffff");

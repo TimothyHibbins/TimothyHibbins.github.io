@@ -1489,3 +1489,17 @@ function drawTimeline() {
     pop();
 
 }
+
+// Injected so this applies wherever this script is embedded, regardless of host page CSS
+function disableMobileGestureConflicts() {
+    const style = document.createElement('style');
+    style.textContent = `
+        html, body, canvas {
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+    `;
+    document.head.appendChild(style);
+}

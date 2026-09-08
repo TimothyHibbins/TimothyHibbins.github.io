@@ -2,6 +2,7 @@ function setup() {
 
     pixelDensity(1);
     createCanvas(windowWidth, windowHeight);
+    disableMobileGestureConflicts();
 
     gravLights = true;
 
