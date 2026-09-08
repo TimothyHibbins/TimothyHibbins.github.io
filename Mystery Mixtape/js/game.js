@@ -1,5 +1,6 @@
 const DAILY_INDEX_PATH = "data/daily-puzzles.json";
 const MIXTAPE_MANIFEST_PATH = "mixtapes/index.json";
+const APP_VERSION = "2.8.1";
 const STORAGE_PREFIX = "mystery-mixtape.v1";
 const WRONG_GUESS_PENALTY_SECONDS = 10;
 const CLIP_PLAY_SECONDS = 10;
@@ -47,6 +48,7 @@ const els = {
     answerText: document.getElementById("answer-text"),
     sharePrefix: document.querySelector(".share-prefix"),
     shareBtn: document.getElementById("share-btn"),
+    versionBadge: document.getElementById("version-badge"),
     confettiLayer: document.getElementById("confetti-layer"),
     rulesBtn: document.getElementById("rules-btn"),
     settingsBtn: document.getElementById("settings-btn"),
@@ -285,7 +287,7 @@ function isYouTubeUrl(value) {
 }
 
 async function fetchJson(path, notFoundOk = false) {
-    const response = await fetch(encodeURI(path));
+    const response = await fetch(encodeURI(path), { cache: "no-store" });
     if (!response.ok) {
         if (notFoundOk && response.status === 404) {
             return null;
@@ -382,7 +384,7 @@ function extractTapeEntries(dailyIndex) {
 
 async function fetchArchivePuzzle(basePath, tapePath) {
     try {
-        const response = await fetch(encodeURI(joinPath(basePath, tapePath)));
+        const response = await fetch(encodeURI(joinPath(basePath, tapePath)), { cache: "no-store" });
         if (!response.ok) {
             return { clue: "Could not load clue", clueAskBold: "" };
         }
@@ -1979,6 +1981,13 @@ function renderShareCta() {
     els.shareBtn.disabled = false;
 }
 
+function renderVersionBadge() {
+    if (!els.versionBadge) {
+        return;
+    }
+    els.versionBadge.textContent = `v${APP_VERSION}`;
+}
+
 function renderReveal() {
     const isTerminal = state.phase === "solved" || state.phase === "gaveup";
     els.revealPanel.classList.toggle("hidden", !isTerminal);
@@ -2266,7 +2275,7 @@ async function loadSelectedTape() {
     render();
 
     const resolvedPuzzlePath = joinPath(state.sourceBasePath, state.selectedTapePath);
-    const puzzleResponse = await fetch(encodeURI(resolvedPuzzlePath));
+    const puzzleResponse = await fetch(encodeURI(resolvedPuzzlePath), { cache: "no-store" });
     if (!puzzleResponse.ok) {
         throw new Error(`Could not load puzzle file at ${resolvedPuzzlePath}.`);
     }
@@ -2834,6 +2843,7 @@ async function init() {
         }
 
         render();
+        renderVersionBadge();
         if (shouldAutoShowRules()) {
             openRulesModal();
         }
