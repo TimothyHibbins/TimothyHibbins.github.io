@@ -16,10 +16,12 @@ Mystery Mixtape is a daily guessing game: players hear six 10-second clips and t
 
 - `index.html`: game page
 - `creator.html`: WIP creator page
+- `mixtapes/index.json`: generated tape manifest used by the archive/game loader
 - `data/daily-puzzles.json`: date to puzzle map
 - `data/puzzles/*.json`: puzzle files
 - `data/clips/`: generated 10-second clips
 - `_scripts/build_mixtape.py`: local clip build pipeline
+- `_scripts/generate_mixtape_index.py`: scans `mixtapes/tape N` folders and rewrites `mixtapes/index.json`
 
 ## Creator Workflow
 
@@ -39,6 +41,18 @@ Build output includes:
 
 - six clipped files: `data/clips/<date>__1.mp3` ... `data/clips/<date>__6.mp3`
 - one combined file: `data/clips/<date>__mixtape_full.mp3`
+
+## Mixtape Archive Index
+
+The archive/game loader reads `mixtapes/index.json`.
+
+To regenerate it automatically from folder names like `mixtapes/tape 9`, `mixtapes/tape 10`, etc., run:
+
+```bash
+python3 _scripts/generate_mixtape_index.py
+```
+
+The script includes any `tape N` folder that contains either `data/daily-puzzles.patch.json` or `data/daily-puzzles.json`.
 
 ## Dependencies for build script
 

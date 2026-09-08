@@ -1,7 +1,5 @@
 const DAILY_INDEX_PATH = "data/daily-puzzles.json";
 const MIXTAPE_MANIFEST_PATH = "mixtapes/index.json";
-const AUTO_DISCOVERY_MAX_TAPE_NUMBER = 250;
-const AUTO_DISCOVERY_STOP_AFTER_MISSES = 3;
 const STORAGE_PREFIX = "mystery-mixtape.v1";
 const WRONG_GUESS_PENALTY_SECONDS = 10;
 const CLIP_PLAY_SECONDS = 10;
@@ -170,6 +168,19 @@ function getAestDateKey() {
     }).format(new Date());
 }
 
+function addDaysToDateKey(dateKey, dayOffset) {
+    const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) {
+        return String(dateKey || "");
+    }
+
+    const year = Number(match[1]);
+    const monthIndex = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const utcMs = Date.UTC(year, monthIndex, day + Number(dayOffset || 0));
+    return new Date(utcMs).toISOString().slice(0, 10);
+}
+
 function getMixtapeSlugFromQuery() {
     const params = new URLSearchParams(window.location.search);
     const value = params.get("mixtape") || "";
@@ -307,58 +318,20 @@ async function loadIndexForMixtape(slug, label = "") {
 
 async function loadManifestPacks() {
     const manifest = await fetchJson(MIXTAPE_MANIFEST_PATH, true);
-    const manifestPacks = (Array.isArray(manifest?.packs) ? manifest.packs : [])
+    if (!manifest) {
+        return { packs: [], defaultSlug: "" };
+    }
+
+    const packs = (Array.isArray(manifest.packs) ? manifest.packs : [])
         .filter((pack) => pack && typeof pack.slug === "string" && pack.slug.trim())
         .map((pack) => ({
             slug: pack.slug.trim(),
             label: String(pack.label || pack.slug).trim() || pack.slug.trim()
         }));
 
-    const discoveredPacks = [];
-    let consecutiveMisses = 0;
-
-    for (let tapeNumber = 1; tapeNumber <= AUTO_DISCOVERY_MAX_TAPE_NUMBER; tapeNumber += 1) {
-        const slug = `tape ${tapeNumber}`;
-        const patchPath = `mixtapes/${slug}/data/daily-puzzles.patch.json`;
-        const fullPath = `mixtapes/${slug}/data/daily-puzzles.json`;
-        const patchIndex = await fetchJson(patchPath, true);
-        const fullIndex = patchIndex ? null : await fetchJson(fullPath, true);
-        const hasIndex = Boolean(patchIndex || fullIndex);
-
-        if (hasIndex) {
-            discoveredPacks.push({
-                slug,
-                label: `Tape ${tapeNumber}`
-            });
-            consecutiveMisses = 0;
-            continue;
-        }
-
-        consecutiveMisses += 1;
-        if (discoveredPacks.length > 0 && consecutiveMisses >= AUTO_DISCOVERY_STOP_AFTER_MISSES) {
-            break;
-        }
-    }
-
-    const packMap = new Map();
-    for (const pack of manifestPacks) {
-        packMap.set(pack.slug, pack);
-    }
-    for (const pack of discoveredPacks) {
-        if (!packMap.has(pack.slug)) {
-            packMap.set(pack.slug, pack);
-        }
-    }
-
-    const packs = Array.from(packMap.values()).sort((a, b) => {
-        const aNum = Number((a.slug.match(/\d+/) || [])[0] || 0);
-        const bNum = Number((b.slug.match(/\d+/) || [])[0] || 0);
-        return aNum - bNum;
-    });
-
     return {
         packs,
-        defaultSlug: String(manifest?.default || "").trim()
+        defaultSlug: String(manifest.default || "").trim()
     };
 }
 
@@ -426,6 +399,7 @@ async function fetchArchivePuzzle(basePath, tapePath) {
 async function buildArchiveEntries() {
     const entries = [];
     const today = getAestDateKey();
+    const packSources = [];
 
     for (const pack of state.manifestPacks) {
         let source;
@@ -441,9 +415,29 @@ async function buildArchiveEntries() {
         const tapeNumberMatch = pack.slug.match(/\d+/);
         const tapeNumber = tapeNumberMatch ? parseInt(tapeNumberMatch[0]) : null;
 
+        packSources.push({
+            pack,
+            source,
+            tapes,
+            tapeNumber
+        });
+    }
+
+    const anchorPack = packSources
+        .filter((item) => Number.isFinite(item.tapeNumber) && item.tapeNumber !== null && item.tapes.length > 0)
+        .sort((a, b) => (a.tapeNumber || 0) - (b.tapeNumber || 0))[0];
+    const scheduleAnchorDate = anchorPack ? String(anchorPack.tapes[0].key || "").trim() : "";
+
+    for (const { pack, source, tapes, tapeNumber } of packSources) {
+        const derivedReleaseDate = scheduleAnchorDate && Number.isFinite(tapeNumber)
+            ? addDaysToDateKey(scheduleAnchorDate, Math.max(0, tapeNumber - 1))
+            : "";
+
         for (const tape of tapes) {
+            const releaseDate = derivedReleaseDate || tape.key;
+
             // Only show tapes whose date has arrived (or passed)
-            if (tape.key > today) {
+            if (releaseDate > today) {
                 continue;
             }
 
@@ -457,7 +451,8 @@ async function buildArchiveEntries() {
                 tapeKey: tape.key,
                 tapePath: tape.path,
                 tapeNumber: tapeNumber,
-                releaseDate: tape.key,
+                releaseDate,
+                displayDate: releaseDate,
                 clue: archivePuzzle.clue,
                 clueAskBold: archivePuzzle.clueAskBold,
                 completion
@@ -481,7 +476,7 @@ function renderArchiveList() {
         row.dataset.packSlug = item.packSlug;
         row.dataset.tapeKey = item.tapeKey;
         row.innerHTML = `
-            <span class="archive-tape-id">${item.packLabel} / ${item.tapeKey}</span>
+            <span class="archive-tape-id">${item.packLabel} / ${item.displayDate || item.tapeKey}</span>
             <span class="archive-tape-info">
                 <span class="archive-tape-clue">${clueToSafeHtml(item.clue, item.clueAskBold || "")}</span>
                 <span class="archive-tape-result ${completion ? `result-${completion.result}` : ""}">${completion ? formatCompletionSummary(completion) : "Not played"}</span>
