@@ -3,8 +3,17 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  /* Prevent iOS long-press magnifier/selection while dragging on the canvas */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 canvas {
   display: block;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
