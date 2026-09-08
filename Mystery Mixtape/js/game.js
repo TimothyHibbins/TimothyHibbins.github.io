@@ -1,6 +1,6 @@
 const DAILY_INDEX_PATH = "data/daily-puzzles.json";
 const MIXTAPE_MANIFEST_PATH = "mixtapes/index.json";
-const APP_VERSION = "2.8.1";
+const APP_VERSION = "2.8.2";
 const STORAGE_PREFIX = "mystery-mixtape.v1";
 const WRONG_GUESS_PENALTY_SECONDS = 10;
 const CLIP_PLAY_SECONDS = 10;
@@ -162,12 +162,30 @@ function mitigateIosInputScrollJump() {
 }
 
 function getAestDateKey() {
-    return new Intl.DateTimeFormat("en-CA", {
+    const parts = new Intl.DateTimeFormat("en-US", {
         timeZone: "Australia/Melbourne",
         year: "numeric",
         month: "2-digit",
         day: "2-digit"
-    }).format(new Date());
+    }).formatToParts(new Date());
+
+    const year = parts.find((part) => part.type === "year")?.value || "0000";
+    const month = parts.find((part) => part.type === "month")?.value || "01";
+    const day = parts.find((part) => part.type === "day")?.value || "01";
+    return `${year}-${month}-${day}`;
+}
+
+function compareDateKeys(left, right) {
+    if (!left && !right) {
+        return 0;
+    }
+    if (!left) {
+        return -1;
+    }
+    if (!right) {
+        return 1;
+    }
+    return left.localeCompare(right);
 }
 
 function addDaysToDateKey(dateKey, dayOffset) {
@@ -398,7 +416,8 @@ async function fetchArchivePuzzle(basePath, tapePath) {
     }
 }
 
-async function buildArchiveEntries() {
+async function buildArchiveEntries(options = {}) {
+    const includeClues = options.includeClues === true;
     const entries = [];
     const today = getAestDateKey();
     const packSources = [];
@@ -439,13 +458,14 @@ async function buildArchiveEntries() {
             const releaseDate = derivedReleaseDate || tape.key;
 
             // Only show tapes whose date has arrived (or passed)
-            if (releaseDate > today) {
+            if (compareDateKeys(releaseDate, today) > 0) {
                 continue;
             }
 
             const completion = getTapeCompletionRecord(pack.slug, tape.key);
-
-            const archivePuzzle = await fetchArchivePuzzle(source.basePath, tape.path);
+            const archivePuzzle = includeClues
+                ? await fetchArchivePuzzle(source.basePath, tape.path)
+                : { clue: "Loading clue...", clueAskBold: "" };
             entries.push({
                 packSlug: pack.slug,
                 packLabel: pack.label,
@@ -462,6 +482,27 @@ async function buildArchiveEntries() {
         }
     }
     state.archiveEntries = entries;
+}
+
+async function hydrateArchiveClues() {
+    if (!state.archiveEntries.length) {
+        return;
+    }
+
+    let changed = false;
+    for (const item of state.archiveEntries) {
+        if (item.clue && item.clue !== "Loading clue...") {
+            continue;
+        }
+        const archivePuzzle = await fetchArchivePuzzle(item.basePath, item.tapePath);
+        item.clue = archivePuzzle.clue;
+        item.clueAskBold = archivePuzzle.clueAskBold;
+        changed = true;
+    }
+
+    if (changed) {
+        renderArchiveList();
+    }
 }
 
 function renderArchiveList() {
@@ -2154,7 +2195,9 @@ function renderClue() {
         }
         if (els.clueText) {
             els.clueText.classList.remove("hidden");
-            els.clueText.textContent = "Open Archive and choose a tape.";
+            els.clueText.textContent = state.phase === "loading"
+                ? "Loading today\'s mixtape..."
+                : "Open Archive and choose a tape.";
         }
         return;
     }
@@ -2333,7 +2376,7 @@ async function setupTapePicker() {
         throw new Error("No mixtape sets found in mixtapes/index.json.");
     }
 
-    await buildArchiveEntries();
+    await buildArchiveEntries({ includeClues: false });
     renderArchiveList();
 
     if (!state.archiveEntries.length) {
@@ -2347,7 +2390,7 @@ async function setupTapePicker() {
     const today = getAestDateKey();
 
     // Filter tapes that have been released (releaseDate <= today)
-    const releasedTapes = state.archiveEntries.filter(entry => entry.releaseDate <= today);
+    const releasedTapes = state.archiveEntries.filter((entry) => compareDateKeys(entry.releaseDate, today) <= 0);
 
     if (releasedTapes.length > 0) {
         // Sort by tape number descending and take the highest
@@ -2363,6 +2406,9 @@ async function setupTapePicker() {
         // No released tapes yet - show archive modal
         openArchiveModal();
     }
+
+    // Populate archive clue text after initial tape load so startup is responsive.
+    void hydrateArchiveClues();
 }
 
 function generateShareText() {
