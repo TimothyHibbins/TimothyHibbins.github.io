@@ -1,5 +1,7 @@
 const DAILY_INDEX_PATH = "data/daily-puzzles.json";
 const MIXTAPE_MANIFEST_PATH = "mixtapes/index.json";
+const AUTO_DISCOVERY_MAX_TAPE_NUMBER = 250;
+const AUTO_DISCOVERY_STOP_AFTER_MISSES = 3;
 const STORAGE_PREFIX = "mystery-mixtape.v1";
 const WRONG_GUESS_PENALTY_SECONDS = 10;
 const CLIP_PLAY_SECONDS = 10;
@@ -305,20 +307,58 @@ async function loadIndexForMixtape(slug, label = "") {
 
 async function loadManifestPacks() {
     const manifest = await fetchJson(MIXTAPE_MANIFEST_PATH, true);
-    if (!manifest) {
-        return { packs: [], defaultSlug: "" };
-    }
-
-    const packs = (Array.isArray(manifest.packs) ? manifest.packs : [])
+    const manifestPacks = (Array.isArray(manifest?.packs) ? manifest.packs : [])
         .filter((pack) => pack && typeof pack.slug === "string" && pack.slug.trim())
         .map((pack) => ({
             slug: pack.slug.trim(),
             label: String(pack.label || pack.slug).trim() || pack.slug.trim()
         }));
 
+    const discoveredPacks = [];
+    let consecutiveMisses = 0;
+
+    for (let tapeNumber = 1; tapeNumber <= AUTO_DISCOVERY_MAX_TAPE_NUMBER; tapeNumber += 1) {
+        const slug = `tape ${tapeNumber}`;
+        const patchPath = `mixtapes/${slug}/data/daily-puzzles.patch.json`;
+        const fullPath = `mixtapes/${slug}/data/daily-puzzles.json`;
+        const patchIndex = await fetchJson(patchPath, true);
+        const fullIndex = patchIndex ? null : await fetchJson(fullPath, true);
+        const hasIndex = Boolean(patchIndex || fullIndex);
+
+        if (hasIndex) {
+            discoveredPacks.push({
+                slug,
+                label: `Tape ${tapeNumber}`
+            });
+            consecutiveMisses = 0;
+            continue;
+        }
+
+        consecutiveMisses += 1;
+        if (discoveredPacks.length > 0 && consecutiveMisses >= AUTO_DISCOVERY_STOP_AFTER_MISSES) {
+            break;
+        }
+    }
+
+    const packMap = new Map();
+    for (const pack of manifestPacks) {
+        packMap.set(pack.slug, pack);
+    }
+    for (const pack of discoveredPacks) {
+        if (!packMap.has(pack.slug)) {
+            packMap.set(pack.slug, pack);
+        }
+    }
+
+    const packs = Array.from(packMap.values()).sort((a, b) => {
+        const aNum = Number((a.slug.match(/\d+/) || [])[0] || 0);
+        const bNum = Number((b.slug.match(/\d+/) || [])[0] || 0);
+        return aNum - bNum;
+    });
+
     return {
         packs,
-        defaultSlug: String(manifest.default || "").trim()
+        defaultSlug: String(manifest?.default || "").trim()
     };
 }
 
@@ -388,7 +428,13 @@ async function buildArchiveEntries() {
     const today = getAestDateKey();
 
     for (const pack of state.manifestPacks) {
-        const source = await loadIndexForMixtape(pack.slug, pack.label);
+        let source;
+        try {
+            source = await loadIndexForMixtape(pack.slug, pack.label);
+        } catch (error) {
+            console.warn(`Skipping mixtape pack ${pack.slug}:`, error);
+            continue;
+        }
         const tapes = extractTapeEntries(source.dailyIndex);
 
         // Extract tape number from slug (e.g., "tape 8" -> 8)
