@@ -4,7 +4,9 @@ function setup() {
     createCanvas(windowWidth, windowHeight);
     disableMobileGestureConflicts();
 
-    gravLights = true;
+    gravLights = false;
+    showTrajectory = true;
+    showTrajectoryDescription = true;
 
     rocketColor = color("#ff00b3ff");
     earthColor = color("#00ffffff");
