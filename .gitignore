@@ -8,6 +8,7 @@
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+.venv/
 
 # Large archives — never commit these
 *.zip

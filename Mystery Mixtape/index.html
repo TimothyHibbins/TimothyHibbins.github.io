@@ -13,8 +13,8 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&family=IBM+Plex+Mono:wght@400;600&display=swap"
         rel="stylesheet">
-    <link rel="icon" type="image/svg+xml" href="custom SVGs/Tape.svg?v=8">
-    <link rel="stylesheet" href="style.css?v=75">
+    <link rel="icon" type="image/svg+xml" href="custom SVGs/Tape.svg?v=10">
+    <link rel="stylesheet" href="style.css?v=84">
 </head>
 
 <body class="mm-body">
@@ -47,7 +47,7 @@
                         <img src="custom SVGs/Wheel B.svg" class="cassette-wheel" id="wheel-right" alt="">
 
                         <!-- Tape image -->
-                        <img src="custom SVGs/Tape.svg?v=7" class="cassette-tape" alt="Cassette tape">
+                        <img src="custom SVGs/Tape.svg?v=10" class="cassette-tape" alt="Cassette tape">
                     </div>
 
                     <div id="cassette-tape-number" class="cassette-tape-number hidden"></div>
@@ -76,14 +76,39 @@
             <button id="give-up-btn" class="give-up-btn hidden" type="button">Give up</button>
 
             <div id="result-band" class="result-band">
-                <form id="answer-text" class="answer-text answer-inline guess-form-row answer-entry-row">
-                    <span class="answer-kicker">Answer:</span>
-                    <input id="guess-input" name="guess" type="text" autocomplete="off" autocapitalize="words"
-                        placeholder="type answer here">
-                </form>
+                <div id="buzz-panel" class="buzz-panel">
+                    <div id="buzz-idle-row" class="buzz-idle-row">
+                        <button id="transport-toggle-btn" class="transport-toggle-btn hidden" type="button"
+                            aria-label="Play or pause the mixtape"></button>
+                        <button id="buzz-btn" class="buzz-btn hidden" type="button">Buzz</button>
+                        <button id="start-round-btn" class="buzz-btn start-round-btn hidden" type="button">Start</button>
+                    </div>
+
+                    <form id="answer-text" class="answer-text buzz-card hidden">
+                        <div id="answer-revealed-row" class="answer-revealed-row hidden">
+                            <span class="answer-kicker">Answer:</span>
+                        </div>
+                        <div class="buzz-grid">
+                            <div class="buzz-input-wrap">
+                                <input id="guess-input" name="guess" type="text" autocomplete="off" autocapitalize="words"
+                                    placeholder="type answer here">
+                                <span id="buzz-wrong-icon" class="buzz-wrong-icon hidden" aria-hidden="true">&#10006;</span>
+                            </div>
+                            <button id="cancel-buzz-btn" class="cancel-buzz-btn" type="button">Cancel buzz</button>
+                            <button id="submit-answer-btn" class="submit-answer-btn" type="submit">Submit answer</button>
+                        </div>
+                        <div id="answer-revealed-result" class="wrong-guesses answer-revealed-result hidden" aria-live="polite">
+                            <p id="answer-revealed-heading" class="wrong-heading">Incorrect guesses:</p>
+                            <ul id="answer-revealed-result-list" class="wrong-guesses-list"></ul>
+                        </div>
+                    </form>
+
+                    <button id="transport-toggle-btn-reveal" class="transport-toggle-btn transport-toggle-btn-reveal hidden"
+                        type="button" aria-label="Play or pause the mixtape"></button>
+                </div>
 
                 <div id="wrong-guesses-wrap" class="wrong-guesses hidden" aria-live="polite">
-                    <p class="wrong-heading">Incorrect guesses:</p>
+                    <p id="wrong-heading" class="wrong-heading">Incorrect guesses:</p>
                     <ul id="wrong-guesses-list" class="wrong-guesses-list"></ul>
                 </div>
             </div>
@@ -109,7 +134,7 @@
     </div>
 
     <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
-    <div id="version-badge" class="version-badge" aria-hidden="true">v2.8.3</div>
+    <div id="version-badge" class="version-badge" aria-hidden="true">v2.10.2</div>
 
     <div id="archive-modal" class="rules-modal hidden" role="dialog" aria-modal="true" aria-labelledby="archive-title">
         <div class="rules-card archive-card-wrap">
@@ -118,7 +143,20 @@
                 <button id="archive-close-btn" class="rules-close-btn" type="button"
                     aria-label="Close archive">x</button>
             </div>
-            <div id="archive-list" class="archive-list"></div>
+            <div class="archive-table-wrap">
+                <table class="archive-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Date</th>
+                            <th scope="col">Tape</th>
+                            <th scope="col">Question</th>
+                            <th scope="col">Result</th>
+                        </tr>
+                    </thead>
+                    <tbody id="archive-table-body"></tbody>
+                </table>
+            </div>
+            <button id="archive-copy-all-btn" class="archive-copy-all-btn" type="button">Copy all results</button>
         </div>
     </div>
 
@@ -185,7 +223,7 @@
         </div>
     </div>
 
-    <script type="module" src="js/game.js?v=69"></script>
+    <script type="module" src="js/game.js?v=79"></script>
 </body>
 
 </html>

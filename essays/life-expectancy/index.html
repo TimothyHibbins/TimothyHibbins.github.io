@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Life Expectancy Isn’t What You’d Expect</title>
+	<link rel="stylesheet" href="../shared/template.css?v=2" />
+	<script src="../shared/template.js?v=2" defer></script>
+</head>
+
+<body>
+	<div class="essay">
+
+		<!-- Left: interactive sketch panel. Filled by the template from the
+		     data-sketch attributes of the sections below. -->
+		<div class="sketch-pane" id="sketchPane"></div>
+
+		<!-- Right: one continuous, line-scrolled column of prose. -->
+		<div class="text-pane" id="textPane">
+			<article class="prose">
+
+				<section data-sketch="sketches/lexis-hex-example1.html">
+					<h1>Life Expectancy Isn’t What You’d Expect</h1>
+
+					<p>How long will a person in a given population live, on average?</p>
+
+					<p>I would guess that this is the question which most people would assume ‘life expectancy’ attempts
+						to answer. However, if you stop to think for a moment, it is not clear how we could possibly
+						have a definite answer. After all, its all very well to retrospectively calculate the mean
+						lifespan of historical populations who have all already died, but how can we know how long
+						people alive <em>today</em> will live? We’d need to be able to predict the future, or have
+						census bureaus hire Shinigami. It is therefore impossible to know a population’s <em>true</em>
+						life expectancy (i.e. mean lifespan) in advance. There is of course <em>actuarial</em> life
+						expectancy, which are insurance companies best guesses—but they are only guesses. Yet, if you
+						Google the life expectancy for a given country, there always is a number, and it is prepared by
+						national government’s, not insurance companies. So what does this number mean, and where does it
+						come from?</p>
+				</section>
+
+				<section data-sketch="">
+					<p>One might guess that what is referred to as ‘life expectancy’ is actually the <em>mean age of
+							death</em>. This is indeed very simple to calculate. You just look at all the people who
+						died in a given year, and take the mean of their ages. For a population in a steady
+						state—neither growing nor shrinking—and where death rates do not change, this would eventually
+						match the true retrospective mean lifespan. But real populations do not exist in a steady state.
+						If, for example, you’d recently had a population boom, with the young far outnumbering the old,
+						this will drag down mean age of death because there will be a higher relative number of young
+						people in the death statistics even if the young continue to die at the same lower rate as
+						before the boom. To correct for this, demographer’s devised an ingenious solution. Instead of
+						just looking at all deaths for a given year together, we break them down by age first and
+						calculate the <em>rate</em> of death for each age. For example, we might find that in our sample
+						0.1% of 20 year olds died, 2% of 40 year olds died, 5% of 60 year olds died, and 10% of 80 year
+						olds died (we’d do the same for all other ages as well). This is called a <em>life table</em>.
+						Using the life table, we then use simple multiplication to determine what the distribution of
+						lifespans (which can be represented with a graph called a survival curve) would be for a cohort
+						born today <em>if the life table’s exact age-specific death rates held true in perpetuity</em>.
+						In other words, what would the average age of death be for a person born today if their
+						probability of death at age n in n years time is exactly the same as the probability of death
+						for someone who is age n <em>today</em>. That is ‘life expectancy’.</p>
+				</section>
+
+				<section data-sketch="">
+					<p>There is a glaring problem with this. The death rates from a life table aren’t just age specific,
+						they are cohort specific and year specific. In wartime, the death rate for young people will be
+						high in a way it won’t be in the future, incorrectly lowering life expectancy at birth.
+						Furthermore, if medical technology gets better then the death rates of today’s babies when they
+						reach their 80s will be significantly lower than today’s 80 year olds. Conversely, the opposite
+						could be true; maybe today’s baby cohort will be less healthy than their parents.</p>
+				</section>
+
+			</article>
+		</div>
+	</div>
+</body>
+
+</html>

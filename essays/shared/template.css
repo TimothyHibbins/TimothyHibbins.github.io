@@ -291,6 +291,26 @@ body.panes-swapped .essay {
   right: 64px;
 }
 
+#expandSketchBtn {
+  top: 20px;
+  right: 108px;
+}
+
+body.sketch-expanded .sketch-pane {
+  width: 100% !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  flex: 0 0 100% !important;
+}
+
+body.sketch-expanded .text-pane {
+  display: none !important;
+}
+
+body.sketch-expanded #swapPanesBtn {
+  display: none !important;
+}
+
 /* Swap-panes icon: anchored on the boundary between the two panes.
    Desktop = vertical boundary (center of viewport).
    Mobile  = horizontal boundary (top of text pane, below canvas). */

@@ -64,6 +64,16 @@
     <line x1="4" y1="18" x2="20" y2="18"></line>
   </svg>`;
 
+  const EXPAND_SKETCH_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15 3h6v6"></path><path d="M9 21H3v-6"></path>
+    <path d="M21 3l-7 7"></path><path d="M3 21l7-7"></path>
+  </svg>`;
+
+  const COLLAPSE_SKETCH_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 14h6v6"></path><path d="M20 10h-6V4"></path>
+    <path d="M14 10l7-7"></path><path d="M3 21l7-7"></path>
+  </svg>`;
+
   const BG_COLORS = [
     { id: 'colorWhite', value: '#FFFFFF', label: 'White' },
     { id: 'colorOffwhite', value: '#F8F8F8', label: 'Off-white' },
@@ -154,11 +164,13 @@
     // Inject chrome
     const gear = buildIconBtn('settingsGear', 'Settings', GEAR_SVG, 'Settings');
     const fullscreen = buildIconBtn('fullscreenBtn', 'Toggle fullscreen', FULLSCREEN_SVG, 'Fullscreen');
+    const expandSketch = buildIconBtn('expandSketchBtn', 'Expand interactive', EXPAND_SKETCH_SVG, 'Expand interactive');
     const swap = buildIconBtn('swapPanesBtn', 'Swap panes', SWAP_SVG, 'Swap panes');
     const indicator = buildIndicator(totalSlides);
     const menu = buildSettingsMenu();
     document.body.appendChild(gear);
     document.body.appendChild(fullscreen);
+    document.body.appendChild(expandSketch);
     document.body.appendChild(swap);
     document.body.appendChild(indicator);
     document.body.appendChild(menu);
@@ -215,6 +227,7 @@
     let activeIndex = -1;
 
     function updateActiveSection() {
+      if (sketchExpanded) return;
       const paneRect = textPane.getBoundingClientRect();
       const anchorY = paneRect.top + paneRect.height * READING_ANCHOR;
 
@@ -372,6 +385,20 @@
     swap.addEventListener('click', () => {
       panesSwapped = !panesSwapped;
       document.body.classList.toggle('panes-swapped', panesSwapped);
+    });
+
+    // --- Expand sketch pane (hide essay) ---
+    let sketchExpanded = false;
+    expandSketch.addEventListener('click', () => {
+      sketchExpanded = !sketchExpanded;
+      document.body.classList.toggle('sketch-expanded', sketchExpanded);
+      expandSketch.innerHTML = sketchExpanded ? COLLAPSE_SKETCH_SVG : EXPAND_SKETCH_SVG;
+      expandSketch.title = sketchExpanded ? 'Restore essay' : 'Expand interactive';
+      expandSketch.setAttribute('aria-label', expandSketch.title);
+      if (!sketchExpanded) {
+        updateActiveSection();
+      }
+      window.dispatchEvent(new Event('resize'));
     });
 
     // --- Fullscreen ---

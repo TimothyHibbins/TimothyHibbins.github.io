@@ -1,10 +1,9 @@
 const DAILY_INDEX_PATH = "data/daily-puzzles.json";
 const MIXTAPE_MANIFEST_PATH = "mixtapes/index.json";
-const APP_VERSION = "2.8.3";
+const APP_VERSION = "2.10.2";
 const STORAGE_PREFIX = "mystery-mixtape.v1";
 const WRONG_GUESS_PENALTY_SECONDS = 10;
 const CLIP_PLAY_SECONDS = 10;
-const BUZZ_WINDOW_MS = 5000;
 const RULES_COOKIE_NAME = "mystery_mixtape_hide_rules";
 const COMPLETION_COOKIE_PREFIX = "mystery_mixtape_completion_";
 const COMPLETION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365 * 5;
@@ -18,7 +17,8 @@ const els = {
     archiveBtn: document.getElementById("archive-btn"),
     archiveModal: document.getElementById("archive-modal"),
     archiveCloseBtn: document.getElementById("archive-close-btn"),
-    archiveList: document.getElementById("archive-list"),
+    archiveTableBody: document.getElementById("archive-table-body"),
+    archiveCopyAllBtn: document.getElementById("archive-copy-all-btn"),
     clueTitle: document.getElementById("clue-title"),
     clueText: document.getElementById("clue-text"),
     cassette: document.getElementById("mixtape-cassette"),
@@ -40,6 +40,19 @@ const els = {
     guessForm: document.getElementById("answer-text"),
     guessInput: document.getElementById("guess-input"),
     guessSubmitBtn: document.querySelector(".guess-submit-btn"),
+    buzzIdleRow: document.getElementById("buzz-idle-row"),
+    buzzBtn: document.getElementById("buzz-btn"),
+    startRoundBtn: document.getElementById("start-round-btn"),
+    transportToggleBtn: document.getElementById("transport-toggle-btn"),
+    transportToggleBtnReveal: document.getElementById("transport-toggle-btn-reveal"),
+    answerRevealedRow: document.getElementById("answer-revealed-row"),
+    answerRevealedResult: document.getElementById("answer-revealed-result"),
+    answerRevealedHeading: document.getElementById("answer-revealed-heading"),
+    answerRevealedResultList: document.getElementById("answer-revealed-result-list"),
+    buzzGrid: document.querySelector(".buzz-grid"),
+    submitAnswerBtn: document.getElementById("submit-answer-btn"),
+    cancelBuzzBtn: document.getElementById("cancel-buzz-btn"),
+    buzzWrongIcon: document.getElementById("buzz-wrong-icon"),
     giveUpBtn: document.getElementById("give-up-btn"),
     wrongGuessesWrap: document.getElementById("wrong-guesses-wrap"),
     wrongGuessesList: document.getElementById("wrong-guesses-list"),
@@ -92,8 +105,8 @@ const state = {
     timelineTickStartSec: 0,
     timelineTickStartMs: 0,
     buzzActive: false,
-    buzzDeadlineMs: 0,
-    buzzTimerIntervalId: null,
+    buzzWasPlaying: false,
+    buzzWrongPending: false,
     timelineWaveformPeaks: [],
     timelineWaveformBaselines: [],
     timelineWaveformToken: 0,
@@ -502,31 +515,80 @@ async function hydrateArchiveClues() {
 }
 
 function renderArchiveList() {
-    if (!els.archiveList) {
+    if (!els.archiveTableBody) {
         return;
     }
-    els.archiveList.innerHTML = "";
+    els.archiveTableBody.innerHTML = "";
 
     for (const item of state.archiveEntries) {
         const completion = getTapeCompletionRecord(item.packSlug, item.tapeKey);
-        const row = document.createElement("button");
-        row.type = "button";
-        row.className = "archive-tape-row";
+        const row = document.createElement("tr");
+        row.className = "archive-row";
         row.dataset.packSlug = item.packSlug;
         row.dataset.tapeKey = item.tapeKey;
-        row.innerHTML = `
-            <span class="archive-tape-id">${item.packLabel} / ${item.displayDate || item.tapeKey}</span>
-            <span class="archive-tape-info">
-                <span class="archive-tape-clue">${clueToSafeHtml(item.clue, item.clueAskBold || "")}</span>
-                <span class="archive-tape-result ${completion ? `result-${completion.result}` : ""}">${completion ? formatCompletionSummary(completion) : "Not played"}</span>
-            </span>
-        `;
+
+        const dateCell = document.createElement("td");
+        dateCell.className = "archive-col-date";
+        dateCell.textContent = formatArchiveDateLabel(item.displayDate || item.tapeKey);
+
+        const tapeCell = document.createElement("td");
+        tapeCell.className = "archive-col-tape";
+        tapeCell.textContent = item.tapeNumber ? `#${item.tapeNumber}` : item.packLabel;
+
+        const questionCell = document.createElement("td");
+        questionCell.className = "archive-col-question";
+        questionCell.innerHTML = clueToSafeHtml(item.clue, item.clueAskBold || "");
+
+        const resultCell = document.createElement("td");
+        resultCell.className = "archive-col-result";
+
+        const hasSquares = Boolean(completion) && Array.isArray(completion.squares) && completion.squares.length > 0;
+        if (hasSquares) {
+            const resultBtn = document.createElement("button");
+            resultBtn.type = "button";
+            resultBtn.className = "archive-result-btn";
+            resultBtn.textContent = completion.squares.join("");
+            resultBtn.setAttribute("aria-label", "Copy result");
+            resultBtn.addEventListener("click", async (event) => {
+                event.stopPropagation();
+                const shareText = [`Mystery Mixtape ${item.tapeNumber || ""}`.trim(), completion.squares.join("")].join("\n");
+                await copyTextToClipboard(shareText, resultBtn);
+            });
+            resultCell.appendChild(resultBtn);
+        } else if (completion) {
+            resultCell.textContent = formatCompletionSummary(completion);
+            resultCell.classList.add("archive-col-result-empty");
+        } else {
+            resultCell.textContent = "⬛⬛⬛⬛⬛⬛";
+            resultCell.classList.add("archive-col-result-squares");
+        }
+
+        row.append(dateCell, tapeCell, questionCell, resultCell);
         row.addEventListener("click", async () => {
             await loadTapeFromArchiveItem(item);
             closeArchiveModal();
         });
-        els.archiveList.appendChild(row);
+        els.archiveTableBody.appendChild(row);
     }
+}
+
+async function copyAllResults() {
+    const lines = [];
+    for (const item of state.archiveEntries) {
+        const completion = getTapeCompletionRecord(item.packSlug, item.tapeKey);
+        if (!completion || !Array.isArray(completion.squares) || !completion.squares.length) {
+            continue;
+        }
+        const question = stripClueMarkdown(item.clue);
+        lines.push(`${completion.squares.join("")} ${item.tapeNumber || "?"} - ${question}`);
+    }
+
+    if (!lines.length) {
+        setStatusMessage("No results to copy yet.", "warn");
+        return;
+    }
+
+    await copyTextToClipboard(lines.join("\n"), els.archiveCopyAllBtn);
 }
 
 function renderSourceOptions() {
@@ -641,7 +703,7 @@ function getTapeCompletionRecord(packSlug, tapeKey) {
     return null;
 }
 
-function setTapeCompletionRecord({ packSlug, tapeKey, result, wrongGuesses = 0, guesses = 0, scoreSeconds = 0 }) {
+function setTapeCompletionRecord({ packSlug, tapeKey, result, wrongGuesses = 0, guesses = 0, scoreSeconds = 0, squares = [] }) {
     if (!packSlug || !tapeKey || !result) {
         return;
     }
@@ -651,6 +713,7 @@ function setTapeCompletionRecord({ packSlug, tapeKey, result, wrongGuesses = 0, 
         wrongGuesses: Number(wrongGuesses || 0),
         guesses: Number(guesses || 0),
         scoreSeconds: Number(scoreSeconds || 0),
+        squares: Array.isArray(squares) ? squares : [],
         completedAt: nowMs()
     };
 
@@ -675,6 +738,88 @@ function formatCompletionSummary(record) {
     }
 
     return details.length ? `${resultLabel} • ${details.join(" • ")}` : resultLabel;
+}
+
+function computeResultSquares(result) {
+    const totalTracks = state.puzzle?.songs?.length || 6;
+
+    if (!state.startedAtMs) {
+        return new Array(totalTracks).fill("⬛");
+    }
+
+    let correctAnswerTrack = -1;
+    if (result === "solved") {
+        const correctGuess = state.guesses.find((guess) => guess.result === "correct");
+        if (correctGuess) {
+            const correctAnswerTime = (correctGuess.atMs - state.startedAtMs) / 1000;
+            correctAnswerTrack = Math.floor(correctAnswerTime / CLIP_PLAY_SECONDS);
+        }
+    }
+
+    const reachedSec = Math.max(0, Math.min(timelineDurationSec(), state.maxHeardSec));
+    const squares = [];
+
+    for (let trackIdx = 0; trackIdx < totalTracks; trackIdx += 1) {
+        const trackStart = trackIdx * CLIP_PLAY_SECONDS;
+        const trackEnd = (trackIdx + 1) * CLIP_PLAY_SECONDS;
+
+        if (correctAnswerTrack >= 0 && trackIdx === correctAnswerTrack) {
+            squares.push("🟩");
+            continue;
+        }
+        if (correctAnswerTrack >= 0 && trackIdx > correctAnswerTrack) {
+            squares.push("⬛");
+            continue;
+        }
+        if (correctAnswerTrack < 0 && trackStart >= reachedSec) {
+            squares.push("⬛");
+            continue;
+        }
+
+        const hadWrongInTrack = state.guesses.some((guess) => {
+            if (guess.result !== "wrong") {
+                return false;
+            }
+            const guessTime = (guess.atMs - state.startedAtMs) / 1000;
+            return guessTime >= trackStart && guessTime < trackEnd;
+        });
+
+        squares.push(hadWrongInTrack ? "🟥" : "⬜️");
+    }
+
+    return squares;
+}
+
+function formatArchiveDateLabel(dateKey) {
+    const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) {
+        return dateKey || "";
+    }
+    const dateObj = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    return dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function stripClueMarkdown(clue) {
+    return String(clue || "").replace(/\*\*/g, "").replace(/\s+/g, " ").trim();
+}
+
+async function copyTextToClipboard(text, button) {
+    if (!text) {
+        return;
+    }
+    try {
+        await navigator.clipboard.writeText(text);
+        if (button) {
+            const original = button.textContent;
+            button.textContent = "Copied!";
+            setTimeout(() => {
+                button.textContent = original;
+            }, 1500);
+        }
+    } catch (error) {
+        console.error("Failed to copy to clipboard:", error);
+        alert("Share text:\n\n" + text);
+    }
 }
 
 function shouldAutoShowRules() {
@@ -940,76 +1085,158 @@ function hydrateSettings() {
     }
 }
 
-function clearBuzzTimerInterval() {
-    if (!state.buzzTimerIntervalId) {
+function openBuzz() {
+    if (!state.puzzle) {
+        setStatusMessage("Pick a tape from Archive first.", "warn");
         return;
     }
-    clearInterval(state.buzzTimerIntervalId);
-    state.buzzTimerIntervalId = null;
-}
-
-function updateBuzzTimerUi() {
-    if (!els.buzzTimer) {
-        return;
-    }
-
-    if (!state.buzzActive) {
-        els.buzzTimer.classList.add("hidden");
-        return;
-    }
-
-    const remainingMs = Math.max(0, state.buzzDeadlineMs - nowMs());
-    els.buzzTimer.classList.remove("hidden");
-    els.buzzTimer.textContent = `${(remainingMs / 1000).toFixed(1)}s`;
-}
-
-async function resumeSequenceAfterBuzzIfNeeded() {
     if (state.phase === "solved" || state.phase === "gaveup") {
         return;
     }
-    if (state.isSequencePlaying || state.isTimelinePlaying) {
+    if (state.buzzActive) {
         return;
     }
-    await playMixtapeFromCursor(state.timelineCurrentSec);
-}
 
-async function endBuzzWindow({
-    resumePlayback = false,
-    statusText = "",
-    statusTone = "",
-    skipStatus = false
-} = {}) {
-    const wasActive = state.buzzActive;
-    state.buzzActive = false;
-    state.buzzDeadlineMs = 0;
-    clearBuzzTimerInterval();
-    updateBuzzTimerUi();
-
-    if (!skipStatus && statusText) {
-        setStatusMessage(statusText, statusTone);
+    if (!state.startedAtMs) {
+        startRoundIfNeeded();
     }
 
+    state.buzzWasPlaying = state.isSequencePlaying || state.isTimelinePlaying;
+    if (state.buzzWasPlaying) {
+        pauseTransportPlayback();
+    }
+
+    state.buzzActive = true;
+    state.buzzWrongPending = false;
     render();
 
-    if (wasActive && resumePlayback) {
-        await resumeSequenceAfterBuzzIfNeeded();
+    if (els.guessInput) {
+        els.guessInput.value = "";
+        els.guessInput.focus();
     }
 }
 
-function startBuzzTimerLoop() {
-    clearBuzzTimerInterval();
-    state.buzzTimerIntervalId = setInterval(() => {
-        const remainingMs = state.buzzDeadlineMs - nowMs();
-        if (remainingMs <= 0) {
-            endBuzzWindow({
-                resumePlayback: true,
-                statusText: "Time up. Mixtape resumed.",
-                statusTone: "warn"
-            });
-            return;
-        }
-        updateBuzzTimerUi();
-    }, 50);
+async function closeBuzz({ resume = false } = {}) {
+    if (!state.buzzActive) {
+        return;
+    }
+
+    const shouldResume = resume && state.buzzWasPlaying
+        && state.phase !== "solved" && state.phase !== "gaveup";
+
+    state.buzzActive = false;
+    state.buzzWasPlaying = false;
+    state.buzzWrongPending = false;
+    render();
+
+    if (shouldResume) {
+        await playMixtapeFromCursor(state.timelineCurrentSec);
+    }
+}
+
+function markBuzzWrong() {
+    state.buzzWrongPending = true;
+    render();
+}
+
+function resetBuzzInputForRetry() {
+    state.buzzWrongPending = false;
+    if (els.guessInput) {
+        els.guessInput.value = "";
+    }
+    render();
+    if (els.guessInput) {
+        els.guessInput.focus();
+    }
+}
+
+function renderTransportToggleButtons() {
+    const isPlaying = state.isSequencePlaying || state.isTimelinePlaying;
+    const icon = isPlaying ? TRANSPORT_PAUSE_SVG : TRANSPORT_PLAY_SVG;
+    if (els.transportToggleBtn) {
+        els.transportToggleBtn.innerHTML = icon;
+    }
+    if (els.transportToggleBtnReveal) {
+        els.transportToggleBtnReveal.innerHTML = icon;
+    }
+}
+
+function syncBuzzButtonSize() {
+    if (!els.buzzIdleRow || !els.buzzGrid || !els.answerText) {
+        return;
+    }
+
+    // Cancel/submit are hidden outside an active buzz, which would otherwise collapse the
+    // button row and under-measure the grid's true (input + buttons) height.
+    const toUnhide = [els.answerText, els.cancelBuzzBtn, els.submitAnswerBtn].filter(
+        (el) => el && el.classList.contains("hidden")
+    );
+    toUnhide.forEach((el) => el.classList.remove("hidden"));
+
+    const rect = els.buzzGrid.getBoundingClientRect();
+
+    toUnhide.forEach((el) => el.classList.add("hidden"));
+
+    if (rect.width > 0) {
+        els.buzzIdleRow.style.width = `${rect.width}px`;
+    }
+    if (rect.height > 0) {
+        els.buzzIdleRow.style.height = `${rect.height}px`;
+    }
+}
+
+function renderBuzzPanel() {
+    if (!els.buzzBtn || !els.answerText) {
+        return;
+    }
+
+    const terminal = state.phase === "solved" || state.phase === "gaveup";
+    const playable = state.phase !== "loading" && state.phase !== "missing";
+    const hasPuzzle = Boolean(state.puzzle);
+
+    if (!playable || !hasPuzzle || terminal) {
+        state.buzzActive = false;
+        state.buzzWrongPending = false;
+    }
+
+    const started = Boolean(state.startedAtMs);
+    const showIdleRow = playable && hasPuzzle && !terminal && !state.buzzActive;
+    const showStart = showIdleRow && !started;
+    const showBuzzPair = showIdleRow && started;
+    const showForm = playable && hasPuzzle && (state.buzzActive || terminal);
+    const showControls = playable && hasPuzzle && state.buzzActive && !terminal;
+
+    if (els.buzzIdleRow) {
+        els.buzzIdleRow.classList.toggle("hidden", !showIdleRow);
+    }
+    if (els.startRoundBtn) {
+        els.startRoundBtn.classList.toggle("hidden", !showStart);
+    }
+    els.buzzBtn.classList.toggle("hidden", !showBuzzPair);
+    if (els.transportToggleBtn) {
+        els.transportToggleBtn.classList.toggle("hidden", !showBuzzPair);
+    }
+    els.answerText.classList.toggle("hidden", !showForm);
+    if (els.answerRevealedRow) {
+        els.answerRevealedRow.classList.toggle("hidden", !terminal);
+    }
+    if (els.transportToggleBtnReveal) {
+        els.transportToggleBtnReveal.classList.toggle("hidden", !terminal);
+    }
+    if (els.submitAnswerBtn) {
+        els.submitAnswerBtn.classList.toggle("hidden", !showControls);
+        els.submitAnswerBtn.textContent = state.buzzWrongPending ? "Resume tape" : "Submit answer";
+    }
+    if (els.cancelBuzzBtn) {
+        els.cancelBuzzBtn.classList.toggle("hidden", !showControls);
+        els.cancelBuzzBtn.textContent = state.buzzWrongPending ? "Guess again" : "Cancel buzz";
+    }
+    if (els.guessInput) {
+        els.guessInput.classList.toggle("wrong", state.buzzWrongPending);
+    }
+    if (els.buzzWrongIcon) {
+        els.buzzWrongIcon.classList.toggle("hidden", !state.buzzWrongPending);
+    }
 }
 
 function sizeTimelineWaveformCanvas() {
@@ -1801,6 +2028,10 @@ async function onTransportPlayPause() {
         return;
     }
 
+    if (state.buzzActive) {
+        return;
+    }
+
     if (!state.puzzle) {
         setStatusMessage("Pick a tape from Archive first.", "warn");
         return;
@@ -1822,25 +2053,6 @@ async function onTransportPlayPause() {
     }
 
     await playMixtapeFromCursor(state.timelineCurrentSec);
-}
-
-async function onStartRound() {
-    if (!state.puzzle) {
-        setStatusMessage("Pick a tape from Archive first.", "warn");
-        return false;
-    }
-    if (state.phase === "solved" || state.phase === "gaveup") {
-        setStatusMessage("Round already finished.", "warn");
-        return false;
-    }
-    if (state.isSequencePlaying) {
-        return false;
-    }
-    startRoundIfNeeded();
-    render();
-    els.guessInput.focus();
-    playMixtapeSequence();
-    return true;
 }
 
 function answerSet() {
@@ -1911,7 +2123,8 @@ function submitGuess(rawGuess) {
             result: "solved",
             wrongGuesses: state.wrongGuesses,
             guesses: state.guesses.length,
-            scoreSeconds: currentScoreSeconds()
+            scoreSeconds: currentScoreSeconds(),
+            squares: computeResultSquares("solved")
         });
         setStatusMessage("Correct. Theme solved.", "ok");
     } else {
@@ -1923,6 +2136,11 @@ function submitGuess(rawGuess) {
 
     persistGameState();
     render();
+
+    if (isCorrect) {
+        void playTimelineFromCursor();
+    }
+
     return isCorrect ? "correct" : "wrong";
 }
 
@@ -1943,10 +2161,9 @@ function giveUp() {
     state.timelinePlaybackToken += 1;
     state.isSequencePlaying = false;
     state.isTimelinePlaying = false;
-    clearBuzzTimerInterval();
     state.buzzActive = false;
-    state.buzzDeadlineMs = 0;
-    updateBuzzTimerUi();
+    state.buzzWasPlaying = false;
+    state.buzzWrongPending = false;
     stopAnyClip();
     stopClock();
 
@@ -1956,7 +2173,8 @@ function giveUp() {
         result: "gaveup",
         wrongGuesses: state.wrongGuesses,
         guesses: state.guesses.length,
-        scoreSeconds: currentScoreSeconds()
+        scoreSeconds: currentScoreSeconds(),
+        squares: computeResultSquares("gaveup")
     });
 
     setStatusMessage("Round ended. Marked as DNF.", "warn");
@@ -1978,7 +2196,8 @@ function renderGiveUpButton() {
     const show = Boolean(state.puzzle)
         && state.phase !== "solved"
         && state.phase !== "gaveup"
-        && elapsedSeconds() >= 60;
+        && elapsedSeconds() >= 60
+        && !state.buzzActive;
 
     els.giveUpBtn.classList.toggle("hidden", !show);
 }
@@ -2124,12 +2343,7 @@ function renderCassetteState() {
     }
 
     if (els.cassetteClue) {
-        if (showStartPrompt) {
-            const action = cassetteActionWord();
-            els.cassetteClue.innerHTML = `<span class="cassette-clue-main">${action} cassette to play/pause</span><span class="cassette-clue-note">If you do not hear sound, check if your device is silenced</span>`;
-        } else {
-            els.cassetteClue.textContent = "";
-        }
+        els.cassetteClue.textContent = "";
     }
 
     els.cassette.classList.toggle("ready", showStartPrompt);
@@ -2166,18 +2380,48 @@ function renderTransportState() {
 }
 
 function renderWrongGuesses() {
-    if (!els.wrongGuessesWrap || !els.wrongGuessesList) {
+    const wrong = state.guesses.filter((guess) => guess.result === "wrong");
+    const terminal = state.phase === "solved" || state.phase === "gaveup";
+
+    if (els.wrongGuessesWrap && els.wrongGuessesList) {
+        els.wrongGuessesWrap.classList.toggle("hidden", terminal || wrong.length === 0);
+        if (!terminal) {
+            els.wrongGuessesList.innerHTML = "";
+            for (const guess of wrong) {
+                const li = document.createElement("li");
+                li.textContent = capitalizeFirstLetter(guess.value);
+                els.wrongGuessesList.appendChild(li);
+            }
+        }
+    }
+
+    if (!els.answerRevealedResult || !els.answerRevealedResultList) {
         return;
     }
 
-    const wrong = state.guesses.filter((guess) => guess.result === "wrong");
-    els.wrongGuessesWrap.classList.toggle("hidden", wrong.length === 0);
+    els.answerRevealedResult.classList.toggle("hidden", !terminal);
+    if (!terminal) {
+        return;
+    }
 
-    els.wrongGuessesList.innerHTML = "";
+    els.answerRevealedResultList.innerHTML = "";
+    if (wrong.length === 0) {
+        if (els.answerRevealedHeading) {
+            els.answerRevealedHeading.classList.add("hidden");
+        }
+        const li = document.createElement("li");
+        li.textContent = state.phase === "solved" ? "You got it on the first try!" : "Better luck next time!";
+        els.answerRevealedResultList.appendChild(li);
+        return;
+    }
+
+    if (els.answerRevealedHeading) {
+        els.answerRevealedHeading.classList.remove("hidden");
+    }
     for (const guess of wrong) {
         const li = document.createElement("li");
         li.textContent = capitalizeFirstLetter(guess.value);
-        els.wrongGuessesList.appendChild(li);
+        els.answerRevealedResultList.appendChild(li);
     }
 }
 
@@ -2213,7 +2457,7 @@ function renderClue() {
 function renderGuessInputState() {
     const terminal = state.phase === "solved" || state.phase === "gaveup";
     const playable = state.phase !== "loading" && state.phase !== "missing";
-    const canGuess = playable && !terminal && Boolean(state.puzzle);
+    const canGuess = playable && !terminal && Boolean(state.puzzle) && !state.buzzWrongPending;
     els.guessInput.disabled = !canGuess;
     els.guessInput.classList.toggle("correct", state.phase === "solved");
 
@@ -2231,10 +2475,13 @@ function render() {
     renderCassetteTapeNumber();
     renderTransportState();
     renderGuessInputState();
+    renderBuzzPanel();
+    renderTransportToggleButtons();
     renderGiveUpButton();
     renderAnswerLine();
     renderWrongGuesses();
     renderReveal();
+    syncBuzzButtonSize();
 }
 
 function resetForNewTape() {
@@ -2256,6 +2503,9 @@ function resetForNewTape() {
     state.timelineWaveformToken += 1;
     state.timelineHoverSec = null;
     state.maxHeardSec = 0;
+    state.buzzActive = false;
+    state.buzzWasPlaying = false;
+    state.buzzWrongPending = false;
     state.wheelLeftAngleDeg = 0;
     state.wheelRightAngleDeg = 0;
     state.activePlayMs = 0;
@@ -2415,47 +2665,14 @@ function generateShareText() {
     // Use the tape number from state
     const tapeNumber = state.selectedTapeNumber || "?";
 
-    // Find the correct guess
     const correctGuess = state.guesses.find(g => g.result === "correct");
     if (!correctGuess || !state.startedAtMs) {
         return "";
     }
 
-    // Calculate which track the correct answer was given on
-    const correctAnswerTime = (correctGuess.atMs - state.startedAtMs) / 1000;
-    const correctAnswerTrack = Math.floor(correctAnswerTime / CLIP_PLAY_SECONDS);
-
     const lines = [];
     lines.push(`Mystery Mixtape ${tapeNumber}`);
-    const squares = [];
-    const totalTracks = state.puzzle?.songs?.length || 6;
-
-    for (let trackIdx = 0; trackIdx < totalTracks; trackIdx++) {
-        const trackStart = trackIdx * CLIP_PLAY_SECONDS;
-        const trackEnd = (trackIdx + 1) * CLIP_PLAY_SECONDS;
-
-        if (trackIdx > correctAnswerTrack) {
-            squares.push("⬛");
-            continue;
-        }
-
-        if (trackIdx === correctAnswerTrack) {
-            squares.push("🟩");
-            continue;
-        }
-
-        const hadWrongInTrack = state.guesses.some((guess) => {
-            if (guess.result !== "wrong") {
-                return false;
-            }
-            const guessTime = (guess.atMs - state.startedAtMs) / 1000;
-            return guessTime >= trackStart && guessTime < trackEnd;
-        });
-
-        squares.push(hadWrongInTrack ? "🟥" : "⬜️");
-    }
-
-    lines.push(squares.join(""));
+    lines.push(computeResultSquares("solved").join(""));
 
     return lines.join("\n");
 }
@@ -2755,29 +2972,14 @@ function wireEvents() {
     if (els.guessForm) {
         els.guessForm.addEventListener("submit", async (event) => {
             event.preventDefault();
-            if (!state.puzzle) {
-                setStatusMessage("Pick a tape from Archive first.", "warn");
+            if (!state.puzzle || !state.buzzActive || state.buzzWrongPending) {
                 return;
-            }
-
-            const value = els.guessInput.value;
-
-            if (!state.startedAtMs) {
-                const started = await onStartRound();
-                if (!started) {
-                    return;
-                }
-                if (!value.trim()) {
-                    els.guessInput.focus();
-                    return;
-                }
             }
 
             const outcome = submitGuess(els.guessInput.value);
             if (outcome === "wrong") {
-                els.guessInput.value = "";
+                markBuzzWrong();
             }
-            els.guessInput.focus();
         });
     }
 
@@ -2795,6 +2997,53 @@ function wireEvents() {
 
     if (els.rulesBtn) {
         els.rulesBtn.addEventListener("click", openRulesModal);
+    }
+
+    if (els.buzzBtn) {
+        els.buzzBtn.addEventListener("click", () => {
+            openBuzz();
+        });
+    }
+
+    if (els.startRoundBtn) {
+        els.startRoundBtn.addEventListener("click", async () => {
+            await onTransportPlayPause();
+        });
+    }
+
+    if (els.transportToggleBtn) {
+        els.transportToggleBtn.addEventListener("click", async () => {
+            await onTransportPlayPause();
+        });
+    }
+
+    if (els.transportToggleBtnReveal) {
+        els.transportToggleBtnReveal.addEventListener("click", async () => {
+            await onTransportPlayPause();
+        });
+    }
+
+    if (els.cancelBuzzBtn) {
+        els.cancelBuzzBtn.addEventListener("click", async () => {
+            if (state.buzzWrongPending) {
+                resetBuzzInputForRetry();
+                return;
+            }
+            await closeBuzz({ resume: true });
+        });
+    }
+
+    if (els.submitAnswerBtn) {
+        els.submitAnswerBtn.addEventListener("click", async (event) => {
+            if (state.buzzWrongPending) {
+                event.preventDefault();
+                await closeBuzz({ resume: true });
+            }
+        });
+    }
+
+    if (els.archiveCopyAllBtn) {
+        els.archiveCopyAllBtn.addEventListener("click", copyAllResults);
     }
 
     if (els.settingsBtn) {
@@ -2854,6 +3103,7 @@ function wireEvents() {
     window.addEventListener("resize", () => {
         renderTimelineWaveform();
         fitCassetteClueText();
+        syncBuzzButtonSize();
     });
 }
 
@@ -2886,6 +3136,9 @@ async function init() {
 
         render();
         renderVersionBadge();
+        if (document.fonts && typeof document.fonts.ready?.then === "function") {
+            document.fonts.ready.then(syncBuzzButtonSize);
+        }
         if (shouldAutoShowRules()) {
             openRulesModal();
         }
