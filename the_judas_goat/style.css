@@ -1,5 +1,5 @@
 body {
-/*  background-color: #fffbf9;*/
+  /*  background-color: #fffbf9;*/
 
   font-family: "Garamond", serif;
   font-size: 15pt;
@@ -12,7 +12,7 @@ body {
   hyphens: auto;
   text-align: justify;
   text-justify: inter-word;
-  
+
   margin-left: 30%;
   margin-right: 30%;
   margin-top: 10%;
@@ -22,9 +22,10 @@ body {
 #space {
   color: rgba(0, 0, 0, 0);
 }
+
 #dropcap {
 
-/*  background-image: url(dropcap_a_red.png);
+  /*  background-image: url(dropcap_a_red.png);
   background-size: contain;
   background-repeat: no-repeat;
   background-center: center center;*/
@@ -48,8 +49,7 @@ body {
   #dropcap {
 
     max-width: 6.9em;
-    
+
 
   }
 }
-
