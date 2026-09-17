@@ -1,0 +1,3578 @@
+/* Minimal, readable styling — keep it easy to tweak. */
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('fonts/JetBrainsMono-VariableFont_wght.ttf') format('truetype');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --bg: oklch(17.7% 0.034 270);
+  --panel: oklch(22.3% 0.051 266);
+  --panel2: oklch(21.2% 0.051 268);
+  --text: oklch(94.9% 0.020 267);
+  --muted: oklch(77.8% 0.051 269);
+  --border: oklch(100% 0 0 / 0.12);
+  --shadow: oklch(0% 0 0 / 0.35);
+  --btn: oklch(100% 0 0 / 0.12);
+  --btnHover: oklch(100% 0 0 / 0.18);
+  --accent: oklch(69.2% 0.090 259);
+  --danger: oklch(71.2% 0.181 23);
+  --topbar-bg: linear-gradient(180deg, oklch(17.7% 0.034 270 / 0.92) 0%, oklch(17.7% 0.034 270 / 0.78) 100%);
+  --body-bg: oklch(17.7% 0.034 270);
+  --canvas-bg: oklch(0% 0 0 / 0.18);
+  --help-bg: oklch(22.3% 0.051 266 / 0.55);
+  --code-color: oklch(95.9% 0.020 260);
+  --settings-menu-bg: oklch(22.3% 0.051 266 / 0.95);
+  --glass-bg: oklch(0% 0 0 / 0.35);
+  --valve-glass: oklch(0% 0 0 / 0.75);
+  --settings-hover: oklch(100% 0 0 / 0.08);
+  --settings-active: oklch(100% 0 0 / 0.15);
+  --separator: oklch(100% 0 0 / 0.13);
+  --swatch-border: oklch(100% 0 0 / 0.4);
+  --toggle-active-bg: oklch(59.2% 0.108 262 / 0.4);
+  --toggle-active-color: oklch(91.6% 0.030 261);
+  --toggle-glow-bg: oklch(59.2% 0.108 262 / 0.15);
+}
+
+/* ---- Light mode ---- */
+body.light {
+  --bg: oklch(97.4% 0.005 275);
+  --panel: oklch(100% 0 0);
+  --panel2: oklch(96.1% 0.008 271);
+  --text: oklch(23.6% 0.033 276);
+  --muted: oklch(49.8% 0.037 269);
+  --border: oklch(0% 0 0 / 0.1);
+  --shadow: oklch(0% 0 0 / 0.1);
+  --btn: oklch(0% 0 0 / 0.07);
+  --btnHover: oklch(0% 0 0 / 0.12);
+  --accent: oklch(48.8% 0.111 272);
+  --danger: oklch(57.7% 0.215 27);
+  --topbar-bg: linear-gradient(180deg, oklch(100% 0 0 / 0.95) 0%, oklch(97.4% 0.005 275 / 0.9) 100%);
+  --body-bg: oklch(97.4% 0.005 275);
+  --canvas-bg: oklch(100% 0 0 / 0.6);
+  --help-bg: oklch(100% 0 0 / 0.75);
+  --code-color: oklch(37.5% 0.109 272);
+  --settings-menu-bg: oklch(100% 0 0);
+  --glass-bg: oklch(94% 0.008 275 / 0.55);
+  --valve-glass: oklch(94% 0.008 275 / 0.85);
+  --settings-hover: oklch(0% 0 0 / 0.05);
+  --settings-active: oklch(0% 0 0 / 0.1);
+  --separator: oklch(0% 0 0 / 0.13);
+  --swatch-border: oklch(0% 0 0 / 0.2);
+  --toggle-active-bg: oklch(43.4% 0.108 272 / 0.22);
+  --toggle-active-color: oklch(36.6% 0.091 272);
+  --toggle-glow-bg: oklch(43.4% 0.108 272 / 0.1);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--body-bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.95em;
+  color: var(--code-color);
+}
+
+/* ---- Settings gear (FMTTM-style) ---- */
+#settingsGear {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  z-index: 1000;
+  opacity: 0.35;
+  color: var(--text);
+  background: none;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#settingsGear svg {
+  width: 100%;
+  height: 100%;
+}
+
+#settingsGear:hover {
+  opacity: 0.75;
+}
+
+#settingsGear.menu-open {
+  opacity: 1;
+}
+
+#settingsGear.spin {
+  animation: spinGear 0.6s ease-in-out;
+}
+
+#settingsGear.spin-reverse {
+  animation: spinGearReverse 0.6s ease-in-out;
+}
+
+@keyframes spinGear {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spinGearReverse {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+#settingsMenu {
+  position: fixed;
+  top: 50px;
+  right: 14px;
+  background-color: var(--settings-menu-bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  box-shadow: 0 2px 8px var(--shadow);
+  display: flex;
+  flex-direction: column;
+  z-index: 999;
+  overflow: visible;
+  transform-origin: top center;
+  transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s ease;
+  opacity: 0;
+  transform: scaleY(0);
+  pointer-events: none;
+  visibility: hidden;
+}
+
+#settingsMenu.show {
+  opacity: 1;
+  transform: scaleY(1);
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.theme-btn {
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+  white-space: nowrap;
+  text-align: center;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  color: var(--text);
+}
+
+.theme-btn:hover {
+  background-color: var(--settings-hover);
+}
+
+.theme-btn.active {
+  background-color: var(--settings-active);
+}
+
+.icon-svg {
+  width: 20px;
+  height: 20px;
+  color: currentColor;
+}
+
+.theme-btn-label,
+.color-btn-label {
+  position: absolute;
+  right: 100%;
+  margin-right: 8px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+  font-weight: 500;
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.theme-btn:hover .theme-btn-label,
+.color-btn:hover .color-btn-label {
+  opacity: 1;
+}
+
+.menu-separator {
+  height: 1px;
+  background-color: var(--separator);
+  margin: 4px 0;
+}
+
+.color-btn {
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+  white-space: nowrap;
+  text-align: center;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  color: var(--text);
+}
+
+.color-btn:hover {
+  background-color: var(--settings-hover);
+}
+
+.color-btn.active {
+  background-color: var(--settings-active);
+}
+
+.color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  border: 1px solid var(--swatch-border);
+}
+
+/* ---- Brand logo ---- */
+.brand-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.1;
+  flex-shrink: 0;
+  padding-right: 6px;
+}
+
+.brand-logo__main {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 700;
+  font-size: 0.55rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--text);
+  opacity: 0.8;
+}
+
+.brand-logo__sub {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.48rem;
+  letter-spacing: 0.06em;
+  text-align: center;
+  color: var(--text);
+  opacity: 0.5;
+  margin-top: 2px;
+}
+
+.brand-logo__sub em {
+  font-style: italic;
+}
+
+/* ---- Topbar ---- */
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: none;
+  padding: 10px 14px 8px 14px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+body.light .topbar {
+  background: var(--glass-bg);
+}
+
+body.light .section-label {
+  color: oklch(25.8% 0.029 270 / 0.5);
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0;
+  justify-content: center;
+  position: relative;
+}
+
+/* Expression group: input */
+.expr-group {
+  display: flex;
+  align-items: stretch;
+}
+
+.control {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.control--compact {
+  padding: 6px 10px;
+}
+
+.control__label {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.control__input {
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  min-width: 180px;
+  width: auto;
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.98rem;
+  font-weight: 400;
+  padding-right: 16px;
+  box-sizing: content-box;
+}
+
+.control select.control__input {
+  min-width: 180px;
+  cursor: pointer;
+}
+
+.control select.control__input option {
+  color: oklch(17.8% 0 0);
+}
+
+.control--compact .control__input {
+  min-width: 44px;
+}
+
+.btn {
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 50%);
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-color);
+  border-radius: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.15s, box-shadow 0.15s, border-color 0.15s;
+}
+
+.btn:hover {
+  background: color-mix(in oklch, var(--accent), transparent 45%);
+  box-shadow: 0 0 10px color-mix(in oklch, var(--accent), transparent 70%);
+}
+
+.btn--plot {
+  min-width: 56px;
+  text-align: center;
+}
+
+.btn--flash {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
+.btn--icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* ---- Info popup ---- */
+.info-popup {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 20px 50px var(--shadow);
+  min-width: 300px;
+  max-width: 440px;
+}
+
+.info-popup--visible {
+  display: block;
+}
+
+.info-popup .help__title {
+  font-weight: 700;
+  margin: 0 0 8px 0;
+}
+
+.info-popup ul {
+  margin: 0 0 12px 18px;
+  padding: 0;
+  color: var(--muted);
+}
+
+.info-popup .help__small {
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.25rem;
+  margin-top: 8px;
+}
+
+/* ---- Expression color overlay ---- */
+.control--expr {
+  position: relative;
+}
+
+/* y= prefix is part of the editable input value — no extra indent */
+.control--expr .control__input {
+  transition: padding-left 0.15s;
+}
+
+.control--expr.eq-active .control__input {
+  padding-left: 0;
+}
+
+.expr-color-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.98rem;
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  overflow: hidden;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.expr-color-overlay span {
+  white-space: pre;
+}
+
+/* When overlay is active, hide input text so colors show through */
+.control--expr.has-overlay .control__input {
+  color: transparent;
+  caret-color: var(--text);
+}
+
+/* ---- Step + toolbox row: pipe diagram (left/center) + toolbox (right) ---- */
+.step-toolbox-row {
+  flex-basis: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
+  position: relative;
+}
+
+/* ---- Step representation (centred) ---- */
+.step-rep {
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 10px 0 2px 0;
+  font-size: 0.9rem;
+}
+
+.step-rep--empty {
+  display: none;
+}
+
+/* ---------- pipe-diagram SVG ---------- */
+.pipe-diagram {
+  display: block;
+  margin: 0 auto;
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+/* ---------- step-flow: composite op boxes ---------- */
+.step-flow {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+/* Column wrapper for step element + eye button */
+.step-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+  z-index: 1;
+}
+
+.step-endpoint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid;
+  font-family: KaTeX_Main, 'Times New Roman', serif;
+  font-weight: 700;
+  font-style: italic;
+  white-space: nowrap;
+  position: relative;
+  width: 80px;
+  height: 66px;
+  min-width: 80px;
+  min-height: 66px;
+  max-height: 66px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.step-arrows-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: stretch;
+  padding: 0;
+  min-width: calc(20px + 12px);
+  gap: 0;
+  margin: 0 -1px;
+  flex-shrink: 0;
+  align-self: flex-start;
+  height: calc(66px + 2px);
+  z-index: 0;
+  position: relative;
+}
+
+.connector-fwd,
+.connector-inv {
+  flex: none;
+  height: calc(66px / 3);
+  background: oklch(100% 0 0 / 0.15);
+  border: 1px solid oklch(100% 0 0 / 0.2);
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  margin-left: -6px;
+  margin-right: -6px;
+}
+
+.connector-inv {
+  opacity: 0.55;
+}
+
+body.light .connector-fwd,
+body.light .connector-inv {
+  background: oklch(0% 0 0 / 0.08);
+  border-color: oklch(0% 0 0 / 0.12);
+}
+
+.op-block {
+  display: flex;
+  flex-direction: column;
+  border-radius: 6px;
+  overflow: visible;
+  position: relative;
+  cursor: grab;
+  border: 1px solid;
+  width: 66px;
+  height: 66px;
+  min-width: 66px;
+  min-height: 66px;
+  max-height: 66px;
+  flex-shrink: 0;
+  transition: box-shadow 0.15s, opacity 0.15s;
+}
+
+.op-block--dragging {
+  opacity: 0.4;
+}
+
+.op-block--dragover {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.op-block__fwd,
+.op-block__inv {
+  padding: 0 4px;
+  text-align: center;
+  font-family: KaTeX_Main, 'Times New Roman', serif;
+  font-weight: 700;
+  font-size: 0.68rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-spacing: 0px;
+}
+
+.op-block__inv {
+  opacity: 0.5;
+  border-top: 1px solid oklch(100% 0 0 / 0.1);
+}
+
+body.light .op-block__inv {
+  border-top-color: oklch(0% 0 0 / 0.08);
+}
+
+.op-block__val {
+  padding: 0 4px;
+  text-align: center;
+  font-family: KaTeX_Main, 'Times New Roman', serif;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border-top: 1px solid oklch(100% 0 0 / 0.1);
+  border-bottom: 1px solid oklch(100% 0 0 / 0.1);
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  flex: 1;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+.op-block__val--empty {
+  padding: 0;
+  min-height: 0;
+  cursor: default;
+  border-top: none;
+  border-bottom: none;
+}
+
+.op-block__val:hover {
+  background: oklch(100% 0 0 / 0.08);
+}
+
+.op-block__val--sliding {
+  background: oklch(100% 0 0 / 0.15) !important;
+}
+
+body.light .op-block__val:hover {
+  background: oklch(0% 0 0 / 0.05);
+}
+
+body.light .op-block__val--sliding {
+  background: oklch(0% 0 0 / 0.1) !important;
+}
+
+body.light .op-block__val {
+  border-top-color: oklch(0% 0 0 / 0.08);
+  border-bottom-color: oklch(0% 0 0 / 0.08);
+}
+
+.op-block__label {
+  padding: 0 4px;
+  text-align: center;
+  font-family: KaTeX_Main, 'Times New Roman', serif;
+  font-weight: 600;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+}
+
+.op-block__swap {
+  position: absolute;
+  right: -9px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid oklch(100% 0 0 / 0.25);
+  background: oklch(28.4% 0.057 269 / 0.9);
+  color: var(--muted);
+  font-size: 0.65rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 2;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+
+body.light .op-block__swap {
+  background: oklch(96.1% 0.008 271 / 0.95);
+  border-color: oklch(0% 0 0 / 0.15);
+}
+
+.op-block__swap:hover {
+  background: oklch(71.5% 0.152 253 / 0.25);
+  color: var(--text);
+}
+
+/* colour themes for step boxes */
+.step-endpoint.step-box--y,
+.step-box--y {
+  background: linear-gradient(oklch(74.9% 0.153 150 / 0.35), oklch(74.9% 0.153 150 / 0.35)), var(--panel);
+  border-color: oklch(74.9% 0.153 150 / 0.7);
+  color: oklch(90.6% 0.079 154);
+}
+
+.step-endpoint.step-box--x,
+.step-box--x {
+  background: linear-gradient(oklch(61.0% 0.151 258 / 0.35), oklch(61.0% 0.151 258 / 0.35)), var(--panel);
+  border-color: oklch(61.0% 0.151 258 / 0.7);
+  color: oklch(84.5% 0.079 253);
+}
+
+.op-block--mulDiv {
+  background: linear-gradient(oklch(73.9% 0.140 65 / 0.45), oklch(73.9% 0.140 65 / 0.45)), var(--panel);
+  border-color: oklch(73.9% 0.140 65 / 0.8);
+  color: oklch(91.1% 0.094 84);
+}
+
+.op-block--addSub {
+  background: linear-gradient(oklch(62.0% 0.176 24 / 0.45), oklch(62.0% 0.176 24 / 0.45)), var(--panel);
+  border-color: oklch(62.0% 0.176 24 / 0.8);
+  color: oklch(83.3% 0.093 19);
+}
+
+.op-block--exp {
+  background: linear-gradient(oklch(81.8% 0.155 93 / 0.45), oklch(81.8% 0.155 93 / 0.45)), var(--panel);
+  border-color: oklch(81.8% 0.155 93 / 0.8);
+  color: oklch(92.5% 0.125 96);
+}
+
+.op-block--trig {
+  background: linear-gradient(oklch(61.0% 0.157 310 / 0.45), oklch(61.0% 0.157 310 / 0.45)), var(--panel);
+  border-color: oklch(61.0% 0.157 310 / 0.8);
+  color: oklch(83.9% 0.105 308);
+}
+
+.op-block--misc {
+  background: linear-gradient(oklch(65.9% 0.035 266 / 0.45), oklch(65.9% 0.035 266 / 0.45)), var(--panel);
+  border-color: oklch(65.9% 0.035 266 / 0.8);
+  color: oklch(83.2% 0.024 264);
+}
+
+/* Light mode adjustments for step box text */
+body.light .step-endpoint.step-box--y,
+body.light .step-box--y {
+  color: oklch(51.1% 0.131 150);
+}
+
+body.light .step-endpoint.step-box--x,
+body.light .step-box--x {
+  color: oklch(41.4% 0.118 257);
+}
+
+body.light .op-block--mulDiv {
+  color: oklch(50.9% 0.099 69);
+}
+
+body.light .op-block--addSub {
+  color: oklch(42.0% 0.142 26);
+}
+
+body.light .op-block--exp {
+  color: oklch(50.2% 0.097 89);
+}
+
+body.light .op-block--trig {
+  color: oklch(39.0% 0.134 309);
+}
+
+body.light .op-block--misc {
+  color: oklch(43.6% 0.040 274);
+}
+
+.mode-toggle__buttons {
+  display: inline-flex;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(6px);
+}
+
+body.light .mode-toggle__buttons {
+  background: var(--glass-bg);
+}
+
+.mode-btn {
+  border: 0;
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.mode-btn+.mode-btn {
+  border-left: 1px solid var(--border);
+}
+
+.mode-btn--active {
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-color);
+}
+
+/* Discrete-mode SVG icon buttons */
+.discrete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.discrete-btn+.discrete-btn {
+  border-left: none;
+}
+
+.discrete-btn svg {
+  display: block;
+}
+
+/* In the overlay, stretch SVGs to fill button width */
+.mode-toggle-overlay .discrete-btn svg {
+  width: 100%;
+  height: 16px;
+}
+
+/* ---- Axis rotation dial ---- */
+.axis-dial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--glass-bg, oklch(0% 0 0 / 0.06));
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  flex-shrink: 0;
+  touch-action: none;
+}
+
+.axis-dial:active {
+  cursor: grabbing;
+}
+
+.axis-dial__icon {
+  display: block;
+  transition: transform 0.18s ease;
+  pointer-events: none;
+}
+
+.axis-dial.dragging .axis-dial__icon {
+  transition: none;
+}
+
+/* ---- Timeline control (above graph-toggles, shown when expression contains t) ---- */
+.timeline-control {
+  position: absolute;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  transition: opacity 0.25s, transform 0.25s;
+  white-space: nowrap;
+}
+
+body.light .timeline-control {
+  background: var(--glass-bg);
+}
+
+.timeline-play-btn {
+  background: none;
+  border: 1px solid oklch(100% 0 0 / 0.2);
+  color: var(--text);
+  font-size: 0.85rem;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+body.light .timeline-play-btn {
+  border-color: oklch(0% 0 0 / 0.15);
+}
+
+.timeline-play-btn:hover {
+  background: oklch(61.0% 0.151 258 / 0.25);
+  border-color: oklch(61.0% 0.151 258 / 0.5);
+}
+
+.timeline-play-btn--active {
+  background: oklch(61.0% 0.151 258 / 0.3);
+  border-color: oklch(61.0% 0.151 258 / 0.6);
+}
+
+.timeline-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 200px;
+  height: 6px;
+  border-radius: 3px;
+  background: oklch(100% 0 0 / 0.15);
+  outline: none;
+  cursor: pointer;
+}
+
+body.light .timeline-slider {
+  background: oklch(0% 0 0 / 0.12);
+}
+
+.timeline-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: oklch(61.0% 0.151 258);
+  border: 2px solid oklch(100% 0 0 / 0.5);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.timeline-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.timeline-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: oklch(61.0% 0.151 258);
+  border: 2px solid oklch(100% 0 0 / 0.5);
+  cursor: pointer;
+}
+
+.timeline-value {
+  min-width: 72px;
+  text-align: right;
+  color: var(--muted);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+/* ---- Graph toggle bar (bottom of canvas) ---- */
+.graph-toggles {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+body.light .graph-toggles {
+  background: var(--glass-bg);
+}
+
+.graph-toggles-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  padding: 0 2px;
+}
+
+/* Toggle groups — outer rectangle IS the parent button */
+.toggle-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* inherits .graph-toggle-btn styling (border, border-radius, padding, etc.) */
+  padding-right: 3px;
+}
+
+body.light .toggle-group {
+  border-color: oklch(0% 0 0 / 0.12);
+}
+
+.toggle-group__label {
+  font-weight: 600;
+  pointer-events: none;
+  /* clicks pass through to the group div */
+}
+
+.toggle-group__subs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Sub-buttons: small inset rectangles inside the parent */
+.toggle-group__sub {
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 1px 5px;
+  border: 1px solid oklch(100% 0 0 / 0.15);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+body.light .toggle-group__sub {
+  border-color: oklch(0% 0 0 / 0.1);
+  background: var(--body-bg);
+}
+
+.toggle-group__sub--on {
+  background: var(--sub-toggle-bg, var(--toggle-active-bg));
+  color: var(--sub-toggle-color, var(--toggle-active-color));
+  border-color: oklch(61.0% 0.151 258 / 0.35);
+}
+
+body.light .toggle-group__sub--on {
+  background: var(--sub-toggle-bg-light, var(--toggle-active-bg));
+}
+
+.graph-toggle-btn--partial {
+  color: var(--text);
+  background: var(--toggle-glow-bg);
+  border-color: oklch(61.0% 0.151 258 / 0.25);
+  opacity: 0.8;
+}
+
+.graph-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid oklch(100% 0 0 / 0.15);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+  position: relative;
+}
+
+body.light .graph-toggle-btn {
+  border-color: oklch(0% 0 0 / 0.12);
+}
+
+.graph-toggle-btn:hover {
+  box-shadow: 0 0 8px oklch(75.0% 0.134 249 / 0.35);
+}
+
+.graph-toggle-btn--on {
+  color: var(--toggle-active-color);
+  background: var(--toggle-active-bg);
+  border-color: oklch(61.0% 0.151 258 / 0.5);
+}
+
+body.light .graph-toggle-btn--on {
+  background: var(--toggle-active-bg);
+  border-color: oklch(54.6% 0.215 263 / 0.35);
+}
+
+/* (sub-button styles moved into toggle-group section above) */
+
+/* ---- Reset overlay (positioned by JS relative to accordion) ---- */
+.reset-overlay {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-color);
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 50%);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.reset-overlay:hover {
+  opacity: 1;
+}
+
+/* ---- Canvas wrap (fullscreen) ---- */
+.canvas-wrap {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  /* Force canvas to fill with no gap */
+  line-height: 0;
+  font-size: 0;
+}
+
+body.mobile .canvas-wrap {
+  /* touch-action: none moved to canvas element only (see below)
+     so overlay buttons get normal tap handling */
+  -webkit-overflow-scrolling: touch;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  /* Use dynamic viewport height where supported (avoids address bar overlap) */
+  height: 100dvh;
+}
+
+/* Disable native touch gestures only on the actual canvas, not on overlay UI */
+body.mobile .canvas-wrap>canvas {
+  touch-action: none;
+}
+
+body.mobile {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.canvas-wrap canvas {
+  display: block;
+  /* Prevent bright flash before first draw() frame */
+  background-color: oklch(16.8% 0.030 271);
+}
+
+body.light .canvas-wrap canvas {
+  background-color: oklch(97.4% 0.005 275);
+}
+
+.status {
+  display: none;
+}
+
+/* ---- HUD overlay (top-left, above glass) ---- */
+.graph-hud {
+  position: absolute;
+  top: 8px;
+  left: 14px;
+  z-index: 11;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  text-align: left;
+  pointer-events: none;
+  line-height: 1.5;
+  display: none;
+  /* hidden by default; toggled via HUD button */
+}
+
+.hud-line {
+  white-space: nowrap;
+}
+
+.hud-line--error {
+  color: var(--danger);
+}
+
+.hud-line--coords {
+  opacity: 0.7;
+}
+
+/* ---- LaTeX equation display (inside topbar, below input) ---- */
+.latex-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  overflow: visible;
+}
+
+.latex-display {
+  flex: 0 0 60px;
+  text-align: center;
+  color: var(--text);
+  font-size: 1.45rem;
+  padding: 2px 0 0 0;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  white-space: nowrap;
+  overflow: visible;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.latex-btns {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.latex-btn {
+  background: transparent;
+  border: 1px solid oklch(0.55 0 0 / 0.3);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 2px 5px;
+  line-height: 1.1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.latex-btn:hover {
+  background: oklch(0.5 0 0 / 0.15);
+  color: var(--text);
+}
+
+.latex-btn--active {
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-color);
+}
+
+/* ---- Segmented controls for LaTeX options ---- */
+.seg-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.seg-control {
+  display: inline-flex;
+  border: 1px solid oklch(0.55 0 0 / 0.3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.seg-btn {
+  background: transparent;
+  border: none;
+  border-right: 1px solid oklch(0.55 0 0 / 0.3);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  line-height: 1.1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.seg-btn:last-child {
+  border-right: none;
+}
+
+.seg-btn:hover {
+  background: oklch(0.5 0 0 / 0.15);
+  color: var(--text);
+}
+
+.seg-btn--active {
+  background: var(--toggle-active-bg);
+  color: var(--toggle-active-color);
+}
+
+.seg-sep {
+  width: 1px;
+  height: 14px;
+  background: oklch(0.55 0 0 / 0.2);
+  align-self: center;
+}
+
+/* ---- Expression copy/paste buttons ---- */
+.expr-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.expr-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* ---- Mode toggle needs to sit below topbar ---- */
+.mode-toggle-overlay {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Tau toggle — styled like sibling mode-btn buttons */
+.tau-toggle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* ---- Delete button on op blocks ---- */
+.op-block__delete {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid oklch(70.2% 0.190 23 / 0.5);
+  background: oklch(54.2% 0.196 27 / 0.85);
+  color: oklch(100% 0 0);
+  font-size: 0.6rem;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  z-index: 3;
+}
+
+.op-block:hover .op-block__delete {
+  display: flex;
+}
+
+.op-block__delete:hover {
+  background: oklch(58.7% 0.206 26);
+  transform: scale(1.15);
+}
+
+/* Delete preview: dim the block being previewed for removal */
+.op-block--delete-preview {
+  opacity: 0.3;
+  transition: opacity 0.15s ease;
+}
+
+body.light .op-block__delete {
+  border-color: oklch(54.2% 0.196 27 / 0.4);
+}
+
+
+
+/* ---- Eye button SVG styling ---- */
+.eye-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 4px;
+  opacity: 0.35;
+  transition: opacity 0.15s;
+  line-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eye-btn svg {
+  display: block;
+}
+
+.eye-btn--on {
+  opacity: 0.7;
+}
+
+.eye-btn:hover {
+  opacity: 1;
+}
+
+/* ---- Toolbox ---- */
+/* ---- Section labels ---- */
+.section-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, oklch(100% 0 0 / 0.45));
+  text-align: center;
+  padding-top: 10px;
+  padding-bottom: 2px;
+}
+
+.intermediates-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.intermediates-toggle:hover {
+  opacity: 1;
+}
+
+.intermediates-toggle input {
+  margin: 0;
+  cursor: pointer;
+}
+
+/* ---- Step-rep wrapper (pipe diagram) ---- */
+.step-rep-wrapper {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ---- Toolbox wrapper: same y as pipe diagram, fixed on right of screen ---- */
+.step-toolbox-row .toolbox-wrapper {
+  position: absolute;
+  right: 12px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  flex-shrink: 0;
+  z-index: 2;
+}
+
+.toolbox {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  flex-shrink: 0;
+  align-items: flex-start;
+}
+
+.toolbox__row {
+  display: flex;
+  gap: 3px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+/* Portrait/landscape rows are mobile-only — hide on desktop */
+.toolbox__row--portrait,
+.toolbox__row--landscape {
+  display: none;
+}
+
+/* Mode dropdown trigger is mobile-only — hide on desktop */
+.mode-dropdown-trigger {
+  display: none;
+}
+
+/* On desktop the mode-dropdown-list should be transparent so buttons flow inline */
+.mode-dropdown-list {
+  display: contents;
+}
+
+.toolbox__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  flex: 1;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid;
+  font-size: 0.62rem;
+  font-weight: 600;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s, transform 0.1s;
+}
+
+body.light .toolbox__item {}
+
+.toolbox__item:hover {
+  filter: brightness(1.3);
+  transform: scale(1.08);
+  box-shadow: 0 2px 12px oklch(0% 0 0 / 0.25);
+  z-index: 1;
+}
+
+body.light .toolbox__item:hover {
+  filter: brightness(0.92);
+}
+
+.toolbox__item:active {
+  cursor: grabbing;
+  transform: scale(1.12);
+}
+
+/* ---- Drag cursor for op values ---- */
+.op-block__val {
+  cursor: ew-resize;
+}
+
+/* ---- Pseudo-fullscreen prompt — mobile only, hidden by default ---- */
+.pseudofs-btn {
+  display: none;
+}
+
+/* ---- Touch-mode pill — mobile only, hidden on desktop ---- */
+.touch-mode-pill {
+  display: none;
+}
+
+/* ---- Fullscreen button ---- */
+.fullscreen-btn {
+  position: fixed;
+  bottom: 14px;
+  left: 14px;
+  z-index: 9;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--glass-bg, oklch(0% 0 0 / 0.35));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s;
+  padding: 0;
+}
+
+.fullscreen-btn:hover {
+  color: var(--text);
+  border-color: var(--toggle-active-border);
+}
+
+@media (max-width: 980px) {
+  .control__input {
+    min-width: 220px;
+  }
+
+  .mode-toggle-overlay {
+    top: 120px;
+  }
+
+  .toolbox__item {
+    min-width: 24px;
+    height: 28px;
+    padding: 0 4px;
+    font-size: 0.65rem;
+  }
+
+  .step-toolbox-row {
+    flex-direction: column;
+  }
+
+  .step-toolbox-row .toolbox-wrapper,
+  .toolbox-wrapper {
+    position: static;
+    transform: none;
+    align-items: center;
+  }
+
+  .toolbox {
+    align-items: center;
+  }
+}
+
+/* ---- Mobile layout ---- */
+@media (max-width: 600px),
+(hover: none) and (pointer: coarse) {
+  .topbar {
+    padding: 6px 8px 6px 8px;
+    gap: 4px;
+    flex-direction: column;
+    align-items: stretch;
+    top: auto;
+    bottom: 0;
+    transition: transform 0.3s ease;
+  }
+
+  .topbar.collapsed .step-rep-wrapper,
+  .topbar.collapsed .step-eye-mode-btn,
+  .topbar.collapsed .toolbox-wrapper {
+    display: none;
+  }
+
+  /* Hide standalone eye icons below boxes on mobile — eye-mode replaces them */
+  .step-col>.eye-btn {
+    display: none;
+  }
+
+  /* Step eye-mode toggle button in topbar */
+  .step-eye-mode-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: oklch(100% 0 0 / 0.08);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 8px;
+    min-width: 40px;
+    min-height: 40px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+
+  .step-eye-mode-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .step-eye-mode-btn.active {
+    color: var(--text);
+    border-color: var(--toggle-active-border);
+    background: var(--toggle-active-bg, oklch(100% 0 0 / 0.12));
+  }
+
+  .step-toolbox-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Collapse button in step-toolbox-row */
+  .step-toolbox-row>.topbar-collapse-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: oklch(100% 0 0 / 0.08);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+    min-height: 40px;
+    padding: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: transform 0.2s, color 0.15s, background 0.15s;
+  }
+
+  .topbar.collapsed .topbar-collapse-btn {
+    transform: rotate(180deg);
+  }
+
+  .brand-logo {
+    display: none;
+  }
+
+  /* Graph toggles replaced by eye-icon pop-out */
+  .graph-toggles {
+    display: none;
+  }
+
+  .controls {
+    gap: 6px;
+  }
+
+  .control {
+    padding: 6px 8px;
+  }
+
+  .control__input {
+    min-width: 0;
+    width: 100%;
+    font-size: 0.9rem;
+  }
+
+  .expr-group {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .expr-group .control--expr {
+    width: 100%;
+  }
+
+  .step-toolbox-row {
+    flex-direction: row;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .step-toolbox-row .step-rep-wrapper {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  .step-rep {
+    padding: 4px 0 2px 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .step-endpoint {
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    min-height: 52px;
+    max-height: 52px;
+  }
+
+  .op-block {
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    min-height: 52px;
+    max-height: 52px;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .step-arrows-col {
+    min-width: 14px;
+    height: calc(52px + 2px);
+    margin: 0;
+  }
+
+  .connector-fwd,
+  .connector-inv {
+    height: calc(52px / 3);
+    margin-left: -2px;
+    margin-right: -2px;
+  }
+
+  .connector-fwd svg,
+  .connector-inv svg {
+    width: 8px;
+    height: 8px;
+  }
+
+  .op-block__fwd,
+  .op-block__inv {
+    font-size: 0.58rem;
+  }
+
+  .op-block__val {
+    font-size: 0.68rem;
+  }
+
+  .step-toolbox-row .toolbox-wrapper,
+  .toolbox-wrapper {
+    position: static;
+    transform: none;
+    align-items: stretch;
+  }
+
+  .toolbox {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 3px;
+    justify-content: center;
+  }
+
+  /* Desktop rows hidden on mobile */
+  .toolbox__row--desktop {
+    display: none !important;
+  }
+
+  /* Toolbox rows: display as flex rows filling full width */
+  .toolbox__row--portrait,
+  .toolbox__row--landscape {
+    display: flex;
+    gap: 3px;
+  }
+
+  .toolbox__row--portrait .toolbox__item,
+  .toolbox__row--landscape .toolbox__item {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 30px;
+    padding: 0 2px;
+    font-size: 0.65rem;
+    text-align: center;
+    justify-content: center;
+  }
+
+  /* Portrait: show 3-row layout, hide landscape */
+  .toolbox__row--landscape {
+    display: none !important;
+  }
+
+  .section-label {
+    display: none;
+    /* hide section labels on mobile to save space */
+  }
+
+  /* ═══ Full-bleed segmented control bar ═══ */
+  .mode-toggle-overlay {
+    display: flex !important;
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    touch-action: auto;
+    left: 0;
+    right: 0;
+    transform: none;
+    flex-wrap: wrap;
+    gap: 0;
+    justify-content: stretch;
+    align-items: stretch;
+    padding: 0;
+    background: oklch(0% 0 0 / 0.35);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border);
+    z-index: 25;
+  }
+
+  .mode-toggle-overlay button {
+    touch-action: manipulation;
+  }
+
+  body.light .mode-toggle-overlay {
+    background: oklch(100% 0 0 / 0.55);
+  }
+
+  /* Unwrap groups so buttons become direct flex children */
+  .mode-toggle-overlay>.mode-toggle__buttons,
+  .mode-toggle-overlay>.mode-dropdown-wrap {
+    display: contents !important;
+  }
+
+  .mode-toggle-overlay .mode-dropdown-trigger {
+    display: none !important;
+  }
+
+  .mode-toggle-overlay .mode-dropdown-list,
+  .mode-toggle-overlay .mode-dropdown-list.open {
+    display: contents !important;
+  }
+
+  /* Hide EQ toggle and axis dial on mobile portrait */
+  [aria-label="Equalize colors"] {
+    display: none !important;
+  }
+
+  .mode-toggle-overlay .axis-dial {
+    display: none !important;
+  }
+
+  /* Base segment style: flat, flush, full height */
+  .mode-toggle-overlay .mode-btn {
+    border-radius: 0 !important;
+    border: none !important;
+    border-right: 1px solid var(--border) !important;
+    min-height: 36px;
+    padding: 6px 4px;
+    font-size: 0.78rem;
+    background: transparent;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Override legacy adjacent border rule */
+  .mode-toggle-overlay .mode-btn+.mode-btn {
+    border-left: none !important;
+  }
+
+  /* Row 1: Mode selector fills full width */
+  .mode-toggle-overlay .mode-btn[data-mode] {
+    flex: 1 1 33.33%;
+    order: 0;
+    border-bottom: 1px solid var(--border) !important;
+  }
+
+  .mode-toggle-overlay .mode-btn[data-mode="numberLines"] {
+    border-right: none !important;
+  }
+
+  /* Row 2: Discrete icons (wider) + toggles */
+  .mode-toggle-overlay .discrete-btn {
+    order: 1;
+    flex: 2 1 0;
+    padding: 4px 0 !important;
+  }
+
+  .mode-toggle-overlay .tau-toggle {
+    order: 2;
+    flex: 1 1 0;
+  }
+
+  .mode-toggle-overlay .glow-toggle {
+    order: 3;
+    flex: 1 1 0;
+  }
+
+  .mode-toggle-overlay .numeral-toggle {
+    order: 4;
+    flex: 1 1 0;
+    border-right: none !important;
+  }
+
+  /* Active state */
+  .mode-toggle-overlay .mode-btn--active {
+    background: var(--toggle-active-bg) !important;
+    color: var(--toggle-active-color) !important;
+  }
+
+  /* Landscape: show 2-row toolbox, hide 3-row */
+  @media (orientation: landscape) {
+    .toolbox__row--portrait {
+      display: none !important;
+    }
+
+    .toolbox__row--landscape {
+      display: flex !important;
+    }
+  }
+
+  /* Graph toggles: hidden on mobile (replaced by eye-icon panel) */
+
+  .toggle-group {
+    flex-shrink: 0;
+  }
+
+  /* Timeline: positioned above mode bar on mobile */
+  .timeline-control {
+    position: fixed;
+    bottom: 0;
+    /* will be pushed up by JS */
+    top: auto;
+    left: 0;
+    right: 0;
+    transform: none;
+    padding: 8px 12px;
+    width: auto;
+    max-width: none;
+    z-index: 8;
+    border-radius: 0;
+    gap: 8px;
+    touch-action: auto;
+    /* let browser handle slider touches natively */
+  }
+
+  .timeline-slider {
+    width: 100%;
+    flex: 1;
+    height: 8px;
+    touch-action: pan-x;
+    /* allow horizontal scrub, block vertical scroll */
+  }
+
+  .timeline-slider::-webkit-slider-thumb {
+    width: 26px;
+    height: 26px;
+  }
+
+  .timeline-slider::-moz-range-thumb {
+    width: 26px;
+    height: 26px;
+  }
+
+  .timeline-play-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+
+  .timeline-value {
+    font-size: 0.75rem;
+    min-width: 88px;
+    text-align: right;
+    flex-shrink: 0;
+    overflow: visible;
+  }
+
+  /* Fullscreen button: hidden on iOS, elsewhere above mode bar */
+  .fullscreen-btn {
+    display: none;
+  }
+
+  /* HUD */
+  .graph-hud {
+    display: none;
+  }
+
+  /* LaTeX display — smaller on mobile */
+  .latex-display {
+    font-size: 1rem;
+    height: 42px;
+    flex: 0 0 42px;
+  }
+
+  .latex-btns,
+  .expr-btns {
+    display: none;
+  }
+
+  /* Settings gear — top-left on mobile */
+  #settingsGear {
+    width: 28px;
+    height: 28px;
+    top: 8px;
+    bottom: auto;
+    left: 8px;
+    right: auto;
+  }
+
+  /* Bigger delete button for touch — hidden on mobile, replaced by drag-to-trash */
+  .op-block__delete {
+    display: none !important;
+  }
+
+  /* Swap button: hidden on mobile, replaced by swipe-down gesture */
+  .op-block__swap {
+    display: none !important;
+  }
+
+  /* Trash zone for drag-to-delete — overlays toolbox area at bottom */
+  .trash-zone {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 70px;
+    z-index: 9998;
+    display: none;
+    /* shown by JS during drag */
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: oklch(54.2% 0.196 27 / 0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: oklch(100% 0 0);
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: background 0.15s, height 0.15s;
+  }
+
+  .trash-zone.visible {
+    display: flex;
+  }
+
+  .trash-zone.hovering {
+    background: oklch(58.7% 0.206 26 / 0.92);
+    height: 90px;
+  }
+
+  .trash-zone svg {
+    width: 24px;
+    height: 24px;
+    stroke: oklch(100% 0 0);
+  }
+
+  /* Pseudo-fullscreen prompt button */
+  .pseudofs-btn {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 12;
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: var(--glass-bg, oklch(0% 0 0 / 0.5));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: var(--text);
+    font-size: 0.8rem;
+    cursor: pointer;
+    display: none;
+    white-space: nowrap;
+  }
+
+  body.mobile .pseudofs-btn {
+    display: block;
+  }
+
+  .pseudofs-btn.hidden {
+    display: none !important;
+  }
+
+  /* Floating touch-mode pill — repositioned as bar inside expr-window */
+  .touch-mode-pill {
+    display: none;
+  }
+
+  .touch-mode-pill--bar {
+    display: flex !important;
+    position: static !important;
+    width: 100% !important;
+    transform: none !important;
+    top: auto !important;
+    left: auto !important;
+    border-radius: 0 !important;
+    border: none !important;
+    border-bottom: 1px solid var(--border) !important;
+    background: oklch(0% 0 0 / 0.25);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    z-index: 1;
+  }
+
+  body.light .touch-mode-pill--bar {
+    background: oklch(100% 0 0 / 0.35);
+  }
+
+  .touch-mode-btn {
+    border: 0;
+    padding: 8px 4px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.72rem;
+    cursor: pointer;
+    font-weight: 600;
+    min-height: 36px;
+    flex: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .touch-mode-btn+.touch-mode-btn {
+    border-left: 1px solid var(--border);
+  }
+
+  .touch-mode-btn--active {
+    background: var(--toggle-active-bg);
+    color: var(--toggle-active-color);
+  }
+
+  /* Eye-toggle mode: boxes show centered eye icon */
+  .op-block--eye-mode,
+  .step-endpoint--eye-mode {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .op-block--eye-mode .eye-btn,
+  .step-endpoint--eye-mode .eye-btn {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+
+  .op-block--eye-mode .eye-btn svg,
+  .step-endpoint--eye-mode .eye-btn svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* In eye mode, hide delete/swap buttons */
+  .op-block--eye-mode .op-block__delete,
+  .op-block--eye-mode .op-block__swap {
+    display: none !important;
+  }
+}
+
+/* ---- Mobile portrait: expr-window as full-width bottom pane ---- */
+@media (max-width: 600px) and (orientation: portrait),
+(hover: none) and (pointer: coarse) and (orientation: portrait) {
+
+  /* Hide overlay on portrait — controls live in expr-window Ctrl section */
+  .mode-toggle-overlay {
+    display: none !important;
+  }
+
+  .expr-window {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    transform: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 0 !important;
+    max-height: 80vh;
+    max-height: 80dvh;
+    overflow: hidden !important;
+    border: none !important;
+    box-shadow: 0 -4px 20px var(--shadow) !important;
+    /* Build from bottom up: tree at bottom, sections stack above */
+    flex-direction: column-reverse !important;
+    background: oklch(0% 0 0 / 0.22) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+  }
+
+  body.light .expr-window {
+    background: oklch(94% 0.008 275 / 0.4) !important;
+  }
+
+  /* Hide the titlebar */
+  .expr-window__titlebar {
+    display: none !important;
+  }
+
+  /* Show the standalone gear in top-right corner */
+  #settingsGear {
+    display: flex !important;
+    top: 8px !important;
+    right: 8px !important;
+    left: auto !important;
+    bottom: auto !important;
+  }
+
+  /* Hide all eye-mode toggle buttons */
+  .step-eye-mode-btn {
+    display: none !important;
+  }
+
+  .mobile-eye-toggle {
+    display: none !important;
+  }
+
+  .mobile-toggle-panel {
+    display: none !important;
+  }
+
+  /* column-reverse: lowest order at bottom.
+     Tree = 1 (bottom), then merged text/latex, controls, visibility above it. */
+  #ew-section-tree {
+    order: 1;
+  }
+
+  #ew-section-textlatex {
+    order: 2;
+  }
+
+  #ew-section-latex {
+    order: 2;
+  }
+
+  #ew-section-text {
+    order: 3;
+  }
+
+  #ew-section-controls {
+    order: 4;
+  }
+
+  #ew-section-visibility {
+    order: 5;
+  }
+
+  /* Separators between sections. border-top: none avoids a line at the glass
+     edge. border-bottom provides lines between stacked sections. */
+  .ew-section {
+    border-top: none !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+
+  /* Collapsed sections have hidden headers on mobile, so they'd render as
+     just a bare border line at the glass edge. Remove borders entirely. */
+  .ew-section.collapsed {
+    border: none !important;
+  }
+
+  /* ---- Swipeable text+latex merged section ---- */
+  .ew-swipe-tabs {
+    display: flex;
+    gap: 2px;
+    flex: 1;
+  }
+
+  .ew-swipe-tab {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--muted);
+    opacity: 0.45;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: opacity 0.15s, background 0.15s;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .ew-swipe-tab.active {
+    opacity: 1;
+    background: var(--border);
+  }
+
+  .ew-swipe-container {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    /* Firefox */
+  }
+
+  .ew-swipe-container::-webkit-scrollbar {
+    display: none;
+    /* Chrome/Safari */
+  }
+
+  .ew-swipe-page {
+    flex: 0 0 100%;
+    width: 100%;
+    scroll-snap-align: start;
+    min-height: 0;
+  }
+
+  /* Hide merged section body when collapsed */
+  .ew-section--swipe.collapsed .ew-swipe-container {
+    max-height: 0 !important;
+    height: 0 !important;
+    padding: 0 !important;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .ew-section--swipe.collapsed .ew-section__collapse {
+    transform: rotate(-90deg);
+  }
+
+  /* Section resize handles not needed */
+  .ew-resize-handle {
+    display: none;
+  }
+
+  /* Text input: scaled via font-size to fill section width */
+  #ew-body-text .controls {
+    padding: 0 !important;
+    margin: 0 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #ew-body-text .control--expr {
+    border: none !important;
+    border-top: 1px solid var(--border) !important;
+    border-bottom: 1px solid var(--border) !important;
+    border-radius: 0 !important;
+    padding: 4px 12px !important;
+    background: transparent !important;
+  }
+
+  #ew-body-text .control__input {
+    text-align: center;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  #ew-body-text .expr-color-overlay {
+    justify-content: center;
+    text-align: center;
+    padding-left: 0;
+    padding-right: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    overflow: visible;
+  }
+
+  /* Section toggle tabbar: hidden when swipe pages are active */
+  .ew-section-tabbar {
+    display: none !important;
+  }
+
+  .ew-tab-btn {
+    display: none !important;
+  }
+
+  /* Hide individual section headers (tabbar replaces them) */
+  .ew-section>.ew-section__header {
+    display: none !important;
+  }
+
+  /* Keep swipe tabs in merged text+latex section, just hide collapse chevron */
+  .ew-section--swipe>.ew-section__header {
+    display: flex !important;
+    padding: 2px 10px;
+    height: auto;
+    min-height: 0;
+  }
+
+  /* But hide swipe header when section is collapsed (toggled off via tabbar) */
+  .ew-section--swipe.collapsed>.ew-section__header {
+    display: none !important;
+  }
+
+  .ew-section--swipe>.ew-section__header>.ew-section__collapse {
+    display: none !important;
+  }
+
+  /* Tree body */
+  .ew-body--tree {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .ew-body--tree .step-rep {
+    min-height: 120px;
+  }
+
+  .ew-body--tree .pipe-diagram {
+    height: auto !important;
+    min-height: 150px;
+  }
+}
+
+/* Desktop: hide mobile-only elements */
+body:not(.mobile) .step-eye-mode-btn {
+  display: none;
+}
+
+body:not(.mobile) .trash-zone {
+  display: none;
+}
+
+body:not(.mobile) .topbar-collapse-btn {
+  display: none;
+}
+
+/* ---- iOS: hide fullscreen button (not supported) ---- */
+body.ios .fullscreen-btn {
+  display: none !important;
+}
+
+/* ---- Mobile: settings menu drops down from top-left ---- */
+body.mobile #settingsMenu {
+  top: 44px;
+  bottom: auto;
+  right: auto;
+  left: 8px;
+  transform-origin: top left;
+}
+
+/* ---- Hide toolbox/step-row when keyboard is up ---- */
+.toolbox-hidden {
+  display: none !important;
+}
+
+/* ---- Mobile visibility eye-icon pop-out ---- */
+.mobile-eye-toggle {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 12;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--glass-bg, oklch(0% 0 0 / 0.35));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--muted);
+  cursor: pointer;
+  display: none;
+  /* shown via JS on mobile */
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+body.mobile .topbar {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+body.mobile .control__input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+body.mobile .mobile-eye-toggle {
+  display: flex;
+}
+
+.mobile-eye-toggle:hover,
+.mobile-eye-toggle.active {
+  color: var(--text);
+  border-color: var(--toggle-active-border);
+}
+
+.mobile-toggle-panel {
+  position: fixed;
+  top: 52px;
+  right: 8px;
+  z-index: 12;
+  background: var(--glass-bg, oklch(0% 0 0 / 0.6));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  max-height: calc(100dvh - 70px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+body.light .mobile-toggle-panel {
+  background: var(--glass-bg);
+}
+
+.mobile-toggle-panel.open {
+  display: flex;
+}
+
+.mobile-toggle-panel .graph-toggle-btn {
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  min-height: 40px;
+}
+
+.mobile-toggle-panel .toggle-group {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.mobile-toggle-panel .toggle-group__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.mobile-toggle-panel .toggle-group__sub {
+  font-size: 0.8rem;
+  padding: 6px 8px;
+  min-height: 36px;
+  flex: 1 1 calc(50% - 2px);
+  min-width: 0;
+  text-align: center;
+  justify-content: center;
+}
+
+.mobile-toggle-panel .graph-toggles-label {
+  font-size: 0.75rem;
+  padding-bottom: 2px;
+}
+
+/* ========================================================================
+   Floating Expression Window
+   ======================================================================== */
+.expr-window {
+  position: fixed;
+  top: 50%;
+  left: calc(100vw / 3);
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  width: 460px;
+  max-width: calc(100vw - 24px);
+  background: var(--glass-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  /* let radial menu escape */
+  color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+body.light .expr-window {
+  background: var(--valve-glass);
+}
+
+/* ---- Titlebar (draggable) ---- */
+.expr-window__titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 4px;
+  cursor: grab;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.expr-window__titlebar:active {
+  cursor: grabbing;
+}
+
+.expr-window__title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.7;
+  flex: 1;
+  text-align: center;
+}
+
+/* Titlebar icon buttons (fullscreen + settings) */
+.ew-titlebar-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.45;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.ew-titlebar-btn:hover {
+  opacity: 1;
+}
+
+/* ---- Section ---- */
+.ew-section {
+  border-bottom: 1px solid var(--border);
+}
+
+.ew-section:last-of-type {
+  border-bottom: none;
+}
+
+.ew-section__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  height: 26px;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.ew-section__collapse {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  transition: transform 0.2s;
+}
+
+.ew-section.collapsed .ew-section__collapse {
+  transform: rotate(-90deg);
+}
+
+.ew-section__label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  flex: 1;
+}
+
+.ew-section__options-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  display: flex;
+  align-items: center;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.ew-section__options-btn:hover {
+  opacity: 1;
+}
+
+.ew-section__options-btn.active {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* ---- Section body ---- */
+.ew-section__body {
+  overflow: visible;
+  transition: max-height 0.25s ease, opacity 0.2s ease;
+}
+
+.ew-section.collapsed .ew-section__body {
+  max-height: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.ew-section.collapsed .ew-section__options {
+  display: none !important;
+}
+
+.ew-section.collapsed .ew-resize-handle {
+  display: none;
+}
+
+/* ---- Section resize handle ---- */
+.ew-resize-handle {
+  height: 5px;
+  cursor: ns-resize;
+  background: transparent;
+  position: relative;
+  flex-shrink: 0;
+  z-index: 3;
+}
+
+.ew-resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 25%;
+  right: 25%;
+  top: 2px;
+  height: 1px;
+  background: var(--muted);
+  opacity: 0;
+  transition: opacity 0.15s;
+  border-radius: 1px;
+}
+
+.ew-resize-handle:hover::after {
+  opacity: 0.5;
+}
+
+/* Resizable section bodies */
+.ew-section__body.ew-resizable {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ew-section__body.ew-resizable .latex-display {
+  height: 100% !important;
+  flex: 1 1 auto !important;
+  overflow: visible;
+}
+
+.ew-section__body.ew-resizable .latex-row {
+  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.ew-section__body.ew-resizable .step-rep-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ew-section__body.ew-resizable .step-rep {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ew-section__body.ew-resizable .pipe-diagram {
+  width: 100%;
+  height: 100%;
+}
+
+/* Tree section: viewBox + meet handles scaling; rotation algorithm keeps content in bounds */
+.ew-body--tree.ew-resizable {
+  overflow: visible;
+}
+
+.ew-body--tree.ew-resizable .step-rep {
+  overflow: visible;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.ew-body--tree.ew-resizable .step-rep-wrapper {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ew-body--tree.ew-resizable .pipe-diagram {
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- Section options drawer ---- */
+.ew-section__options {
+  padding: 4px 10px 6px;
+  border-top: 1px dashed var(--border);
+}
+
+/* ---- Visibility section toggle buttons ---- */
+.ew-visibility-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  align-items: center;
+}
+
+/* ---- Text section ---- */
+#ew-body-text .controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0;
+  justify-content: center;
+  position: relative;
+  padding: 6px 8px;
+}
+
+#ew-body-text .expr-group {
+  flex: 1;
+  min-width: 0;
+}
+
+#ew-body-text .control--expr {
+  width: 100%;
+}
+
+#ew-body-text .control__input {
+  min-width: 0;
+  width: 100%;
+}
+
+/* ---- LaTeX section ---- */
+#ew-body-latex .latex-row {
+  width: 100%;
+  padding: 0 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+#ew-body-latex .latex-display {
+  height: auto;
+  flex: 1 1 auto;
+  font-size: 1.25rem;
+  text-align: center;
+}
+
+/* ---- Expression Tree section: reduced padding ---- */
+.ew-body--tree {
+  position: relative;
+  padding: 2px 4px 4px;
+  overflow: visible;
+}
+
+.ew-body--tree .step-rep {
+  padding: 2px 0;
+  overflow: visible;
+}
+
+.ew-body--tree .step-rep-wrapper {
+  overflow: visible;
+}
+
+.ew-body--tree .pipe-diagram {
+  transform-origin: center center;
+}
+
+/* Keep text/labels upright while SVG is rotated during animation.
+   Counter-rotation is handled entirely by SVG transform attributes in JS. */
+
+/* ---- Graph Controls section in expr-window ---- */
+.ew-body--controls {
+  padding: 0;
+}
+
+.ew-controls-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+/* Desktop: keep pill-group styling */
+@media (min-width: 601px) {
+  .ew-body--controls {
+    padding: 4px 6px 6px;
+  }
+
+  .ew-controls-wrap {
+    gap: 4px 6px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ew-controls-wrap .mode-toggle__buttons {
+    position: static;
+    display: inline-flex;
+    font-size: 0.72rem;
+  }
+
+  .ew-controls-wrap .mode-btn {
+    font-size: 0.72rem;
+    padding: 3px 8px;
+  }
+}
+
+/* Mobile: full-bleed segmented bar inside expr-window */
+@media (max-width: 600px),
+(hover: none) and (pointer: coarse) {
+
+  /* Unwrap groups so buttons flow flat */
+  .ew-controls-wrap .mode-toggle__buttons,
+  .ew-controls-wrap .mode-dropdown-wrap {
+    display: contents !important;
+  }
+
+  /* Flat segment buttons */
+  .ew-controls-wrap .mode-btn {
+    border-radius: 0 !important;
+    border: none !important;
+    border-right: 1px solid var(--border) !important;
+    min-height: 36px;
+    padding: 6px 4px;
+    font-size: 0.78rem;
+    background: transparent;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ew-controls-wrap .mode-btn+.mode-btn {
+    border-left: none !important;
+  }
+
+  .ew-controls-wrap .mode-btn--active {
+    background: var(--toggle-active-bg) !important;
+    color: var(--toggle-active-color) !important;
+  }
+
+  /* Row 1: Mode selector (Cartesian / Δ / Parallel) */
+  .ew-controls-wrap .mode-btn[data-mode] {
+    flex: 1 1 33.33%;
+    order: 0;
+    border-bottom: 1px solid var(--border) !important;
+  }
+
+  .ew-controls-wrap .mode-btn[data-mode="numberLines"] {
+    border-right: none !important;
+  }
+
+  /* Row 2: Discrete icons (wider) + toggle buttons */
+  .ew-controls-wrap .discrete-btn {
+    order: 1;
+    flex: 2 1 0;
+    padding: 4px 0 !important;
+  }
+
+  .ew-controls-wrap .discrete-btn svg {
+    width: 100%;
+    height: 16px;
+  }
+
+  .ew-controls-wrap .tau-toggle {
+    order: 2;
+    flex: 1 1 0;
+  }
+
+  .ew-controls-wrap .glow-toggle {
+    order: 3;
+    flex: 1 1 0;
+  }
+
+  .ew-controls-wrap .numeral-toggle {
+    order: 4;
+    flex: 1 1 0;
+    border-right: none !important;
+  }
+
+  /* Hide EQ and axis dial on mobile */
+  .ew-controls-wrap [aria-label="Equalize colors"] {
+    display: none !important;
+  }
+
+  .ew-controls-wrap .axis-dial {
+    display: none !important;
+  }
+}
+
+/* Hide the dropdown trigger inside the window */
+.ew-controls-wrap .mode-dropdown-trigger {
+  display: none !important;
+}
+
+.ew-controls-wrap .mode-dropdown-list {
+  display: contents !important;
+}
+
+/* ---- Visibility section in expr-window ---- */
+.ew-body--visibility {
+  padding: 0;
+}
+
+.ew-visibility-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+/* Full-bleed segmented visibility toggles — 2 rows of 3 */
+.ew-visibility-wrap .graph-toggle-btn {
+  flex: 1 1 33.33%;
+  font-size: 0.68rem;
+  padding: 4px 6px;
+  min-height: 28px;
+  border-radius: 0 !important;
+  border: none !important;
+  border-right: 1px solid var(--border) !important;
+  border-bottom: 1px solid var(--border) !important;
+  box-sizing: border-box;
+}
+
+/* Remove right border on every 3rd item (end of row) */
+.ew-visibility-wrap .graph-toggle-btn:nth-child(3n) {
+  border-right: none !important;
+}
+
+/* Remove bottom border on last row */
+.ew-visibility-wrap .graph-toggle-btn:nth-child(n+4) {
+  border-bottom: none !important;
+}
+
+.ew-visibility-wrap .toggle-group__label {
+  font-size: 0.66rem;
+}
+
+.ew-visibility-wrap .toggle-group__sub {
+  font-size: 0.64rem;
+  padding: 1px 5px;
+  min-height: 20px;
+}
+
+/* ---- Tree compass (rotation indicator) ---- */
+.tree-compass {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.tree-compass:hover {
+  opacity: 1;
+}
+
+.tree-compass svg {
+  display: block;
+}
+
+.tree-compass__needle {
+  transition: transform 0.25s ease;
+}
+
+/* ---- Radial menu backdrop + portal ---- */
+.radial-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: oklch(0% 0 0 / 0.45);
+  pointer-events: auto;
+}
+
+body.light .radial-menu-backdrop {
+  background: oklch(0% 0 0 / 0.25);
+}
+
+.radial-menu-portal {
+  position: fixed;
+  z-index: 31;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.radial-menu-portal>* {
+  pointer-events: auto;
+}
+
+/* ---- Rendered tooltip for nodes ---- */
+.node-tooltip {
+  position: fixed;
+  z-index: 25;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: oklch(95% 0 0);
+  background: oklch(18% 0.03 270 / 0.92);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.15s;
+  transform: translateX(-50%);
+}
+
+body.light .node-tooltip {
+  background: oklch(25% 0.03 270 / 0.88);
+}
+
+.node-tooltip.visible {
+  opacity: 1;
+}
+
+/* ---- Mobile section toggle tabbar ---- */
+.ew-section-tabbar {
+  display: none;
+}
+
+.ew-tab-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 5px 2px;
+  cursor: pointer;
+  flex: 1;
+  text-align: center;
+  opacity: 0.4;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.ew-tab-btn--on {
+  opacity: 1;
+  background: oklch(0.55 0 0 / 0.15);
+  color: var(--text);
+  border-color: oklch(0.55 0 0 / 0.4);
+}
+
+body.light .ew-tab-btn--on {
+  background: oklch(0.45 0 0 / 0.1);
+  border-color: oklch(0.45 0 0 / 0.3);
+}
+
+/* =============================================
+   Swipe pages layout (mobile portrait)
+   ============================================= */
+
+.expr-window.has-swipe-pages {
+  flex-direction: column !important;
+}
+
+.ew-page-labels {
+  display: none;
+}
+
+.ew-page-label {
+  flex: 1;
+  padding: 8px 0;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.ew-page-label+.ew-page-label {
+  border-left: 1px solid var(--border);
+}
+
+.ew-page-label--active {
+  color: var(--toggle-active-color, var(--text));
+  border-bottom-color: var(--accent, var(--text));
+}
+
+.ew-pages-scroller {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+  scrollbar-width: none;
+  transition: height 0.25s ease;
+}
+
+.ew-pages-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.ew-page {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+  max-height: 100%;
+}
+
+/* ---- Panel tab bar (mobile portrait) ---- */
+.ew-panel-bar {
+  display: flex;
+  border-top: 1px solid var(--border);
+  background: oklch(0% 0 0 / 0.15);
+  flex-shrink: 0;
+}
+
+body.light .ew-panel-bar {
+  background: oklch(94% 0.008 275 / 0.25);
+}
+
+.ew-panel-tab {
+  flex: 1;
+  padding: 10px 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s, background 0.15s;
+}
+
+.ew-panel-tab+.ew-panel-tab {
+  border-left: 1px solid var(--border);
+}
+
+.ew-panel-tab--active {
+  color: var(--toggle-active-color, var(--text));
+  background: var(--toggle-active-bg);
+}
+
+/* ---- Panel containers ---- */
+.ew-panel {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  max-height: 65vh;
+  max-height: 65dvh;
+}
+
+.ew-panel>.ew-section {
+  order: unset !important;
+  flex-shrink: 0;
+}
+
+.ew-panel>#ew-section-visibility {
+  border-top: 1px solid var(--border);
+}
+
+.ew-panel>.ew-section>.ew-section__header {
+  display: none !important;
+}
+
+/* ---- Timeline inside panel ---- */
+.timeline--inpanel {
+  position: static !important;
+  bottom: auto !important;
+  left: auto !important;
+  right: auto !important;
+  transform: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  border-radius: 0 !important;
+  border-top: 1px solid var(--border);
+  z-index: 1;
+}
+
+.ew-page>.ew-section {
+  order: unset !important;
+  flex-shrink: 0;
+}
+
+.ew-page>#ew-section-visibility {
+  border-top: 1px solid var(--border);
+}
+
+/* ---- Controls CSS grid layout ---- */
+.ew-controls-grid {
+  display: grid;
+  grid-template-areas:
+    "discrete axis mode"
+    "discrete axis toggles";
+  grid-template-columns: 2fr 1fr 3fr;
+  grid-template-rows: 1fr 1fr;
+  width: 100%;
+}
+
+.ctrl-discrete {
+  grid-area: discrete;
+  display: flex;
+  flex-direction: row;
+  border-right: 1px solid var(--border);
+}
+
+.ctrl-discrete .discrete-btn {
+  flex: 1 !important;
+  order: unset !important;
+  border-radius: 0 !important;
+  border: none !important;
+  border-right: 1px solid var(--border) !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+}
+
+.ctrl-discrete .discrete-btn:last-child {
+  border-right: none !important;
+}
+
+.ctrl-discrete .discrete-btn svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.ctrl-axis {
+  grid-area: axis;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--border);
+}
+
+.ctrl-axis .axis-dial {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+}
+
+.ctrl-axis .axis-dial__icon {
+  width: 36px;
+  height: 36px;
+}
+
+.ctrl-mode {
+  grid-area: mode;
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.ctrl-mode .mode-btn,
+.ctrl-mode .mode-btn[data-mode] {
+  flex: 1 !important;
+  order: unset !important;
+  border-bottom: none !important;
+}
+
+.ctrl-toggles {
+  grid-area: toggles;
+  display: flex;
+}
+
+.ctrl-toggles .mode-btn {
+  flex: 1 !important;
+  order: unset !important;
+}
+
+.ctrl-toggles .mode-btn:last-child {
+  border-right: none !important;
+}
+
+/* ---- Visibility 2-column layout ---- */
+.has-swipe-pages .ew-visibility-wrap {
+  flex-wrap: nowrap !important;
+}
+
+.vis-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.vis-column--left {
+  border-right: 1px solid var(--border);
+}
+
+.vis-column .graph-toggle-btn {
+  flex: 1 1 auto !important;
+  border-right: none !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.vis-column .graph-toggle-btn:last-child {
+  border-bottom: none !important;
+}
+
+.ew-page .ew-section>.ew-section__header {
+  display: none !important;
+}
+
+/* ---- SVG pipe diagram: ensure tappable on mobile ---- */
+.ew-panel .pipe-diagram,
+.ew-page .pipe-diagram {
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+}
+
+.ew-panel .pipe-diagram .swap-group,
+.ew-panel .pipe-diagram [data-badge-hit] {
+  pointer-events: all !important;
+  cursor: pointer;
+}
+
+/* ---- Tap-to-edit expression section ---- */
+.ew-section--tap-edit {
+  border-bottom: 1px solid var(--border);
+}
+
+.ew-tap-edit-wrap {
+  display: flex;
+  min-height: 44px;
+  cursor: text;
+}
+
+.ew-tap-edit-wrap #ew-body-latex {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 6px 12px;
+  min-height: 44px;
+}
+
+.ew-tap-edit-wrap #ew-body-latex .latex-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ew-tap-edit-wrap #ew-body-latex .latex-display {
+  font-size: 1.1rem;
+}
+
+.ew-tap-edit-wrap #ew-body-text {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}

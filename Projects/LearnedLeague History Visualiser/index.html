@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LearnedLeague History Visualiser</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <header>
+        <div id="header-title">
+            <h1>LearnedLeague History Visualiser</h1>
+            <p><a href="../../index.html">← Back to all projects</a></p>
+        </div>
+
+        <div class="upload-group">
+            <label for="profile-input">Profile page (HTML)</label>
+            <input type="file" id="profile-input" accept=".html,.htm">
+        </div>
+
+        <div id="view-toggle" class="hidden">
+            <button id="btn-title-case" class="view-btn title-case-btn"
+                title="Toggle title case for answer text">Aa</button>
+        </div>
+
+        <div id="subject-tray" class="hidden"></div>
+    </header>
+
+    <p id="status-msg" class="status"></p>
+
+    <main>
+
+        <!-- ── Chart ───────────────────────────────────────────────────────────── -->
+        <section id="chart-section" class="hidden">
+
+            <div id="label-palette">
+                <span class="label-palette-hint">✎ Drag to chart:</span>
+                <div class="label-template" draggable="true">Label</div>
+                <div class="label-template" draggable="true">Label</div>
+                <div class="label-template" draggable="true">Label</div>
+            </div>
+
+            <div id="chart-outer">
+                <div id="y-axis-wrapper"></div>
+                <div id="chart-container"></div>
+            </div>
+
+            <div id="chart-legend"></div>
+
+        </section>
+
+    </main>
+
+    <div id="tooltip" class="hidden"></div>
+
+    <script src="answers.js"></script>
+    <script src="pct.js"></script>
+    <script src="parser.js"></script>
+    <script src="chart.js"></script>
+    <script src="labels.js"></script>
+    <script src="main.js"></script>
+
+</body>
+
+</html>
