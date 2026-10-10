@@ -1408,7 +1408,10 @@ function astToColoredLatex(node, xVal, parentOpndColor) {
             ? `\\textcolor{${fn}}{-}\\!\\left(${rLatex}\\right)`
             : `\\textcolor{${fn}}{-}${rLatex}`;
         }
-        return `${astToColoredLatex(left, xVal, opC)} \\textcolor{${fn}}{-} ${astToColoredLatex(right, xVal, opC)}`;
+        let rLatex = astToColoredLatex(right, xVal, opC);
+        if (right.type === "binary" && (right.op === "+" || right.op === "-"))
+          rLatex = `\\left(${rLatex}\\right)`;
+        return `${astToColoredLatex(left, xVal, opC)} \\textcolor{${fn}}{-} ${rLatex}`;
       }
 
       /* ── multiplication ────────────────────────────── */
@@ -1424,9 +1427,10 @@ function astToColoredLatex(node, xVal, parentOpndColor) {
         let lLatex = astToColoredLatex(effL, xVal, opC);
         let rLatex = astToColoredLatex(effR, xVal, opC);
         // Wrap lower-precedence children
+        const rWrapped = effR.type === "binary" && precedence(effR.op) < 2;
         if (effL.type === "binary" && precedence(effL.op) < 2)
           lLatex = `\\left(${lLatex}\\right)`;
-        if (effR.type === "binary" && precedence(effR.op) < 2)
+        if (rWrapped)
           rLatex = `\\left(${rLatex}\\right)`;
 
         // Use implicit multiplication (juxtaposition) when unambiguous:
@@ -1442,7 +1446,7 @@ function astToColoredLatex(node, xVal, parentOpndColor) {
         // number · complex-expr: parens only when expr starts with a digit
         // e.g. 5(2^x) needs parens, but 5x² doesn't (unless x is live → 5(3²))
         if (lSimple && (effR.type === "binary" || effR.type === "call")) {
-          if (_astStartsWithDigit(effR, hasX)) return `${lLatex}(${rLatex})`;
+          if (!rWrapped && _astStartsWithDigit(effR, hasX)) return `${lLatex}(${rLatex})`;
           return `${lLatex}${rLatex}`;
         }
         return `${lLatex} \\textcolor{${fn}}{${latexMulSym()}} ${rLatex}`;
@@ -3557,16 +3561,22 @@ function pipeLayoutToColoredLatex(layout, xVal) {
     const lRole = roles.left, rRole = roles.right;
     byRole[lRole] = L != null ? armCol(L, cat, lRole) : "?";
     byRole[rRole] = R != null ? armCol(R, cat, rRole) : null;
+    const idByRole = { [lRole]: nd.leftId, [rRole]: nd.rightId };
+
+    // Brackets preserve order of operations when a child has lower precedence
+    const isAddSubNode = (cid) => { const t = nodeClassify(cid); return t === "add" || t === "sub"; };
+    const paren = (latex) => col(`\\left(${latex}\\right)`, badgeHex);
+    const wrapIf = (role, cond) => (cond ? paren(byRole[role]) : byRole[role]);
 
     if (cat === "addSub") {
       if (roles.output === "3") {
         return `${byRole["1"]} ${col("+", badgeHex)} ${byRole["2"]}`;
       }
       if (roles.output === "1") {
-        return `${byRole["3"]} ${col("-", badgeHex)} ${byRole["2"]}`;
+        return `${byRole["3"]} ${col("-", badgeHex)} ${wrapIf("2", isAddSubNode(idByRole["2"]))}`;
       }
       if (roles.output === "2") {
-        return `${byRole["3"]} ${col("-", badgeHex)} ${byRole["1"]}`;
+        return `${byRole["3"]} ${col("-", badgeHex)} ${wrapIf("1", isAddSubNode(idByRole["1"]))}`;
       }
     }
     if (cat === "mulDiv") {
@@ -3576,6 +3586,15 @@ function pipeLayoutToColoredLatex(layout, xVal) {
         const role4Id = roles.left === "4" ? nd.leftId : nd.rightId;
         const t2 = nodeClassify(role2Id);
         const t4 = nodeClassify(role4Id);
+        // Sum/difference factors must be bracketed: 2(x+1), (x+1)(x-1)
+        const p2 = t2 === "add" || t2 === "sub";
+        const p4 = t4 === "add" || t4 === "sub";
+        if (p2 || p4) {
+          const f2 = wrapIf("2", p2), f4 = wrapIf("4", p4);
+          // Put a plain coefficient in front of the bracketed group: (x+1)·2 → 2(x+1)
+          if (p2 && !p4) return `${f4}${f2}`;
+          return `${f2}${f4}`;
+        }
         const s2 = (t2 === "num" || t2 === "const");
         const e4 = (t4 === "var" || t4 === "call");
         const s4 = (t4 === "num" || t4 === "const");
@@ -3615,7 +3634,9 @@ function pipeLayoutToColoredLatex(layout, xVal) {
       const expE = byRole.exponent || "?";
       const powE = byRole.power || "?";
       if (roles.output === "power") {
-        return `{${baseE}}^{${expE}}`;
+        const baseType = nodeClassify(idByRole["base"]);
+        const baseNeedsParen = ["add", "sub", "mul", "div", "power"].includes(baseType);
+        return `{${baseNeedsParen ? paren(baseE) : baseE}}^{${expE}}`;
       }
       if (roles.output === "base") {
         // Always use root notation

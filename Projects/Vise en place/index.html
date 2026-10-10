@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vise en place</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+    <header id="toolbar">
+        <h1>Vise en place</h1>
+        <input type="text" id="titleInput" placeholder="Recipe title" />
+        <div class="toolbar-actions">
+            <button id="newBtn">New</button>
+            <button id="exampleBtn">Load Example</button>
+            <button id="saveBtn">Save</button>
+            <label class="file-btn">Load
+                <input type="file" id="loadInput" accept="application/json,.json" hidden />
+            </label>
+            <button id="exportImageBtn">Export Image</button>
+        </div>
+    </header>
+
+    <div id="appBody">
+        <main id="canvasWrap">
+            <svg id="diagram" xmlns="http://www.w3.org/2000/svg"></svg>
+        </main>
+    </div>
+
+    <script src="js/model.js"></script>
+    <script src="js/renderer.js"></script>
+    <script src="js/export.js"></script>
+    <script src="js/interact.js"></script>
+    <script src="js/main.js"></script>
+</body>
+
+</html>
