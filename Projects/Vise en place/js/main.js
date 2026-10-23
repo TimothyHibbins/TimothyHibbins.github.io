@@ -5,9 +5,19 @@
     'use strict';
 
     const svg = document.getElementById('diagram');
+    const rowHeightInput = document.getElementById('rowHeightInput');
+    const rowHeightOut = document.getElementById('rowHeightOut');
+    // Keeps the slider showing whatever the CURRENT model's row height is
+    // (the model gets swapped wholesale by undo/new/load/example).
+    function syncRowHeightControl() {
+        const h = window.VEP.renderer.rowH(app.model);
+        rowHeightInput.value = h;
+        rowHeightOut.textContent = h;
+    }
     const app = {
         model: window.VEP.io.loadDraft() || window.VEP.model.createEmptyRecipe(),
         rerender() {
+            syncRowHeightControl();
             window.VEP.renderer.renderDiagram(app.model, svg);
             window.VEP.interact.bindAll(svg, app.model, app.rerender);
             window.VEP.io.saveDraft(app.model);
@@ -50,7 +60,18 @@
         else if (key === 'y') { e.preventDefault(); redo(); }
     });
 
+    window.VEP.cook.init(svg, () => app.model);
     app.rerender();
+
+    // One undo snapshot per slider gesture (pointer down), not per tick.
+    rowHeightInput.addEventListener('pointerdown', recordHistory);
+    rowHeightInput.addEventListener('keydown', e => {
+        if (e.key.startsWith('Arrow') && !e.repeat) recordHistory();
+    });
+    rowHeightInput.addEventListener('input', () => {
+        app.model.rowHeight = Number(rowHeightInput.value);
+        app.rerender();
+    });
 
     document.getElementById('newBtn').addEventListener('click', () => {
         if (!confirm('Start a new blank recipe? Unsaved changes will be lost.')) return;

@@ -30,7 +30,7 @@
                         reject(new Error('File does not look like a valid Vise en place recipe.'));
                         return;
                     }
-                    resolve(doc);
+                    resolve(global.VEP.model.migrateRecipe(doc));
                 } catch (err) {
                     reject(err);
                 }
@@ -53,7 +53,7 @@
             const raw = localStorage.getItem(DRAFT_KEY);
             if (!raw) return null;
             const doc = JSON.parse(raw);
-            return global.VEP.model.isValidRecipe(doc) ? doc : null;
+            return global.VEP.model.isValidRecipe(doc) ? global.VEP.model.migrateRecipe(doc) : null;
         } catch (err) {
             return null;
         }

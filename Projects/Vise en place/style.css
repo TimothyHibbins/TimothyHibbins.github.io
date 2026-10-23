@@ -59,6 +59,26 @@ body {
     flex-wrap: wrap;
 }
 
+.row-height-ctl {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.row-height-ctl input[type="range"] {
+    width: 110px;
+    accent-color: var(--accent);
+}
+
+.row-height-ctl output {
+    min-width: 2ch;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
 button,
 .file-btn {
     background: var(--bg-raised);
@@ -120,51 +140,14 @@ button:hover,
 .utensil-label {
     font-family: var(--sans);
     font-size: 12px;
-    font-weight: 600;
-    fill: #fff;
-    paint-order: stroke;
-    stroke: #000;
-    stroke-width: 1px;
-    stroke-linejoin: round;
-}
-
-.process-label {
-    font-family: var(--sans);
-    font-size: 12px;
-    font-weight: 700;
-    fill: #fff;
-    paint-order: stroke;
-    stroke: #000;
-    stroke-width: 1px;
-    stroke-linejoin: round;
-}
-
-.process-sublabel {
-    font-family: var(--sans);
-    font-size: 11px;
-    font-weight: 700;
-    fill: #fff;
-    paint-order: stroke;
-    stroke: #000;
-    stroke-width: 1px;
-    stroke-linejoin: round;
-    cursor: pointer;
-}
-
-.process-sublabel-empty {
-    fill-opacity: 0.55;
     font-weight: 400;
-    font-style: italic;
-}
-
-.process-label {
-    cursor: pointer;
+    cursor: grab;
 }
 
 .step-label {
     font-family: var(--sans);
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 400;
     fill: #fff;
     cursor: grab;
 }
@@ -172,8 +155,18 @@ button:hover,
 .line-name {
     font-family: var(--sans);
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 400;
     fill: #fff;
+}
+
+.line-name[data-part="quantity"] {
+    font-weight: 700;
+}
+
+.line-name--placeholder {
+    fill-opacity: 0.55;
+    font-weight: 400;
+    font-style: italic;
 }
 
 .pill-label-bg {
@@ -226,43 +219,63 @@ button:hover,
     cursor: ns-resize;
 }
 
-.zone-band:nth-of-type(4n+1) {
-    fill: #f7f5f0;
-}
-
-.zone-band:nth-of-type(4n+2) {
-    fill: #f0f4f7;
-}
-
-.zone-band:nth-of-type(4n+3) {
-    fill: #f4f7f0;
-}
-
-.zone-band:nth-of-type(4n+4) {
-    fill: #f7f0f4;
-}
-
-.zone-divider {
-    stroke: #ddd;
+.section-header {
+    fill: #ececec;
+    stroke: rgba(0, 0, 0, 0.18);
     stroke-width: 1;
+    shape-rendering: crispEdges;
     pointer-events: none;
 }
 
-.zone-label {
+.section-header-label {
     font-family: var(--sans);
     font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    fill: #fff;
-    paint-order: stroke;
-    stroke: #000;
-    stroke-width: 1px;
-    stroke-linejoin: round;
+    font-weight: 600;
+    fill: #555;
     pointer-events: none;
+}
+
+.layer-hover {
+    pointer-events: none;
+}
+
+.row-dim {
+    fill: #fff;
+    fill-opacity: 0.5;
+    pointer-events: none;
+}
+
+.step-number-bg.is-selected {
+    stroke: var(--accent);
+    stroke-width: 2;
 }
 
 /* ---------- in-context editing affordances ---------- */
+
+.utensil-create-band {
+    fill: rgba(0, 0, 0, 0.03);
+    cursor: pointer;
+}
+
+.utensil-create-band:hover {
+    fill: rgba(224, 129, 43, 0.12);
+}
+
+.ingredient-create-band {
+    fill: transparent;
+    cursor: pointer;
+}
+
+.ingredient-create-band:hover {
+    fill: rgba(224, 129, 43, 0.08);
+}
+
+.ingredient-band-border {
+    stroke: rgba(0, 0, 0, 0.2);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    pointer-events: none;
+}
 
 .timestep-add,
 .timestep-add-label {
@@ -273,6 +286,7 @@ button:hover,
     fill: #f5f5f5;
     stroke: #ccc;
     stroke-dasharray: 3 3;
+    shape-rendering: crispEdges;
 }
 
 .timestep-add-label {
@@ -282,19 +296,32 @@ button:hover,
     pointer-events: none;
 }
 
-.utensil-label {
+.row-separator {
+    stroke: rgba(0, 0, 0, 0.07);
+    stroke-width: 1;
+    shape-rendering: crispEdges;
     pointer-events: none;
 }
 
-.add-ingredient-label {
-    font-family: var(--sans);
-    font-size: 12px;
-    fill: #999;
-    cursor: pointer;
+.step-number-bg {
+    fill: #ececec;
+    stroke: rgba(0, 0, 0, 0.18);
+    stroke-width: 1;
+    shape-rendering: crispEdges;
+    cursor: grab;
 }
 
-.add-ingredient-label:hover {
-    fill: var(--accent);
+.step-number-bg:hover {
+    filter: brightness(0.92);
+    stroke: var(--accent);
+}
+
+.step-number {
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    fill: #555;
+    pointer-events: none;
 }
 
 .draw-preview {
@@ -360,6 +387,22 @@ button:hover,
     font-size: 12px;
     font-family: var(--sans);
     line-height: 1.3;
+    outline: none;
+    box-shadow: none;
+}
+
+.inline-edit-input--pill {
+    border: none;
+    border-radius: 999px;
+    padding: 2px 7px;
+    font-weight: 600;
+}
+
+.inline-edit-input--transparent {
+    background: transparent;
+    border: none;
+    padding: 0;
+    border-radius: 0;
 }
 
 .inline-edit-delete {
@@ -479,4 +522,176 @@ button:hover,
     font-size: 14px;
     font-weight: 700;
     line-height: 1;
+}
+
+.row-current {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2;
+    pointer-events: none;
+}
+
+/* Timer field on a step label */
+.step-timer {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+}
+
+.step-timer.is-ringing {
+    animation: timer-blink 0.7s steps(2, jump-none) infinite;
+}
+
+@keyframes timer-blink {
+    50% {
+        opacity: 0.25;
+    }
+}
+
+.hover-action-btn.timer-btn {
+    background: var(--bg-raised);
+    color: var(--text);
+    border: 1px solid var(--accent);
+    font-size: 11px;
+}
+
+/* ---------- cook mode ---------- */
+svg.cooking {
+    pointer-events: none;
+}
+
+.cook-toggle {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+#cookBar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+    padding: 10px 16px;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+}
+
+#cookBar[hidden] {
+    display: none;
+}
+
+.cook-nav,
+.cook-mic {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+#cookStatus {
+    min-width: 8ch;
+    text-align: center;
+    color: var(--text);
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.cook-primary {
+    background: var(--accent);
+    color: #1a1208;
+    border-color: var(--accent);
+    font-weight: 700;
+    padding: 9px 22px;
+}
+
+#cookBar button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+#cookMic.is-on {
+    border-color: #3fb950;
+    color: #3fb950;
+}
+
+.cook-meter {
+    position: relative;
+    width: 110px;
+    height: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.cook-meter::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    border-left: 1px dashed var(--text-dim);
+}
+
+#cookMeterBar {
+    height: 100%;
+    width: 0;
+    background: #3fb950;
+}
+
+.cook-meter.snap {
+    border-color: var(--accent);
+}
+
+.cook-meter.snap #cookMeterBar {
+    background: var(--accent);
+}
+
+#cookTimers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.cook-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px 4px 10px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+}
+
+.cook-chip-time {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    font-size: 14px;
+}
+
+.cook-chip-name {
+    color: var(--text-dim);
+    max-width: 18ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cook-chip button {
+    padding: 0 7px;
+    border-radius: 999px;
+    line-height: 18px;
+}
+
+.cook-chip.is-ringing {
+    border-color: #c0392b;
+    animation: chip-flash 0.7s steps(2, jump-none) infinite;
+}
+
+@keyframes chip-flash {
+    50% {
+        background: #5a2420;
+    }
 }

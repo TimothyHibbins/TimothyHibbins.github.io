@@ -2,13 +2,11 @@
 (function (global) {
     'use strict';
 
-    const SCHEMA_VERSION = 6;
+    const SCHEMA_VERSION = 9;
 
-    // Default spacing (px) between newly-created columns -- mirrors
-    // renderer.js's LAYOUT.columnWidth but kept decoupled (model.js doesn't
-    // depend on renderer.js). Each column has its own draggable `.x`, so
-    // real spacing is whatever the user drags it to, not a fixed grid.
-    const DEFAULT_STEP_SPACING = 190;
+    // Height (px) of one discrete step row; stored per recipe as
+    // `model.rowHeight` so the user's fine-tuning persists.
+    const DEFAULT_ROW_HEIGHT = 20;
 
     function genId(prefix) {
         const rand = (typeof crypto !== 'undefined' && crypto.randomUUID)
@@ -17,37 +15,22 @@
         return `${prefix}-${rand}`;
     }
 
-    // The lane axis is a literal 1-D map of a simplified kitchen: fixed
-    // zones (countertop/sink/stovetop/oven) laid out left-to-right, each
-    // spanning a fixed pixel range. Utensils are permanent fixtures placed
-    // within a zone (no time range of their own -- they're just "there" for
-    // the whole recipe); ingredients have a definite `x` position on this
-    // same line, moved by dragging rather than picked from an abstract lane.
-    function defaultZones() {
-        return [
-            { id: 'sink', name: 'Sink', x: 0, width: 100 },
-            { id: 'countertop', name: 'Countertop', x: 100, width: 600 },
-            { id: 'stovetop', name: 'Stovetop', x: 710, width: 270 },
-            { id: 'oven', name: 'Oven', x: 990, width: 150 },
-            { id: 'table', name: 'Table', x: 1150, width: 120 }
-        ];
-    }
+    // The lane axis is a plain 1-D line across the page. Utensils are
+    // permanent fixtures with an `x`/`width` on it (no time range of their
+    // own); ingredients have a definite `x` on the same line, moved by
+    // dragging.
 
-    // A time step is a single point in the timeline; a "step" (action) is
-    // something that happens there. A column holds a `.steps` ARRAY, not a
-    // single nullable slot -- several unrelated things (different lines'
-    // moves/labels/merges) can genuinely share the same moment, same as in
-    // a real kitchen. An empty array is just a plain spacer. `.x` is the
-    // column's draggable position along the timeline (px, before
-    // LAYOUT.topMargin is added) -- columns are NOT forced to equal width.
+    // A time step is one discrete row (its y is just its array index). A
+    // column holds a `.steps` ARRAY -- several unrelated things (different
+    // lines' moves/labels/merges) can share one row, as in a real kitchen.
     function createEmptyRecipe() {
         return {
             version: SCHEMA_VERSION,
             title: 'Untitled Recipe',
-            zones: defaultZones(),
+            rowHeight: DEFAULT_ROW_HEIGHT,
             timeSteps: [
-                { id: genId('t'), label: '', steps: [], x: 0 },
-                { id: genId('t'), label: '', steps: [], x: DEFAULT_STEP_SPACING }
+                { id: genId('t'), label: '', steps: [] },
+                { id: genId('t'), label: '', steps: [] }
             ],
             ingredients: [],
             utensils: [],
@@ -56,124 +39,56 @@
     }
 
 
-    // `steps` may be a single step object (the common case) or an array of
-    // several sharing this one column/moment.
-    function col(label, steps) {
-        const list = steps ? (Array.isArray(steps) ? steps : [steps]) : [];
-        return { id: genId('t'), label: label || '', steps: list };
-    }
-    function labelStep(lineId, text) { return { id: genId('step'), type: 'label', lineId, text }; }
-    function moveStep(lineId, newX, text) { return { id: genId('step'), type: 'move', lineId, newX, text: text || 'Move' }; }
-    // A combined ingredient gets its own real colour/thickness, same as a
-    // raw ingredient -- editable afterwards via the same controls, not
-    // derived from its inputs at render time.
-    function mergeStep(inputLineIds, outputLineId, outputName, outputX, outputColor, outputThickness) {
-        return {
-            id: genId('step'), type: 'merge', inputLineIds, outputLineId, outputName, outputX,
-            outputColor: outputColor || '#888888', outputThickness: outputThickness || 10
-        };
-    }
-    // An "add" keeps the base line's own identity (name/colour) going
-    // forward -- no new line is born, only the absorbed line dies here.
-    // This is what the common "drag one ingredient onto an existing one"
-    // gesture creates (the existing one survives, just gets thicker from
-    // here on); an explicit named `mergeStep` (the "+Step > merge"
-    // checkbox form) is for deliberately combining several things into a
-    // brand new identity instead.
-    function addStep(baseLineId, addedLineId, newThickness) {
-        return { id: genId('step'), type: 'add', baseLineId, addedLineId, newThickness };
-    }
+    // The built-in example recipe is authored directly in the app (saved/
+    // loaded as plain recipe JSON, see `example.vep.json` in this folder)
+    // rather than constructed from helper calls -- embedded here verbatim
+    // so "Load Example" doesn't depend on a separate fetch (the app must
+    // keep working opened directly via `file://`). Returns a fresh deep
+    // copy each time so repeated loads never share mutable state.
+    const EXAMPLE_RECIPE = {"version":9,"title":"Thai Red Curry Duck V2","timeSteps":[{"id":"t-l72xrr2y","label":"","steps":[{"id":"step-h4r2w8s5","type":"move","lineId":"rice","newX":50,"text":"rinse"}]},{"id":"t-0yxnsh3j","label":"","steps":[{"id":"step-xd9i1zag","type":"move","lineId":"rice","newX":925,"text":"add to saucepan"}]},{"id":"t-v39o1zns","label":"","steps":[{"id":"step-i77hb0ih","type":"label","lineId":"pineapple","text":"drain, reserving 3tsp juice"}]},{"id":"t-cdf53b76","label":"","steps":[{"id":"step-03203b12","type":"process-start","processId":"p-uzyh0cl7"}]},{"id":"t-n2as7684","label":"","steps":[{"id":"step-89cadwh6","type":"label","lineId":"lemongrass","text":"trim end"}]},{"id":"t-2xqw61np","label":"","steps":[{"id":"step-0mcrarwh","type":"move","lineId":"pineapple","newX":1072.3629150390625,"text":"scatter"}]},{"id":"t-vftm89c0","label":"","steps":[{"id":"step-9ihp3bo2","type":"label","lineId":"lemongrass","text":"peel, chop coarsely"}]},{"id":"t-z7dufkv7","label":"","steps":[{"id":"step-16jhdt8q","type":"label","lineId":"garlic","text":"chop coarsely"}]},{"id":"t-njjz01so","label":"","steps":[{"id":"step-xtgvixoo","type":"label","lineId":"shallot","text":"chop coarsely"}]},{"id":"t-lza91pz3","label":"","steps":[{"id":"step-o23h30eq","type":"label","lineId":"coriander","text":"pick leaves"}]},{"id":"t-230b1604","label":"","steps":[{"id":"step-5a89f04d","type":"process-start","processId":"p-okkibr61"}]},{"id":"t-z9m8cyc7","label":"","steps":[{"id":"step-k66n718n","type":"label","lineId":"coriander","text":"chop coarsely"}]},{"id":"t-mjw4i288","label":"","steps":[{"id":"step-q72ziv8k","type":"merge","inputLineIds":["lemongrass","garlic","shallot","coriander","galangal","fishsauce"],"outputLineId":"paste","outputName":"paste","outputX":540.9580993652344,"outputColor":"#8a5a2a","outputThickness":27}]},{"id":"t-d0hmhmik","label":"","steps":[{"id":"step-nlgat2e4","type":"move","lineId":"duck","newX":1040,"text":"place"}]},{"id":"t-gqi9n6qt","label":"","steps":[{"id":"step-bnrtrj3l","type":"move","lineId":"paste","newX":795,"text":"add"}]},{"id":"t-6f203d6b","label":"","steps":[{"id":"step-e7c333c5","type":"process-start","processId":"p-aytnd83c"}]},{"id":"t-323ba587","label":"","steps":[{"id":"step-268f9673","type":"process-start","processId":"p-4dfhd997"}]},{"id":"t-kshbwoyv","label":"","steps":[{"id":"step-92l2a38c","type":"merge","inputLineIds":["paste","coconutmilk","cherrytomatoes"],"outputLineId":"curry","outputName":"curry sauce","outputX":795,"outputColor":"#d9822b","outputThickness":45}]},{"id":"t-d60f86b6","label":"","steps":[{"id":"step-38bec26f","type":"process-start","processId":"p-gq645qta"}]},{"id":"t-zcecxc77","label":"","steps":[{"id":"step-dj6eznw3","type":"label","lineId":"pakchoy","text":"quarter"}]},{"id":"t-vs0kb2d7","label":"","steps":[{"id":"step-sfrw009v","type":"add","baseLineId":"curry","addedLineId":"pakchoy","newThickness":51}]},{"id":"t-n2g9gm1h","label":"","steps":[{"id":"step-q50s2qx4","type":"move","lineId":"duck","newX":370.90521240234375,"text":"move"}]},{"id":"t-nwk643bk","label":"","steps":[{"id":"step-wgdp7sj9","type":"label","lineId":"duck","text":"shred"}]},{"id":"t-h2h96nf2","label":"","steps":[{"id":"step-jvsosxqh","type":"move","lineId":"pineapple","newX":841.707763671875,"text":"Move"}]},{"id":"t-qc1x4zt5","label":"","steps":[{"id":"step-qoxa6jr0","type":"label","lineId":"lime","text":"cut into wedges"}]},{"id":"t-r9flg9r6","label":"","steps":[{"id":"step-rqvxslmh","type":"add","baseLineId":"curry","addedLineId":"pineapple","newThickness":57}]},{"id":"t-caof2za2","label":"","steps":[{"id":"step-lekkevss","type":"add","baseLineId":"curry","addedLineId":"duck","newThickness":66}]},{"id":"t-3styp833","label":"","steps":[{"id":"step-6tqgjtbg","type":"move","lineId":"rice","newX":1244.106689453125,"text":"add"}]},{"id":"t-1wbva9qa","label":"","steps":[{"id":"step-nahit3rl","type":"move","lineId":"curry","newX":1203.866943359375,"text":"add"}]},{"id":"t-369tsub4","label":"","steps":[{"id":"step-6jcb5451","type":"move","lineId":"lime","newX":1160.4080810546875,"text":"add"}]}],"ingredients":[{"id":"rice","name":"jasmine rice","quantity":"150g","color":"#f2efe4","thickness":7,"x":115.54971313476562,"startTimeStepIndex":0},{"id":"lime","name":"lime","quantity":"1","color":"#8bc93a","thickness":6,"x":217.17608642578125,"startTimeStepIndex":0},{"id":"galangal","name":"red galangal seasoning","quantity":"15g","color":"#8a2a2a","thickness":4,"x":474.1269836425781,"startTimeStepIndex":0},{"id":"fishsauce","name":"fish sauce","quantity":"20ml","color":"#8a6a52","thickness":4,"x":451.01080322265625,"startTimeStepIndex":0},{"id":"coconutmilk","name":"coconut milk","quantity":"200g","color":"#cfe9ee","thickness":6,"x":605.7532806396484,"startTimeStepIndex":0},{"id":"cherrytomatoes","name":"cherry tomatoes","quantity":"400g","color":"#d43b2b","thickness":6,"x":598.7328491210938,"startTimeStepIndex":0},{"id":"pakchoy","name":"pak choy","quantity":"1 bunch","color":"#4fcf5a","thickness":6,"x":247.26231384277344,"startTimeStepIndex":0},{"id":"pineapple","name":"pineapple slices","quantity":"225g","color":"#e8d34a","thickness":6,"x":498.40838623046875,"startTimeStepIndex":0},{"id":"duck","name":"slow-cooked duck legs","quantity":"2","color":"#c48a6a","thickness":9,"x":636.0789184570312,"startTimeStepIndex":0},{"id":"lemongrass","name":"lemongrass","quantity":"1 stalk","color":"#f0e79a","thickness":5,"x":287.27667236328125,"startTimeStepIndex":0},{"id":"garlic","name":"garlic clove","quantity":"1","color":"#e6d98a","thickness":4,"x":322.27667236328125,"startTimeStepIndex":0},{"id":"shallot","name":"shallot","quantity":"1","color":"#e0559e","thickness":5,"x":358.0814514160156,"startTimeStepIndex":0},{"id":"coriander","name":"coriander","quantity":"1 bunch","color":"#3fae4a","thickness":5,"x":388.252685546875,"startTimeStepIndex":0}],"utensils":[{"id":"u-board","name":"chopping board","color":"#f5d5b8","x":195.65036010742188,"width":238.06463623046875},{"id":"u-foodproc","name":"food processor","color":"#9a9a9a","x":518.0982055664062,"width":44.1102294921875},{"id":"u-pan","name":"medium frying pan","color":"#15110d","x":730,"width":130},{"id":"u-saucepan","name":"saucepan","color":"#7a7a7a","x":880,"width":90},{"id":"u-oven","name":"oven tray","color":"#3a3a3a","x":1000,"width":110},{"id":"u-plate","name":"plate","color":"#e8e8e2","x":1170,"width":90}],"processes":[{"id":"p-aytnd83c","utensilId":"u-pan","label":"1-2 minutes med-high","color":"#8a4a2a","opacity":0.35,"startTimeStepIndex":15,"endTimeStepIndex":19},{"id":"p-gq645qta","utensilId":"u-pan","label":"6-7 minutes med-low","color":"#e0a83a","opacity":0.35,"startTimeStepIndex":18,"endTimeStepIndex":20},{"id":"p-okkibr61","utensilId":"u-oven","label":"5 minutes 190C","color":"#e0a83a","opacity":0.35,"startTimeStepIndex":10,"endTimeStepIndex":12},{"id":"p-4dfhd997","utensilId":"u-oven","label":"15 minutes 190C","color":"#e0a83a","opacity":0.35,"startTimeStepIndex":16,"endTimeStepIndex":19},{"id":"p-uzyh0cl7","utensilId":"u-saucepan","label":"15 minutes simmer","color":"#dedede","opacity":0.35,"startTimeStepIndex":3,"endTimeStepIndex":14}],"rowHeight":20};
 
-    // Recreation of the original hand-drawn duck/pineapple/pak choy curry
-    // prototype recipe, ported onto the kitchen-zone model: every ingredient
-    // starts out on the Countertop (anything that needs chopping starts
-    // right on the Chopping Board there), aromatics merge at the Food
-    // Processor, the curry comes together in the Pan and rice in the
-    // Saucepan (both on the Stovetop), duck & pineapple merge on the Oven
-    // Tray, and everything finally travels to a Plate in the Table zone.
     function createExampleRecipe() {
-        const timeSteps = [
-            col(), // 0: start
-            col('', labelStep('lemongrass', 'Trim end')), // 1
-            col('', labelStep('coriander', 'Pick leaves')), // 2
-            col('', labelStep('pineapple', 'Drain, reserving 3tsp juice')), // 3
-            col('', moveStep('rice', 50, 'Rinse')), // 4
-            col('', labelStep('lemongrass', 'Peel, chop coarsely')), // 5
-            col('', labelStep('garlic', 'Chop coarsely')), // 6
-            col('', labelStep('shallot', 'Chop coarsely')), // 7
-            col('', labelStep('coriander', 'Chop coarsely')), // 8
-            col('', mergeStep(['lemongrass', 'garlic', 'shallot', 'coriander', 'galangal', 'fishsauce'], 'paste', 'Aromatic paste', 380, '#8a5a2a', 27)), // 9
-            col('', moveStep('rice', 925, 'Add to saucepan')), // 10
-            col('', labelStep('pakchoy', 'Quarter')), // 11
-            col('', moveStep('paste', 795, 'Add to pan')), // 12
-            col('', mergeStep(['paste', 'coconutmilk', 'cherrytomatoes', 'pakchoy'], 'curry', 'Curry sauce', 795, '#d9822b', 45)), // 13
-            col('', moveStep('duck', 1040, 'Place on tray')), // 14
-            col('', moveStep('pineapple', 1045, 'Place on tray')), // 15
-            col('', mergeStep(['duck', 'pineapple'], 'roast', 'Duck & pineapple', 1040, '#c48a6a', 15)), // 16
-            col('', labelStep('curry', 'Reduce heat')), // 17
-            col('', labelStep('roast', 'Turn tray')), // 18
-            col('', moveStep('roast', 1210, 'Move to plate')), // 19
-            col('', labelStep('lime', 'Cut into wedges')), // 20
-            col('', mergeStep(['curry', 'roast', 'lime'], 'plate', 'Plated dish', 1210, '#d9822b', 66)) // 21
-        ];
-        // Non-uniform column spacing: the early prep phase (mostly solo
-        // label steps) can stay tight, but the back half needs real room
-        // between neighbouring columns since 5 processes each inject their
-        // own start/end boundary column nearby -- packed too tight, those
-        // auto-inserted columns collide with each other on the timeline.
-        const colX = [0, 18, 36, 54, 80, 98, 116, 134, 152, 180, 220, 270, 320, 380, 440, 500, 560, 630, 700, 770, 840, 960];
-        timeSteps.forEach((ts, i) => { ts.x = colX[i]; });
+        return JSON.parse(JSON.stringify(EXAMPLE_RECIPE));
+    }
 
-        // Everything starts on the Countertop -- the 4 ingredients that get
-        // chopped (lemongrass/garlic/shallot/coriander) start right on the
-        // Chopping Board; galangal/fishsauce are seasonings added straight
-        // in, so they just sit elsewhere on the counter alongside the rest.
-        const ingredients = [
-            { id: 'rice', name: 'Jasmine rice', quantity: '150g', color: '#f2efe4', thickness: 7, x: 460, startTimeStepIndex: 0 },
-            { id: 'lime', name: 'Lime', quantity: '1', color: '#8bc93a', thickness: 6, x: 490, startTimeStepIndex: 0 },
-            { id: 'galangal', name: 'Red galangal seasoning', quantity: '15g', color: '#8a2a2a', thickness: 4, x: 520, startTimeStepIndex: 0 },
-            { id: 'fishsauce', name: 'Fish sauce', quantity: '20ml', color: '#8a6a52', thickness: 4, x: 550, startTimeStepIndex: 0 },
-            { id: 'coconutmilk', name: 'Coconut milk', quantity: '200g', color: '#cfe9ee', thickness: 6, x: 580, startTimeStepIndex: 0 },
-            { id: 'cherrytomatoes', name: 'Cherry tomatoes', quantity: '400g', color: '#d43b2b', thickness: 6, x: 610, startTimeStepIndex: 0 },
-            { id: 'pakchoy', name: 'Pak choy', quantity: '1 bunch', color: '#4fcf5a', thickness: 6, x: 640, startTimeStepIndex: 0 },
-            { id: 'pineapple', name: 'Pineapple slices', quantity: '225g', color: '#e8d34a', thickness: 6, x: 665, startTimeStepIndex: 0 },
-            { id: 'duck', name: 'Slow-cooked duck legs', quantity: '2', color: '#c48a6a', thickness: 9, x: 690, startTimeStepIndex: 0 },
-            { id: 'lemongrass', name: 'Lemongrass', quantity: '1 stalk', color: '#f0e79a', thickness: 5, x: 140, startTimeStepIndex: 0 },
-            { id: 'garlic', name: 'Garlic clove', quantity: '1', color: '#e6d98a', thickness: 4, x: 175, startTimeStepIndex: 0 },
-            { id: 'shallot', name: 'Shallot', quantity: '1', color: '#e0559e', thickness: 5, x: 210, startTimeStepIndex: 0 },
-            { id: 'coriander', name: 'Coriander', quantity: '1 bunch', color: '#3fae4a', thickness: 5, x: 245, startTimeStepIndex: 0 }
-        ];
-
-        const model = { version: SCHEMA_VERSION, title: 'Duck, Pineapple & Pak Choy Curry', zones: defaultZones(), timeSteps, ingredients, utensils: [], processes: [] };
-
-        const board = addUtensil(model, { id: 'u-board', name: 'Chopping Board', color: '#8a6a4a', zoneId: 'countertop', x: 120, width: 160 });
-        const foodproc = addUtensil(model, { id: 'u-foodproc', name: 'Food Processor', color: '#9a9a9a', zoneId: 'countertop', x: 300, width: 160 });
-        const pan = addUtensil(model, { id: 'u-pan', name: 'Pan', color: '#5a4a3a', zoneId: 'stovetop', x: 730, width: 130 });
-        const saucepan = addUtensil(model, { id: 'u-saucepan', name: 'Saucepan', color: '#7a7a7a', zoneId: 'stovetop', x: 880, width: 90 });
-        const oven = addUtensil(model, { id: 'u-oven', name: 'Oven Tray', color: '#3a3a3a', zoneId: 'oven', x: 1000, width: 110 });
-        const plate = addUtensil(model, { id: 'u-plate', name: 'Plate', color: '#e8e8e2', zoneId: 'table', x: 1170, width: 90 });
-
-        addProcess(model, { utensilId: pan.id, label: '1-2 Minutes', sublabel: 'Med-High', color: '#8a4a2a', opacity: 0.35, startX: timeSteps[13].x + 22, endX: timeSteps[17].x - 22 });
-        addProcess(model, { utensilId: pan.id, label: '6-7 Minutes', sublabel: 'Med-Low', color: '#e0a83a', opacity: 0.35, startX: timeSteps[17].x + 22, endX: timeSteps[21].x - 22 });
-        addProcess(model, { utensilId: oven.id, label: '5 Minutes', sublabel: '190C', color: '#e0a83a', opacity: 0.35, startX: timeSteps[16].x + 22, endX: timeSteps[18].x - 22 });
-        addProcess(model, { utensilId: oven.id, label: '15 Minutes', sublabel: '190C', color: '#e0a83a', opacity: 0.35, startX: timeSteps[18].x + 22, endX: timeSteps[21].x - 44 });
-        addProcess(model, { utensilId: saucepan.id, label: '15 Minutes', sublabel: 'Simmer', color: '#dedede', opacity: 0.35, startX: timeSteps[10].x + 22, endX: timeSteps[21].x - 66 });
-
-        return model;
+    // "15", "15m", "1h 30m", "90s", "1:30", "1:30:00" -> seconds (0 = invalid/empty).
+    // A bare number means minutes.
+    function parseDuration(str) {
+        const s = String(str == null ? '' : str).trim().toLowerCase();
+        if (!s) return 0;
+        if (/^\d+(?::\d+){1,2}$/.test(s)) {
+            const p = s.split(':').map(Number);
+            return p.length === 2 ? p[0] * 60 + p[1] : p[0] * 3600 + p[1] * 60 + p[2];
+        }
+        if (/^\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s) * 60);
+        const re = /(\d+(?:\.\d+)?)\s*(h|hr|hrs|hours?|m|mins?|minutes?|s|secs?|seconds?)\b/g;
+        let total = 0, any = false, m;
+        while ((m = re.exec(s))) {
+            any = true;
+            const v = parseFloat(m[1]), u = m[2][0];
+            total += u === 'h' ? v * 3600 : u === 'm' ? v * 60 : v;
+        }
+        return any ? Math.round(total) : 0;
+    }
+    function formatDuration(sec) {
+        sec = Math.max(0, Math.ceil(sec));
+        const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+        const pad = n => String(n).padStart(2, '0');
+        return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
     }
 
     function isValidRecipe(doc) {
         return !!doc && typeof doc === 'object' && Array.isArray(doc.timeSteps) && Array.isArray(doc.ingredients)
-            && Array.isArray(doc.utensils) && Array.isArray(doc.processes) && Array.isArray(doc.zones);
+            && Array.isArray(doc.utensils) && Array.isArray(doc.processes);
     }
 
     global.VEP = global.VEP || {};
     // ---------- shared mutation helpers (used by in-context canvas editing) ----------
-    function addIngredient(model) {
+    function addIngredient(model, x) {
         const maxX = model.ingredients.reduce((m, i) => Math.max(m, i.x || 0), 0);
         const ing = {
-            id: genId('ing'), name: 'New Ingredient', quantity: '',
-            color: '#888888', thickness: 6, x: maxX + 30, startTimeStepIndex: 0
+            id: genId('ing'), name: '', quantity: '',
+            color: '#888888', thickness: 6, x: x != null ? x : maxX + 30, startTimeStepIndex: 0
         };
         model.ingredients.push(ing);
         return ing;
@@ -187,24 +102,23 @@
                 if ((s.type === 'label' || s.type === 'move') && s.lineId === id) return false;
                 if (s.type === 'merge' && (s.inputLineIds.includes(id) || s.outputLineId === id)) return false;
                 if (s.type === 'add' && (s.baseLineId === id || s.addedLineId === id)) return false;
+                if (s.type === 'split' && (s.sourceLineId === id || s.output.lineId === id)) return false;
                 return true;
             });
         });
     }
 
     function addTimeStep(model) {
-        const ts = model.timeSteps;
-        const lastX = ts.length ? ts[ts.length - 1].x : 0;
-        const newTs = { id: genId('t'), label: '', steps: [], x: ts.length ? lastX + DEFAULT_STEP_SPACING : 0 };
-        ts.push(newTs);
+        const newTs = { id: genId('t'), label: '', steps: [] };
+        model.timeSteps.push(newTs);
         return newTs;
     }
 
-    // Splices a brand new column in at `index` with a given `x`, and shifts
-    // every later process/ingredient reference along by one slot (utensils
-    // are permanent fixtures with no time-based reference to shift).
-    function insertColumnAt(model, index, step, x) {
-        const newTs = { id: genId('t'), label: '', steps: step ? [step] : [], x };
+    // Splices a brand new row in at `index` and shifts every later
+    // process/ingredient reference along by one slot (utensils are
+    // permanent fixtures with no time-based reference to shift).
+    function insertColumnAt(model, index, step) {
+        const newTs = { id: genId('t'), label: '', steps: step ? [step] : [] };
         model.timeSteps.splice(index, 0, newTs);
         const remap = i => (i >= index ? i + 1 : i);
         model.processes.forEach(p => { p.startTimeStepIndex = remap(p.startTimeStepIndex); p.endTimeStepIndex = remap(p.endTimeStepIndex); });
@@ -213,9 +127,9 @@
     }
 
     // Which line ids a step permanently kills off at its own column (a
-    // merge's inputs, or an add's absorbed line) -- null if it doesn't kill
-    // anything (label/move/process boundaries just reference a line
-    // without ending it).
+    // merge's inputs, or an add's absorbed line) -- null
+    // if it doesn't kill anything (label/move/process boundaries just
+    // reference a line without ending it).
     function deadLineIdsForStep(step) {
         if (!step) return null;
         if (step.type === 'merge') return step.inputLineIds;
@@ -242,6 +156,10 @@
                     return false;
                 }
                 if (step.type === 'add' && (dead.has(step.baseLineId) || dead.has(step.addedLineId))) return false;
+                if (step.type === 'split' && dead.has(step.sourceLineId)) {
+                    dead.add(step.output.lineId);
+                    return false;
+                }
                 return true;
             });
         }
@@ -255,6 +173,8 @@
     function addStepAt(model, index, step) {
         const ts = model.timeSteps[index];
         if (!ts) return null;
+        // A process start owns its row outright -- put this one on a new row below it.
+        if ((ts.steps || []).some(s => s.type === 'process-start')) return insertStepColumn(model, index + 1, step);
         ts.steps = ts.steps || [];
         ts.steps.push(step);
         const deadIds = deadLineIdsForStep(step);
@@ -280,74 +200,153 @@
         return null;
     }
 
-    // A "step" only ever exists as part of its own dedicated column -- adding
-    // one inserts a brand new column right where it happens. The new
-    // column's x defaults to the midpoint of its neighbours (giving the
-    // timeline naturally variable column widths), or an explicit
-    // `preferredX` (e.g. wherever the user was hovering) clamped to stay
-    // strictly between them. Callers that want to let a step share an
-    // EXISTING nearby column instead (so two unrelated lines' events can be
-    // genuinely simultaneous) should use `addStepAt` there instead of this.
-    function insertStepColumn(model, index, step, preferredX) {
-        const ts = model.timeSteps;
-        const prevX = ts[index - 1] ? ts[index - 1].x : 0;
-        const nextX = ts[index] ? ts[index].x : prevX + DEFAULT_STEP_SPACING;
-        let x = (prevX + nextX) / 2;
-        if (preferredX != null) {
-            const margin = Math.min(4, (nextX - prevX) / 4);
-            x = Math.min(Math.max(preferredX, prevX + margin), nextX - margin);
-        }
-        const newTs = insertColumnAt(model, index, step, x);
+    // Inserts a brand new row holding `step` at `index`. Callers that want a
+    // step to share an EXISTING row (so two unrelated lines' events can be
+    // genuinely simultaneous) should use `addStepAt` instead.
+    function insertStepColumn(model, index, step) {
+        const newTs = insertColumnAt(model, index, step);
         const deadIds = deadLineIdsForStep(step);
         if (deadIds) invalidateFutureLineUses(model, index, deadIds);
         return newTs;
     }
 
-    // Same, but the caller already knows exactly what x it wants (e.g. a
-    // process boundary being created at a specific hovered/dragged point) --
-    // the array index is derived from where that x sorts in.
-    function insertStepColumnAtX(model, x, step) {
-        const ts = model.timeSteps;
-        let index = ts.length;
-        for (let i = 0; i < ts.length; i++) {
-            if (ts[i].x > x) { index = i; break; }
-        }
-        return insertColumnAt(model, index, step, x);
+    // Brings an older recipe (saved draft or file) up to the current schema
+    // in place. Each stage is idempotent for data already at that version, so
+    // this is safe to run on every load.
+    //  v7: discrete rows -- drop per-column `.x`, strip process boundary
+    //      columns and empty spacer rows, remap every stored row index.
+    //  v8: a process start is a real step -- it gets its own dedicated row,
+    //      and the old sublabel is folded into the single one-line label.
+    function migrateRecipe(doc) {
+        if (!doc) return doc;
+        const v = doc.version || 0;
+        if (v < 7) migrateToRows(doc);
+        if (v < 8) migrateToProcessSteps(doc);
+        if (v < 9) migrateToSingleSplit(doc);
+        if (!doc.rowHeight) doc.rowHeight = DEFAULT_ROW_HEIGHT;
+        doc.version = SCHEMA_VERSION;
+        return doc;
     }
 
-    // Swaps two adjacent (or arbitrary) time-step columns and remaps every
-    // process reference to either index (the embedded step just goes along
-    // with its column automatically since it's part of the same object).
+    //  v9: kitchen zones are gone (and utensils' `zoneId`); a split now peels
+    //      ONE new ingredient off a line that carries on unmoved, so the old
+    //      multi-output split becomes one single-output split per output.
+    function migrateToSingleSplit(doc) {
+        delete doc.zones;
+        (doc.utensils || []).forEach(u => { delete u.zoneId; });
+        (doc.timeSteps || []).forEach(ts => {
+            const out = [];
+            (ts.steps || []).forEach(s => {
+                if (s.type !== 'split' || !Array.isArray(s.outputs)) { out.push(s); return; }
+                s.outputs.forEach((o, i) => {
+                    out.push({
+                        id: i === 0 ? s.id : genId('step'), type: 'split', sourceLineId: s.sourceLineId,
+                        output: { lineId: o.lineId, name: o.name, color: o.color, thickness: o.thickness, x: o.x },
+                        newThickness: s.newThickness || null
+                    });
+                });
+            });
+            ts.steps = out;
+        });
+    }
+
+    function migrateToRows(doc) {
+        const cols = doc.timeSteps;
+        const procStart = {}, procEnd = {};
+        cols.forEach((ts, i) => (ts.steps || []).forEach(s => {
+            if (s.type === 'process-start') procStart[s.processId] = i;
+            if (s.type === 'process-end') procEnd[s.processId] = i;
+        }));
+        cols.forEach(ts => {
+            ts.steps = (ts.steps || []).filter(s => s.type !== 'process-start' && s.type !== 'process-end');
+        });
+        const keep = cols.map(ts => ts.steps.length > 0);
+        const newIndex = [];
+        let n = 0;
+        cols.forEach((ts, i) => { newIndex[i] = keep[i] ? n++ : -1; });
+        const last = Math.max(0, n - 1);
+        const nextKept = i => { for (let k = Math.max(i, 0); k < cols.length; k++) if (keep[k]) return k; return -1; };
+        const priorKept = i => { for (let k = Math.min(i, cols.length - 1); k >= 0; k--) if (keep[k]) return k; return -1; };
+        (doc.processes || []).forEach(p => {
+            const os = procStart[p.id] != null ? procStart[p.id] : p.startTimeStepIndex;
+            const oe = procEnd[p.id] != null ? procEnd[p.id] : p.endTimeStepIndex;
+            let s = nextKept(os) >= 0 ? newIndex[nextKept(os)] : -1;
+            if (s < 0) s = priorKept(os) >= 0 ? newIndex[priorKept(os)] : 0;
+            let e = priorKept(oe) >= 0 ? newIndex[priorKept(oe)] : -1;
+            if (e < 0) e = nextKept(oe) >= 0 ? newIndex[nextKept(oe)] : last;
+            if (e <= s) e = Math.min(s + 1, last);
+            p.startTimeStepIndex = s;
+            p.endTimeStepIndex = e;
+        });
+        (doc.ingredients || []).forEach(ing => {
+            const k = nextKept(ing.startTimeStepIndex || 0);
+            ing.startTimeStepIndex = k >= 0 ? newIndex[k] : 0;
+        });
+        doc.timeSteps = cols.filter((ts, i) => keep[i]);
+        if (!doc.timeSteps.length) doc.timeSteps = [{ id: genId('t'), label: '', steps: [] }];
+        doc.timeSteps.forEach(ts => { delete ts.x; });
+    }
+
+    function migrateToProcessSteps(doc) {
+        (doc.processes || []).forEach(p => {
+            p.label = [p.label, p.sublabel].filter(Boolean).join(' ');
+            delete p.sublabel;
+            const has = doc.timeSteps.some(ts => (ts.steps || []).some(s => s.type === 'process-start' && s.processId === p.id));
+            if (has) return;
+            const idx = Math.max(0, Math.min(p.startTimeStepIndex || 0, doc.timeSteps.length));
+            // insertColumnAt also shifts this process's own indices down a
+            // row, so put its start back on the row it just created.
+            insertColumnAt(doc, idx, { id: genId('step'), type: 'process-start', processId: p.id });
+            p.startTimeStepIndex = idx;
+        });
+    }
+
+    // Swaps two adjacent (or arbitrary) time-step rows and remaps every
+    // process/ingredient reference to either index (the steps themselves
+    // travel with their row object).
     function swapTimeSteps(model, a, b) {
         const ts = model.timeSteps;
         if (b < 0 || b >= ts.length || a === b) return;
         [ts[a], ts[b]] = [ts[b], ts[a]];
         const remap = idx => (idx === a ? b : idx === b ? a : idx);
         model.processes.forEach(p => { p.startTimeStepIndex = remap(p.startTimeStepIndex); p.endTimeStepIndex = remap(p.endTimeStepIndex); });
+        model.ingredients.forEach(i => { i.startTimeStepIndex = remap(i.startTimeStepIndex || 0); });
+        // A process never ends above its own start row.
+        model.processes.forEach(p => { if (p.endTimeStepIndex < p.startTimeStepIndex) p.endTimeStepIndex = p.startTimeStepIndex; });
     }
 
     function deleteTimeStep(model, idx) {
         model.timeSteps.splice(idx, 1);
-        const remap = i => (i > idx ? i - 1 : i);
-        model.processes = model.processes.filter(p => p.startTimeStepIndex !== idx && p.endTimeStepIndex !== idx);
-        model.processes.forEach(p => { p.startTimeStepIndex = remap(p.startTimeStepIndex); p.endTimeStepIndex = remap(p.endTimeStepIndex); });
-        model.ingredients.forEach(i => { if (i.startTimeStepIndex > idx) i.startTimeStepIndex -= 1; });
-        // A deleted column might have been a (other) process's start or end,
-        // orphaning its OTHER boundary step -- clear those out.
-        const processIds = new Set(model.processes.map(p => p.id));
-        model.timeSteps.forEach(ts => {
-            ts.steps = (ts.steps || []).filter(s =>
-                !((s.type === 'process-start' || s.type === 'process-end') && !processIds.has(s.processId)));
+        const last = model.timeSteps.length - 1;
+        const remap = i => Math.max(0, Math.min(i > idx ? i - 1 : i, last));
+        model.processes.forEach(p => {
+            p.startTimeStepIndex = remap(p.startTimeStepIndex);
+            p.endTimeStepIndex = Math.max(p.startTimeStepIndex, remap(p.endTimeStepIndex >= idx ? p.endTimeStepIndex - 1 : p.endTimeStepIndex));
         });
+        model.ingredients.forEach(i => { if (i.startTimeStepIndex > idx) i.startTimeStepIndex -= 1; });
     }
 
-    // Utensils are permanent kitchen fixtures -- no time range, just a fixed
-    // spot (`x`/`width`) within a `zoneId`.
+    // Deletes a whole step row: every step on it (a process start takes its
+    // process with it), then the row itself, so later rows close the gap
+    // instead of leaving an empty numbered row.
+    function deleteRow(model, tsId) {
+        const idx = model.timeSteps.findIndex(t => t.id === tsId);
+        if (idx < 0) return;
+        (model.timeSteps[idx].steps || []).slice().forEach(s => {
+            if (s.type === 'process-start') removeProcess(model, s.processId);
+            else removeStepById(model, s.id);
+        });
+        const j = model.timeSteps.findIndex(t => t.id === tsId);
+        if (j >= 0) deleteTimeStep(model, j);
+        if (!model.timeSteps.length) model.timeSteps.push({ id: genId('t'), label: '', steps: [] });
+    }
+
+    // Utensils are permanent fixtures -- no time range, just a fixed spot
+    // (`x`/`width`) on the lane axis.
     function addUtensil(model, opts) {
         opts = opts || {};
         const u = {
             id: opts.id || genId('u'), name: opts.name || 'New Utensil', color: opts.color || '#999999',
-            zoneId: opts.zoneId || (model.zones[0] && model.zones[0].id) || null,
             x: opts.x != null ? opts.x : 0, width: opts.width != null ? opts.width : 80
         };
         model.utensils.push(u);
@@ -359,41 +358,47 @@
         model.processes.filter(p => p.utensilId === id).forEach(p => removeProcess(model, p.id));
     }
 
-    // A process always fills its utensil's full height (no lane range of
-    // its own); its start/end are their own dedicated steps too, same as a
-    // utensil's, created immediately at `startX`/`endX`.
+    // A process fills its utensil's full width. Its START is a real step: a
+    // dedicated row of its own (holding the one-line label) that no other
+    // step may share. Its END is just an index onto any later row, so its
+    // length is measured in whole rows.
     function addProcess(model, opts) {
         opts = opts || {};
         const p = {
             id: opts.id || genId('p'), utensilId: opts.utensilId || null,
-            label: opts.label || 'Duration', sublabel: opts.sublabel || '',
+            label: opts.label || 'process',
             color: opts.color || '#ffcc66', opacity: opts.opacity != null ? opts.opacity : 0.35,
             startTimeStepIndex: 0, endTimeStepIndex: 0
         };
+        const at = Math.max(0, Math.min(opts.startTimeStepIndex != null ? opts.startTimeStepIndex : model.timeSteps.length, model.timeSteps.length));
+        insertColumnAt(model, at, { id: genId('step'), type: 'process-start', processId: p.id });
+        p.startTimeStepIndex = at;
+        p.endTimeStepIndex = Math.min(model.timeSteps.length - 1, at + (opts.span != null ? opts.span : 2));
         model.processes.push(p);
-        const startX = opts.startX != null ? opts.startX : 0;
-        const endX = opts.endX != null ? opts.endX : startX + DEFAULT_STEP_SPACING;
-        const startTs = insertStepColumnAtX(model, startX, { id: genId('step'), type: 'process-start', processId: p.id });
-        const endTs = insertStepColumnAtX(model, endX, { id: genId('step'), type: 'process-end', processId: p.id });
-        p.startTimeStepIndex = model.timeSteps.indexOf(startTs);
-        p.endTimeStepIndex = model.timeSteps.indexOf(endTs);
         return p;
     }
 
+    // Removing a process also removes its start row (if nothing else lives
+    // there) so no empty row is left behind.
     function removeProcess(model, id) {
         model.processes = model.processes.filter(p => p.id !== id);
-        model.timeSteps.forEach(ts => {
-            ts.steps = (ts.steps || []).filter(s =>
-                !((s.type === 'process-start' || s.type === 'process-end') && s.processId === id));
-        });
+        for (let i = 0; i < model.timeSteps.length; i++) {
+            const ts = model.timeSteps[i];
+            const k = (ts.steps || []).findIndex(s => s.type === 'process-start' && s.processId === id);
+            if (k < 0) continue;
+            ts.steps.splice(k, 1);
+            if (!ts.steps.length) deleteTimeStep(model, i);
+            break;
+        }
     }
 
     global.VEP = global.VEP || {};
     global.VEP.model = {
-        SCHEMA_VERSION, genId, createEmptyRecipe, createExampleRecipe, isValidRecipe,
+        parseDuration, formatDuration,
+        SCHEMA_VERSION, DEFAULT_ROW_HEIGHT, genId, createEmptyRecipe, createExampleRecipe, isValidRecipe, migrateRecipe,
         addIngredient, removeIngredient,
-        addTimeStep, insertColumnAt, insertStepColumn, insertStepColumnAtX, addStepAt, removeStepById,
-        swapTimeSteps, deleteTimeStep,
+        addTimeStep, insertColumnAt, insertStepColumn, addStepAt, removeStepById,
+        swapTimeSteps, deleteTimeStep, deleteRow,
         addUtensil, removeUtensil, addProcess, removeProcess
     };
 })(window);

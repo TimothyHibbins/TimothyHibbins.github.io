@@ -29,23 +29,70 @@
     // clicking away commits, Escape cancels without saving. An optional
     // small "x" button deletes the underlying thing instead (replaces the
     // old popovers that were only ever a text field + a Delete button).
+    // `opts.bg`/`opts.color` make it blend into a colour-matched pill label
+    // instead of looking like a separate floating input box (no border,
+    // same colour/shape as the pill it's replacing). `opts.hideEls` names
+    // the exact SVG element(s) being edited (the text, and its own pill if
+    // it has one) -- hidden for the duration. `opts.rect` (a plain
+    // `{left,top,width,height}`, NOT read off the text node itself -- SVG
+    // `<text>` bboxes can collapse to near-zero height in this renderer)
+    // sizes/positions the input to EXACTLY replace them, so it reads as
+    // the cursor landing directly in the label rather than a new box
+    // appearing over it.
     function editTextInPlace(clientX, clientY, currentValue, onCommit, onDelete, opts) {
         opts = opts || {};
         closePopover();
         const wrap = document.createElement('div');
         wrap.className = 'inline-edit-wrap';
-        wrap.style.left = `${clientX}px`;
-        wrap.style.top = `${clientY}px`;
-        wrap.style.transform = opts.anchor === 'end' ? 'translate(-100%, -50%)'
-            : opts.anchor === 'middle' ? 'translate(-50%, -50%)' : 'translate(0, -50%)';
         const input = document.createElement('input');
         input.type = 'text';
         input.className = 'inline-edit-input';
         input.value = currentValue;
-        if (opts.fontSize) input.style.fontSize = opts.fontSize;
-        if (opts.fontStyle) input.style.fontStyle = opts.fontStyle;
-        if (opts.fontWeight) input.style.fontWeight = opts.fontWeight;
-        const resize = () => { input.style.width = `${Math.max(input.value.length, 3)}ch`; };
+        if (opts.placeholder) input.placeholder = opts.placeholder;
+        // Copy the ACTUAL rendered SVG text's own computed font straight
+        // across, rather than a hardcoded guess per call site -- otherwise
+        // the input can end up a slightly different size/weight than the
+        // label it's replacing, reading as the text visibly changing the
+        // moment you start editing it instead of staying exactly in place.
+        if (opts.sourceEl) {
+            const cs = getComputedStyle(opts.sourceEl);
+            input.style.fontSize = cs.fontSize;
+            input.style.fontWeight = cs.fontWeight;
+            input.style.fontStyle = cs.fontStyle;
+            input.style.fontFamily = cs.fontFamily;
+            input.style.letterSpacing = cs.letterSpacing;
+        } else {
+            if (opts.fontSize) input.style.fontSize = opts.fontSize;
+            if (opts.fontStyle) input.style.fontStyle = opts.fontStyle;
+            if (opts.fontWeight) input.style.fontWeight = opts.fontWeight;
+        }
+        if (opts.bg) {
+            input.classList.add('inline-edit-input--pill');
+            input.style.background = opts.bg;
+            input.style.color = opts.color || '#fff';
+        } else if (opts.transparent) {
+            input.classList.add('inline-edit-input--transparent');
+            if (opts.color) input.style.color = opts.color;
+        }
+        const hideEls = (opts.hideEls || []).filter(Boolean);
+        const rect = opts.rect && opts.rect.width ? opts.rect : null;
+        if (rect) {
+            wrap.style.left = `${rect.left}px`;
+            wrap.style.top = `${rect.top}px`;
+            wrap.style.transform = 'none';
+            input.style.height = `${rect.height}px`;
+            input.style.lineHeight = `${rect.height}px`;
+            hideEls.forEach(el => { el.style.visibility = 'hidden'; });
+        } else {
+            wrap.style.left = `${clientX}px`;
+            wrap.style.top = `${clientY}px`;
+            wrap.style.transform = opts.anchor === 'end' ? 'translate(-100%, -50%)'
+                : opts.anchor === 'middle' ? 'translate(-50%, -50%)' : 'translate(0, -50%)';
+        }
+        const resize = () => {
+            const chWidth = Math.max(input.value.length, 3);
+            input.style.width = rect && rect.width ? `${Math.max(rect.width, chWidth * 7)}px` : `${chWidth}ch`;
+        };
         resize();
         input.addEventListener('input', resize);
         wrap.appendChild(input);
@@ -69,10 +116,12 @@
         function cleanup() {
             document.removeEventListener('mousedown', outsideHandler);
             wrap.remove();
+            hideEls.forEach(el => { el.style.visibility = ''; });
         }
         function onKey(e) {
             if (e.key === 'Enter') { e.preventDefault(); commit(); }
             else if (e.key === 'Escape') { e.preventDefault(); cleanup(); }
+            else if (e.key === 'Tab' && opts.onTab) { e.preventDefault(); commit(); opts.onTab(); }
         }
         const outsideHandler = e => { if (!wrap.contains(e.target)) commit(); };
         input.addEventListener('keydown', onKey);
@@ -134,7 +183,8 @@
         else {
             btn = document.createElement('button');
             btn.className = 'hover-action-btn';
-            if (key === 'cut') btn.classList.add('cut-btn');
+            if (key === 'cut' || key === 'timer') btn.classList.add('cut-btn');
+            if (key === 'timer') btn.classList.add('timer-btn');
             if (key === 'delete') btn.classList.add('delete-btn');
         }
         btn.style.display = 'none';
@@ -152,7 +202,11 @@
     }
     // A persistent (not hover-corridor-tracked) delete button for the
     // currently-selected item -- shown/hidden purely by selection state.
+    // Also stashed so the Delete/Backspace key can trigger the exact same
+    // action without needing to click the small floating button itself.
+    let currentDeleteAction = null;
     function showDeleteButton(clientX, clientY, onClick) {
+        currentDeleteAction = onClick;
         showHoverButton('delete', clientX, clientY, '\u00d7', onClick);
     }
     // A small color dot shown just to the left of a label -- clicking it
@@ -190,6 +244,7 @@
     function hideHoverButton(key) {
         if (hoverButtons.has(key)) hoverButtons.get(key).style.display = 'none';
         hoverOrigins.delete(key);
+        if (key === 'delete') currentDeleteAction = null;
     }
     function hideAllHoverButtons() {
         hoverButtons.forEach((btn, key) => hideHoverButton(key));
@@ -206,6 +261,20 @@
             const bottom = Math.max(origin.y, r.bottom) + margin;
             if (e.clientX < left || e.clientX > right || e.clientY < top || e.clientY > bottom) hideHoverButton(key);
         });
+    });
+
+    // Delete/Backspace deletes whatever is currently selected -- same
+    // action as clicking its own floating delete button, just without
+    // needing to aim for the small "x". Ignored while an inline-edit input
+    // (or any other text field) is focused, so Backspace still just edits
+    // text as normal there instead of deleting the whole selected element.
+    document.addEventListener('keydown', e => {
+        if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+        if (!currentDeleteAction) return;
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+        e.preventDefault();
+        currentDeleteAction();
     });
 
     // Single shared hidden native color input -- clicking a color swatch
@@ -279,25 +348,11 @@
             if (activeLineNode) activeLineNode.parentNode.appendChild(activeLineNode);
         }
 
-        // Rows have a draggable, non-uniform y -- find whichever one sits
-        // closest to a given absolute (post-topMargin) SVG y coordinate.
+        // Rows are uniform discrete bands -- which one contains a given
+        // absolute SVG y (clamped to the first/last row).
         function nearestColumnIndex(absoluteY) {
-            let best = 0, bestDist = Infinity;
-            model.timeSteps.forEach((ts, i) => {
-                const d = Math.abs(R.rowY(model, i) - absoluteY);
-                if (d < bestDist) { bestDist = d; best = i; }
-            });
-            return best;
-        }
-
-        // Which row-to-row segment of a line (birth..death-1) a given
-        // absolute y falls within -- the largest row whose y is <= it.
-        function segmentColumnAt(minCol, maxCol, absoluteY) {
-            let col = minCol;
-            for (let c = minCol; c <= maxCol; c++) {
-                if (R.rowY(model, c) <= absoluteY) col = c; else break;
-            }
-            return Math.min(Math.max(col, minCol), maxCol);
+            const idx = Math.floor((absoluteY - R.LAYOUT.topMargin) / R.rowH(model));
+            return Math.max(0, Math.min(idx, model.timeSteps.length - 1));
         }
 
         function stopDrag() {
@@ -307,22 +362,16 @@
             draggingLineId = null;
         }
 
-        // Sets a column's x and swaps it past a neighbour it's crossed (one
-        // step per call, same as a plain time-step drag) so the array stays
-        // in x-order -- the renderer walks columns by array index assuming
-        // that order, so anything that frees a column to move past its
-        // neighbours (a time-step drag, a process edge/body drag) needs to
-        // keep it true rather than just clamping movement at the neighbour.
-        function repositionColumn(idx, newX) {
-            const ts = model.timeSteps[idx];
-            ts.x = Math.max(0, newX);
-            if (idx > 0 && ts.x < model.timeSteps[idx - 1].x) {
-                M.swapTimeSteps(model, idx, idx - 1);
-                idx--;
-            } else if (idx < model.timeSteps.length - 1 && ts.x > model.timeSteps[idx + 1].x) {
-                M.swapTimeSteps(model, idx, idx + 1);
-                idx++;
-            }
+        // Reorders a column toward the discrete step row nearest a given
+        // absolute y, one neighbour-swap per call (mousemove fires often
+        // enough for this to track the cursor). Time is discrete now -- a
+        // column's y is purely its array index, so "repositioning" is just
+        // reordering; there is no continuous x to store. Operates on an
+        // index, returning the (possibly new) one.
+        function repositionColumn(idx, absoluteY) {
+            const target = nearestColumnIndex(absoluteY);
+            if (target < idx) { M.swapTimeSteps(model, idx, idx - 1); return idx - 1; }
+            if (target > idx) { M.swapTimeSteps(model, idx, idx + 1); return idx + 1; }
             return idx;
         }
 
@@ -337,9 +386,16 @@
             return null;
         }
 
-        // How close (in absolute SVG y) a drop point needs to be to an
-        // existing row to reuse it instead of creating a dedicated new one.
-        const ROW_SNAP_TOLERANCE = 20;
+        // Finds the `split` step (and its new ingredient's entry) which gave
+        // birth to a given line id.
+        function findSplitOutput(lineId) {
+            for (const ts of model.timeSteps) {
+                for (const s of (ts.steps || [])) {
+                    if (s.type === 'split' && s.output && s.output.lineId === lineId) return { step: s, output: s.output };
+                }
+            }
+            return null;
+        }
 
         // Places a brand new step somewhere between (and including)
         // `minCol`/`maxCol` at the given absolute y -- if an existing row in
@@ -352,20 +408,21 @@
             minCol = Math.max(minCol, 0);
             maxCol = Math.min(maxCol, model.timeSteps.length - 1);
             if (minCol > maxCol) return null;
-            let nearest = minCol, nearestDist = Infinity;
-            for (let c = minCol; c <= maxCol; c++) {
-                const d = Math.abs(R.rowY(model, c) - absoluteY);
-                if (d < nearestDist) { nearestDist = d; nearest = c; }
+            // Dropping inside an existing row's band shares that row; the
+            // upper/lower quarter of a row band instead inserts a new row
+            // just above/below it, so a new row can still be created even
+            // though rows are flush with no gaps between them.
+            const rh = R.rowH(model);
+            const rel = (absoluteY - R.LAYOUT.topMargin) / rh;
+            const row = Math.floor(rel);
+            const frac = rel - row;
+            const clamped = Math.max(minCol, Math.min(row, maxCol));
+            if (row >= minCol && row <= maxCol && frac >= 0.25 && frac <= 0.75) {
+                M.addStepAt(model, clamped, step);
+                return clamped;
             }
-            if (nearestDist <= ROW_SNAP_TOLERANCE) {
-                M.addStepAt(model, nearest, step);
-                return nearest;
-            }
-            let insertIndex = maxCol + 1;
-            for (let c = minCol; c <= maxCol; c++) {
-                if (R.rowY(model, c) > absoluteY) { insertIndex = c; break; }
-            }
-            M.insertStepColumn(model, insertIndex, step, absoluteY - R.LAYOUT.topMargin);
+            const insertIndex = Math.max(minCol, Math.min(frac < 0.5 ? row : row + 1, maxCol + 1));
+            M.insertStepColumn(model, insertIndex, step);
             return insertIndex;
         }
 
@@ -382,7 +439,7 @@
             if (ts.steps.length <= 1) return col;
             const idx = ts.steps.indexOf(step);
             ts.steps.splice(idx, 1);
-            const newTs = M.insertColumnAt(model, col + 1, step, ts.x);
+            const newTs = M.insertColumnAt(model, col + 1, step);
             return model.timeSteps.indexOf(newTs);
         }
 
@@ -519,6 +576,29 @@
             if (drag.axis === 'y') timeStepDragMove(e);
             else moveDragGhost(e.clientX, drag.startClientY);
         }
+        // An `add` step's label has no free text and no horizontal position
+        // of its own -- the only thing you can do with it is move it in
+        // TIME (vertical-only, reusing the same column-reposition mechanics
+        // as every other vertical drag) or, with no real movement, select
+        // it so it can be deleted.
+        function startAddStepDrag(e, stepId) {
+            e.preventDefault();
+            e.stopPropagation();
+            drag = { type: 'add-step', stepId, startClientX: e.clientX, startClientY: e.clientY, moved: false };
+            document.addEventListener('mousemove', onDragMove);
+            document.addEventListener('mouseup', onDragEnd);
+        }
+        function addStepDragMove(e) {
+            if (!drag.moved) {
+                const dist = Math.hypot(e.clientX - drag.startClientX, e.clientY - drag.startClientY);
+                if (dist < 4) return;
+                drag.moved = true;
+                recordHistory();
+                const found = findStep(drag.stepId);
+                drag.col = found ? ensureOwnColumn(found.step) : -1;
+            }
+            timeStepDragMove(e);
+        }
         // A move's destination shifts live as you drag (vertical still just
         // reorders the row in time, reusing the same mechanics as any other
         // step/column).
@@ -595,7 +675,7 @@
             if (!selected) return;
             if (selected.kind === 'ingredient') {
                 const ing = model.ingredients.find(i => i.id === selected.id);
-                const node = svg.querySelector(`text[data-kind="line"][data-line-kind="ingredient"][data-id="${CSS.escape(selected.id)}"]`);
+                const node = svg.querySelector(`text[data-kind="line"][data-line-kind="ingredient"][data-part="name"][data-id="${CSS.escape(selected.id)}"]`);
                 if (!ing || !node) { selected = null; return; }
                 const pathNode = svg.querySelector(`path[data-kind="line"][data-id="${CSS.escape(selected.id)}"]`);
                 if (pathNode) pathNode.classList.add('is-selected');
@@ -634,7 +714,10 @@
                 if (!u) { selected = null; return; }
                 const utensilNode = svg.querySelector(`rect[data-kind="utensil"][data-id="${CSS.escape(selected.id)}"]`);
                 if (utensilNode) utensilNode.classList.add('is-selected');
-                const pos = svgToClient(svg, R.laneX(u.x) + 6, R.LAYOUT.utensilTop + 14);
+                const labelNode = svg.querySelector(`text[data-kind="utensil"][data-id="${CSS.escape(selected.id)}"]`);
+                const pos = labelNode
+                    ? svgToClient(svg, parseFloat(labelNode.getAttribute('x')), parseFloat(labelNode.getAttribute('y')))
+                    : svgToClient(svg, R.laneX(u.x) + 6, R.LAYOUT.utensilLabelBandTop + R.LAYOUT.utensilLabelBandHeight / 2 + 4);
                 showColorSwatch(pos.x - 16, pos.y, u.color, v => { u.color = v; refresh(); renderSelectionUi(); }, recordHistory);
                 showDeleteButton(pos.x - 16, pos.y - 20, () => { recordHistory(); M.removeUtensil(model, u.id); deselect(); refresh(); });
             } else if (selected.kind === 'process') {
@@ -643,7 +726,7 @@
                 if (!p || !u) { selected = null; return; }
                 const processNode = svg.querySelector(`rect[data-kind="process"][data-id="${CSS.escape(selected.id)}"]`);
                 if (processNode) processNode.classList.add('is-selected');
-                const pos = svgToClient(svg, R.laneX(u.x) + 6, R.rowY(model, p.startTimeStepIndex) + 14);
+                const pos = svgToClient(svg, R.laneX(u.x) + 6, R.rowY(model, p.startTimeStepIndex));
                 showColorSwatch(pos.x - 16, pos.y, p.color, v => { p.color = v; refresh(); renderSelectionUi(); }, recordHistory);
                 showThicknessAdjuster(pos.x + 76, pos.y, e2 => {
                     e2.preventDefault(); e2.stopPropagation();
@@ -657,25 +740,80 @@
                     document.addEventListener('mouseup', onDragEnd);
                 });
                 showDeleteButton(pos.x - 16, pos.y - 20, () => { recordHistory(); M.removeProcess(model, p.id); deselect(); refresh(); });
+            } else if (selected.kind === 'row') {
+                // A whole step row: deleting it closes the gap below it.
+                const rowId = selected.id;
+                const idx = model.timeSteps.findIndex(t => t.id === rowId);
+                const cell = svg.querySelector(`rect[data-kind="step-number"][data-id="${CSS.escape(rowId)}"]`);
+                if (idx < 0 || !cell) { selected = null; return; }
+                cell.classList.add('is-selected');
+                const pos = svgToClient(svg, R.LAYOUT.headerX + R.LAYOUT.stepNumberWidth + 14, R.rowY(model, idx));
+                showDeleteButton(pos.x, pos.y, () => { recordHistory(); M.deleteRow(model, rowId); deselect(); refresh(); });
+            } else if (selected.kind === 'addstep') {
+                const found = findStep(selected.id);
+                const node = svg.querySelector(`text[data-kind="add-step"][data-id="${CSS.escape(selected.id)}"]`);
+                if (!found || !node) { selected = null; return; }
+                const pos = svgToClient(svg, parseFloat(node.getAttribute('x')), parseFloat(node.getAttribute('y')));
+                showDeleteButton(pos.x, pos.y - 20, () => { recordHistory(); M.removeStepById(model, found.step.id); deselect(); refresh(); });
+            } else if (selected.kind === 'splitoutput') {
+                const found = findSplitOutput(selected.id);
+                const node = svg.querySelector(`text[data-kind="line"][data-line-kind="split"][data-id="${CSS.escape(selected.id)}"]`);
+                if (!found || !node) { selected = null; return; }
+                const { step, output } = found;
+                const pathNode = svg.querySelector(`path[data-kind="line"][data-id="${CSS.escape(selected.id)}"]`);
+                if (pathNode) pathNode.classList.add('is-selected');
+                const pos = svgToClient(svg, parseFloat(node.getAttribute('x')), parseFloat(node.getAttribute('y')));
+                showColorSwatch(pos.x - 10, pos.y - 16, output.color, v => { output.color = v; refresh(); renderSelectionUi(); }, recordHistory);
+                showThicknessAdjuster(pos.x + 10, pos.y - 16, e2 => {
+                    e2.preventDefault(); e2.stopPropagation();
+                    recordHistory();
+                    drag = { type: 'thickness', startY: e2.clientY, startVal: output.thickness, onChange: v => { output.thickness = v; refresh(); renderSelectionUi(); } };
+                    document.addEventListener('mousemove', onDragMove);
+                    document.addEventListener('mouseup', onDragEnd);
+                });
+                showDeleteButton(pos.x, pos.y - 32, () => { recordHistory(); M.removeStepById(model, step.id); deselect(); refresh(); });
             }
         }
 
-        // Name tag text doubles as both name+quantity ("Lime (1)") -- typing
-        // a plain "name (qty)" pattern back in splits it, otherwise the whole
-        // string just becomes the name and quantity is cleared. Edits happen
-        // right on top of the label itself (its real anchor/position/font),
-        // not wherever the dblclick happened to land.
+        // Combines a text node's own (reliable) horizontal span with a
+        // pill rect's (reliable) vertical span into one rect for
+        // `editTextInPlace` -- an SVG `<text>`'s own `getBoundingClientRect()`
+        // height can collapse to near-zero in this renderer, so never used
+        // directly for the input's height.
+        function measureInlineRect(textNode, pillNode) {
+            if (!textNode) return null;
+            const textRect = textNode.getBoundingClientRect();
+            const pillRect = pillNode ? pillNode.getBoundingClientRect() : textRect;
+            return { left: textRect.left, top: pillRect.top, width: Math.max(textRect.width, 10), height: pillRect.height };
+        }
+
+        // Quantity and name are two separately clickable/editable parts
+        // sharing one pill background (see renderer.js) -- each edit
+        // targets just its own field, no more combined "Name (Qty)"
+        // parsing. Only the specific text being edited is hidden (not the
+        // shared pill, which stays put so the OTHER field keeps showing
+        // normally alongside it) and the input itself is transparent, so
+        // the cursor reads as landing directly inside the existing label.
         function editIngredientName(ing, clientX, clientY) {
             let pos = { x: clientX, y: clientY };
-            const node = svg.querySelector(`text[data-kind="line"][data-line-kind="ingredient"][data-id="${CSS.escape(ing.id)}"]`);
+            const node = svg.querySelector(`text[data-kind="line"][data-line-kind="ingredient"][data-part="name"][data-id="${CSS.escape(ing.id)}"]`);
+            const pillNode = svg.querySelector(`rect[data-kind="line-pill"][data-id="${CSS.escape(ing.id)}"]`);
             if (node) pos = svgToClient(svg, parseFloat(node.getAttribute('x')), parseFloat(node.getAttribute('y')));
-            const current = ing.quantity ? `${ing.name} (${ing.quantity})` : ing.name;
-            editTextInPlace(pos.x, pos.y, current, val => {
-                const m = val.match(/^(.*?)\s*\(([^)]*)\)\s*$/);
-                if (m) { ing.name = m[1].trim(); ing.quantity = m[2].trim(); }
-                else { ing.name = val.trim(); ing.quantity = ''; }
-                refresh();
-            }, () => { M.removeIngredient(model, ing.id); refresh(); }, { anchor: 'middle', fontStyle: 'italic', fontSize: '12px' });
+            editTextInPlace(pos.x, pos.y, ing.name, val => { ing.name = val.trim(); refresh(); },
+                () => { M.removeIngredient(model, ing.id); refresh(); },
+                { anchor: 'middle', sourceEl: node, transparent: true, color: R.readableTextColor(ing.color), hideEls: [node], rect: measureInlineRect(node, pillNode), placeholder: 'ingredient name' });
+        }
+        function editIngredientQuantity(ing, clientX, clientY) {
+            let pos = { x: clientX, y: clientY };
+            const node = svg.querySelector(`text[data-kind="line"][data-line-kind="ingredient"][data-part="quantity"][data-id="${CSS.escape(ing.id)}"]`);
+            const pillNode = svg.querySelector(`rect[data-kind="line-pill"][data-id="${CSS.escape(ing.id)}"]`);
+            if (node) pos = svgToClient(svg, parseFloat(node.getAttribute('x')), parseFloat(node.getAttribute('y')));
+            editTextInPlace(pos.x, pos.y, ing.quantity || '', val => { ing.quantity = val.trim(); refresh(); },
+                null, {
+                    anchor: 'middle', sourceEl: node, transparent: true, color: R.readableTextColor(ing.color),
+                    hideEls: [node], rect: measureInlineRect(node, pillNode), placeholder: 'QTY',
+                    onTab: () => editIngredientName(ing, clientX, clientY)
+                });
         }
 
         function editMergeOutputName(lineId, clientX, clientY) {
@@ -684,9 +822,26 @@
             const step = model.timeSteps[idx].steps.find(s => s.type === 'merge' && s.outputLineId === lineId);
             let pos = { x: clientX, y: clientY };
             const node = svg.querySelector(`text[data-kind="line"][data-line-kind="merge"][data-id="${CSS.escape(lineId)}"]`);
+            const pillNode = svg.querySelector(`rect[data-kind="line-pill"][data-id="${CSS.escape(lineId)}"]`);
             if (node) pos = svgToClient(svg, parseFloat(node.getAttribute('x')), parseFloat(node.getAttribute('y')));
             editTextInPlace(pos.x, pos.y, step.outputName || '', val => { step.outputName = val.trim(); refresh(); },
-                () => { M.removeStepById(model, step.id); refresh(); }, { anchor: 'middle', fontStyle: 'italic', fontSize: '12px' });
+                () => { M.removeStepById(model, step.id); refresh(); },
+                { anchor: 'middle', sourceEl: node, bg: step.outputColor, color: R.readableTextColor(step.outputColor), hideEls: [pillNode, node], rect: measureInlineRect(node, pillNode) });
+        }
+
+        // A split output's own name (dblclick) -- deleting it drops the
+        // WHOLE split (same as a merge), not just this one part.
+        function editSplitOutputName(lineId, clientX, clientY) {
+            const found = findSplitOutput(lineId);
+            if (!found) return;
+            const { step, output } = found;
+            let pos = { x: clientX, y: clientY };
+            const node = svg.querySelector(`text[data-kind="line"][data-line-kind="split"][data-id="${CSS.escape(lineId)}"]`);
+            const pillNode = svg.querySelector(`rect[data-kind="line-pill"][data-id="${CSS.escape(lineId)}"]`);
+            if (node) pos = svgToClient(svg, parseFloat(node.getAttribute('x')), parseFloat(node.getAttribute('y')));
+            editTextInPlace(pos.x, pos.y, output.name || '', val => { output.name = val.trim(); refresh(); },
+                () => { M.removeStepById(model, step.id); refresh(); },
+                { anchor: 'middle', sourceEl: node, bg: output.color, color: R.readableTextColor(output.color), hideEls: [pillNode, node], rect: measureInlineRect(node, pillNode) });
         }
 
         // Editing an existing label/move step (dblclick its text on the line).
@@ -694,11 +849,52 @@
             const found = findStep(stepId);
             if (!found) return;
             const { step, col } = found;
+            const line = lines.get(step.lineId);
             let pos = { x: clientX, y: clientY };
             const entry = layouts[col] && layouts[col][step.lineId];
             if (entry) pos = svgToClient(svg, R.laneX(entry.x), R.rowY(model, col) + 4);
+            const node = svg.querySelector(`text[data-kind="step"][data-id="${CSS.escape(stepId)}"]`);
+            const pillNode = svg.querySelector(`rect[data-kind="step-pill"][data-id="${CSS.escape(stepId)}"]`);
             editTextInPlace(pos.x, pos.y, step.text || '', val => { step.text = val.trim(); refresh(); },
-                () => { M.removeStepById(model, step.id); refresh(); }, { anchor: 'middle', fontSize: '11px' });
+                () => { M.removeStepById(model, step.id); refresh(); },
+                { anchor: 'middle', sourceEl: node, bg: line && line.color, color: line && R.readableTextColor(line.color), hideEls: [pillNode, node], rect: measureInlineRect(node, pillNode) });
+        }
+
+        // ---------- timers: a bold duration field to the left of a step's
+        // label. Hover a label to get the timer button; dblclick the field to
+        // edit it (empty removes it). ----------
+        function editTimer(stepId, clientX, clientY) {
+            const found = findStep(stepId);
+            if (!found) return;
+            const { step } = found;
+            const sel = CSS.escape(stepId);
+            const node = svg.querySelector(`text[data-kind="step-timer"][data-id="${sel}"]`);
+            const pillNode = svg.querySelector(`rect[data-timer-step="${sel}"]`);
+            const commit = val => {
+                const secs = M.parseDuration(val);
+                if (secs > 0) step.timer = secs; else delete step.timer;
+                refresh();
+            };
+            if (node) {
+                editTextInPlace(clientX, clientY, M.formatDuration(step.timer), commit, null, {
+                    anchor: 'middle', sourceEl: node, transparent: true, color: node.style.fill,
+                    hideEls: [node], rect: measureInlineRect(node, pillNode), placeholder: 'e.g. 15m'
+                });
+            } else {
+                editTextInPlace(clientX, clientY, '', commit, null, { anchor: 'middle', placeholder: 'e.g. 15m', fontSize: '12px' });
+            }
+        }
+        function timerStepForNode(node) {
+            const kind = node.getAttribute('data-kind'), id = node.getAttribute('data-id');
+            if (kind === 'step' || kind === 'add-step') { const f = findStep(id); return f && f.step; }
+            for (const ts of model.timeSteps) {
+                for (const s of (ts.steps || [])) {
+                    if (kind === 'process-label' && s.type === 'process-start' && s.processId === id) return s;
+                    if (kind === 'line' && node.getAttribute('data-line-kind') === 'merge' && s.type === 'merge' && s.outputLineId === id) return s;
+                    if (kind === 'line' && node.getAttribute('data-line-kind') === 'split' && s.type === 'split' && s.output && s.output.lineId === id) return s;
+                }
+            }
+            return null;
         }
 
         // Small creation form shown from clicking the line's hover-handle --
@@ -713,7 +909,7 @@
             pop.style.top = `${clientY}px`;
             pop.addEventListener('mousedown', e => e.stopPropagation());
 
-            const typeSel = mkEl('select', {}, ['label', 'merge'].map(t => mkEl('option', { value: t, text: t })));
+            const typeSel = mkEl('select', {}, ['label', 'merge', 'split'].map(t => mkEl('option', { value: t, text: t })));
             pop.appendChild(mkEl('label', { class: 'popover-field' }, [mkEl('span', { text: 'Step Type' }), typeSel]));
             const body = mkEl('div', {});
             pop.appendChild(body);
@@ -737,6 +933,32 @@
                         closePopover(); refresh();
                     }));
                     setTimeout(() => textInp.focus(), 0);
+                } else if (typeSel.value === 'split') {
+                    // Peels ONE new ingredient off this line, which carries on
+                    // unmoved (just thinner) -- the reverse of an `add`.
+                    const nameInp = mkEl('input', { type: 'text', placeholder: 'e.g. reserved juice' });
+                    body.appendChild(fieldRow('New ingredient', nameInp));
+                    body.appendChild(addBtn('Add Step', () => {
+                        const name = nameInp.value.trim();
+                        if (!name) { alert('Enter a name for the new ingredient.'); return; }
+                        recordHistory();
+                        const source = lines.get(lineId);
+                        const entry = layouts[col] && layouts[col][lineId];
+                        const srcX = entry ? entry.x : 0;
+                        const curT = entry ? entry.thickness : (source ? source.thickness : 10);
+                        const outT = Math.max(1, Math.round(curT / 2));
+                        const newT = Math.max(1, curT - outT);
+                        // Rests a little way to the right of the line; drag its
+                        // name sideways afterwards to put it anywhere.
+                        const x = Math.max(0, srcX + newT / 2 + outT / 2 + 24);
+                        placeStep(col, col + 1, R.LAYOUT.topMargin + columnX, {
+                            id: M.genId('step'), type: 'split', sourceLineId: lineId,
+                            output: { lineId: M.genId('line'), name, color: source ? source.color : '#888888', thickness: outT, x },
+                            newThickness: newT
+                        });
+                        closePopover(); refresh();
+                    }));
+                    setTimeout(() => nameInp.focus(), 0);
                 } else {
                     const checkList = mkEl('div', { class: 'check-list' });
                     const checks = [];
@@ -776,40 +998,36 @@
             setTimeout(() => document.addEventListener('mousedown', outsideClickHandler), 0);
         }
 
-        // "+ Process" hover button (shown anywhere along a utensil, which is a
-        // permanent fixture with no time range of its own) -- anchors the new
-        // process's time range around the hovered row.
-        function quickAddProcess(utensilId, columnX, clientX, clientY) {
-            recordHistory();
+        // Clicking over a utensil adds a process there, the way clicking over
+        // an ingredient adds a step: the new process gets its OWN start row,
+        // inserted before the clicked row (or after it if you clicked its
+        // lower half), and spans a couple of rows below it.
+        function addProcessOnUtensil(utensilId, clientX, clientY) {
             const u = model.utensils.find(x => x.id === utensilId);
             if (!u) return;
-            const startX = columnX - R.LAYOUT.columnWidth / 4;
-            const endX = columnX + R.LAYOUT.columnWidth * 0.75;
-            const p = M.addProcess(model, { utensilId, startX, endX });
+            const pt = toSvgPoint(svg, clientX, clientY);
+            const rel = (pt.y - R.LAYOUT.topMargin) / R.rowH(model);
+            if (rel < 0) return;
+            const row = Math.floor(rel);
+            const at = Math.max(0, Math.min(rel - row >= 0.5 ? row + 1 : row, model.timeSteps.length));
+            recordHistory();
+            const p = M.addProcess(model, { utensilId, startTimeStepIndex: at });
             refresh();
             editProcessLabel(p.id, clientX, clientY);
         }
 
-        // Process label/sublabel edit in place -- color/opacity/delete now
-        // live on the selection panel instead (click the process to select
-        // it), so these two just handle their own text.
+        // A process label is one line, edited in place and styled like any step label.
         function editProcessLabel(id, clientX, clientY) {
             const p = model.processes.find(x => x.id === id);
             if (!p) return;
             let pos = { x: clientX, y: clientY };
             const node = svg.querySelector(`text[data-kind="process-label"][data-id="${CSS.escape(id)}"]`);
+            const pillNode = svg.querySelector(`rect[data-kind="process-label-pill"][data-id="${CSS.escape(id)}"]`);
             if (node) pos = svgToClient(svg, parseFloat(node.getAttribute('x')), parseFloat(node.getAttribute('y')));
-            editTextInPlace(pos.x, pos.y, p.label || '', val => { p.label = val.trim(); refresh(); },
-                null, { anchor: 'start', fontWeight: '700', fontSize: '12px' });
-        }
-        function editProcessSublabel(id, clientX, clientY) {
-            const p = model.processes.find(x => x.id === id);
-            if (!p) return;
-            let pos = { x: clientX, y: clientY };
-            const node = svg.querySelector(`text[data-kind="process-sublabel"][data-id="${CSS.escape(id)}"]`);
-            if (node) pos = svgToClient(svg, parseFloat(node.getAttribute('x')), parseFloat(node.getAttribute('y')));
-            editTextInPlace(pos.x, pos.y, p.sublabel || '', val => { p.sublabel = val.trim(); refresh(); },
-                null, { anchor: 'start', fontWeight: '700', fontSize: '11px' });
+            editTextInPlace(pos.x, pos.y, p.label || '', val => { p.label = val.trim(); refresh(); }, null, {
+                anchor: 'middle', sourceEl: node, bg: p.color, color: R.readableTextColor(p.color),
+                hideEls: [pillNode, node], rect: measureInlineRect(node, pillNode), placeholder: 'process'
+            });
         }
 
         // ---------- time step reorder (free-drag along the timeline --
@@ -825,19 +1043,38 @@
         function timeStepDragMove(e) {
             if (drag.col == null || drag.col < 0) return;
             const pt = toSvgPoint(svg, e.clientX, e.clientY);
-            drag.col = repositionColumn(drag.col, pt.y - R.LAYOUT.topMargin);
+            drag.col = repositionColumn(drag.col, pt.y);
             refresh();
+        }
+
+        // Dragging a left-gutter step number reorders that whole column
+        // among the discrete rows (the number itself represents the column,
+        // not any single step within it).
+        function startColumnReorder(e, tsId) {
+            e.preventDefault();
+            e.stopPropagation();
+            const col = model.timeSteps.findIndex(t => t.id === tsId);
+            if (col < 0) return;
+            drag = { type: 'col-reorder', col, tsId, moved: false };
+            document.addEventListener('mousemove', onDragMove);
+            document.addEventListener('mouseup', onDragEnd);
+        }
+        function columnReorderMove(e) {
+            if (!drag.moved) { recordHistory(); drag.moved = true; }
+            timeStepDragMove(e);
         }
 
         function editUtensil(id, clientX, clientY) {
             const u = model.utensils.find(x => x.id === id);
             if (!u) return;
-            const pos = svgToClient(svg, R.laneX(u.x) + 6, R.LAYOUT.utensilTop + 14);
-            editTextInPlace(pos.x, pos.y, u.name, val => { u.name = val.trim(); refresh(); }, () => { M.removeUtensil(model, id); refresh(); }, { anchor: 'start', fontWeight: '600', fontSize: '12px' });
+            const node = svg.querySelector(`text[data-kind="utensil"][data-id="${CSS.escape(id)}"]`);
+            let pos = { x: clientX, y: clientY };
+            if (node) pos = svgToClient(svg, parseFloat(node.getAttribute('x')), parseFloat(node.getAttribute('y')));
+            editTextInPlace(pos.x, pos.y, u.name, val => { u.name = val.trim(); refresh(); }, () => { M.removeUtensil(model, id); refresh(); }, { anchor: 'start', sourceEl: node });
         }
 
         // ---------- utensils are permanent fixtures: drag the body sideways
-        // to reposition (within or across zones), grab a left/right edge to
+        // to reposition sideways, grab a left/right edge to
         // resize, dblclick to rename ----------
         // Whichever ingredient starting positions / move-step / merge-step
         // targets currently sit within a utensil's own footprint are treated
@@ -858,14 +1095,14 @@
             });
             return items;
         }
-        function startUtensilDrag(e, id) {
+        function startUtensilDrag(e, id, fromBody) {
             e.preventDefault();
             e.stopPropagation();
             const u = model.utensils.find(x => x.id === id);
             if (!u) return;
             const pt = toSvgPoint(svg, e.clientX, e.clientY);
             drag = {
-                type: 'utensil', id, startSvgX: pt.x, startX: u.x, attachments: thingsOnUtensil(u),
+                type: 'utensil', id, fromBody: !!fromBody, startSvgX: pt.x, startX: u.x, attachments: thingsOnUtensil(u),
                 startClientX: e.clientX, startClientY: e.clientY, moved: false
             };
             document.addEventListener('mousemove', onDragMove);
@@ -884,9 +1121,6 @@
             u.x = Math.max(0, drag.startX + delta);
             const actualDelta = u.x - drag.startX;
             drag.attachments.forEach(a => { a.obj[a.key] = Math.max(0, a.start + actualDelta); });
-            const center = u.x + u.width / 2;
-            const zone = (model.zones || []).find(z => center >= z.x && center <= z.x + z.width);
-            if (zone) u.zoneId = zone.id;
             refresh();
         }
         function startUtensilResize(e, id, edge) {
@@ -916,19 +1150,17 @@
             refresh();
         }
 
-        // ---------- processes: drag the body to shift both start & end
-        // together, grab a top/bottom edge to change just the start or
-        // finish, dblclick to edit label/sublabel/color ----------
+        // ---------- processes: the start is a real step row, so dragging the
+        // body or the label moves that row (the length in rows is kept); the
+        // bottom edge resizes in whole rows. A plain click selects it (color,
+        // opacity, delete); dblclick the label to rename. ----------
         function startProcessDrag(e, id) {
             e.preventDefault();
             e.stopPropagation();
             const p = model.processes.find(x => x.id === id);
             if (!p) return;
-            const pt = toSvgPoint(svg, e.clientX, e.clientY);
             drag = {
-                type: 'process-shift', id, startSvgY: pt.y,
-                startStartX: model.timeSteps[p.startTimeStepIndex].x,
-                startEndX: model.timeSteps[p.endTimeStepIndex].x,
+                type: 'process-shift', id, span: p.endTimeStepIndex - p.startTimeStepIndex,
                 startClientX: e.clientX, startClientY: e.clientY, moved: false
             };
             document.addEventListener('mousemove', onDragMove);
@@ -943,29 +1175,18 @@
             const p = model.processes.find(x => x.id === drag.id);
             if (!p) return;
             const pt = toSvgPoint(svg, e.clientX, e.clientY);
-            const delta = pt.y - drag.startSvgY;
-            const span = drag.startEndX - drag.startStartX;
-            const newStart = Math.max(0, drag.startStartX + delta);
-            // Repositioning (not clamping against) each boundary independently
-            // lets the whole process slide freely past unrelated columns,
-            // swapping array order to match as it goes -- same mechanism as
-            // dragging a plain time step.
-            repositionColumn(p.startTimeStepIndex, newStart);
-            repositionColumn(p.endTimeStepIndex, newStart + span);
+            // One swap per move event; swapTimeSteps carries p.startTimeStepIndex along.
+            repositionColumn(p.startTimeStepIndex, pt.y);
+            p.endTimeStepIndex = Math.min(model.timeSteps.length - 1, p.startTimeStepIndex + drag.span);
             refresh();
         }
-        function startProcessResize(e, id, edge) {
+        function startProcessResize(e, id) {
             e.preventDefault();
             e.stopPropagation();
             const p = model.processes.find(x => x.id === id);
             if (!p) return;
             recordHistory();
-            const pt = toSvgPoint(svg, e.clientX, e.clientY);
-            drag = {
-                type: 'process-resize', id, edge, startSvgY: pt.y,
-                startStartX: model.timeSteps[p.startTimeStepIndex].x,
-                startEndX: model.timeSteps[p.endTimeStepIndex].x
-            };
+            drag = { type: 'process-resize', id };
             document.addEventListener('mousemove', onDragMove);
             document.addEventListener('mouseup', onDragEnd);
         }
@@ -973,38 +1194,27 @@
             const p = model.processes.find(x => x.id === drag.id);
             if (!p) return;
             const pt = toSvgPoint(svg, e.clientX, e.clientY);
-            const delta = pt.y - drag.startSvgY;
-            // Only clamp against the process's OWN other edge (keep a
-            // minimum gap) -- repositioning past any unrelated column swaps
-            // it out of the way instead of just stopping dead against it.
-            if (drag.edge === 'top') {
-                const hi = model.timeSteps[p.endTimeStepIndex].x - 10;
-                repositionColumn(p.startTimeStepIndex, Math.min(drag.startStartX + delta, hi));
-            } else {
-                const lo = model.timeSteps[p.startTimeStepIndex].x + 10;
-                repositionColumn(p.endTimeStepIndex, Math.max(drag.startEndX + delta, lo));
-            }
+            p.endTimeStepIndex = Math.max(p.startTimeStepIndex, nearestColumnIndex(pt.y));
             refresh();
         }
 
-        // ---------- dblclick empty zone space to place a new utensil fixture
-        // there (utensils have no time range any more, just a fixed spot) ----------
-        function addUtensilInZone(zoneId, clientX, clientY) {
-            const zone = (model.zones || []).find(z => z.id === zoneId);
-            if (!zone) return;
+        // ---------- click empty space in the utensil section to place a new
+        // utensil fixture there ----------
+        function addUtensilAtClick(e) {
             recordHistory();
-            const pt = toSvgPoint(svg, clientX, clientY);
+            const pt = toSvgPoint(svg, e.clientX, e.clientY);
             const width = 70;
-            const x = Math.max(zone.x + 4, Math.min(pt.x - R.LAYOUT.leftMargin - width / 2, zone.x + zone.width - width - 4));
-            const u = M.addUtensil(model, { zoneId, x, width });
+            const u = M.addUtensil(model, { x: Math.max(0, pt.x - R.LAYOUT.leftMargin - width / 2), width });
             refresh();
-            editUtensil(u.id, clientX, clientY);
+            editUtensil(u.id, e.clientX, e.clientY);
         }
 
-        // ---------- add ingredient / add time step ----------
-        function addIngredientAndEdit(e) {
+        // ---------- click empty space in the ingredient band to create a
+        // new ingredient right there / add time step ----------
+        function addIngredientAtClick(e) {
             recordHistory();
-            const ing = M.addIngredient(model);
+            const pt = toSvgPoint(svg, e.clientX, e.clientY);
+            const ing = M.addIngredient(model, Math.max(0, pt.x - R.LAYOUT.leftMargin));
             refresh();
             editIngredientName(ing, e.clientX, e.clientY);
         }
@@ -1030,8 +1240,11 @@
             if (!drag) return;
             if (drag.type === 'step') stepDragMove(e);
             else if (drag.type === 'move-step') moveStepDragMove(e);
+            else if (drag.type === 'add-step') addStepDragMove(e);
+            else if (drag.type === 'col-reorder') columnReorderMove(e);
             else if (drag.type === 'ingredient-pos') ingredientLabelDragMove(e);
             else if (drag.type === 'merge-pos') mergeLabelDragMove(e);
+            else if (drag.type === 'split-pos') splitOutputDragMove(e);
             else if (drag.type === 'utensil') utensilDragMove(e);
             else if (drag.type === 'utensil-resize') utensilResizeMove(e);
             else if (drag.type === 'process-shift') processDragMove(e);
@@ -1043,12 +1256,18 @@
         function onDragEnd(e) {
             if (drag && drag.type === 'step') stepDragEnd(e);
             else if (drag && drag.type === 'linecombine') lineCombineDragEnd(e);
+            else if (drag && drag.type === 'add-step' && !drag.moved) selectItem('addstep', drag.stepId);
             else if (drag && drag.type === 'ingredient-pos' && !drag.moved) selectItem('ingredient', drag.id);
             else if (drag && drag.type === 'merge-pos' && !drag.axis) {
                 const found = findStep(drag.stepId);
                 if (found) selectItem('merge', found.step.outputLineId);
             }
-            else if (drag && drag.type === 'utensil' && !drag.moved) selectItem('utensil', drag.id);
+            else if (drag && drag.type === 'split-pos' && !drag.axis) selectItem('splitoutput', drag.lineId);
+            else if (drag && drag.type === 'col-reorder' && !drag.moved) selectItem('row', drag.tsId);
+            else if (drag && drag.type === 'utensil' && !drag.moved) {
+                if (drag.fromBody) addProcessOnUtensil(drag.id, e.clientX, e.clientY);
+                else selectItem('utensil', drag.id);
+            }
             else if (drag && drag.type === 'process-shift' && !drag.moved) selectItem('process', drag.id);
             stopDrag();
         }
@@ -1115,18 +1334,58 @@
             refresh();
         }
 
+        // ---------- drag a split output's name tag -- sideways mutates its
+        // OWN stored `x` directly (same idea as a merge's outputX), vertical
+        // moves the whole split step in time ----------
+        function startSplitOutputDrag(e, lineId) {
+            e.preventDefault();
+            e.stopPropagation();
+            const found = findSplitOutput(lineId);
+            if (!found) return;
+            const pt = toSvgPoint(svg, e.clientX, e.clientY);
+            drag = {
+                type: 'split-pos', lineId, startSvgX: pt.x, startX: found.output.x || 0,
+                startClientX: e.clientX, startClientY: e.clientY, axis: null
+            };
+            document.addEventListener('mousemove', onDragMove);
+            document.addEventListener('mouseup', onDragEnd);
+        }
+        function splitOutputDragMove(e) {
+            const found = findSplitOutput(drag.lineId);
+            if (!found) return;
+            const { step, output } = found;
+            if (!drag.axis) {
+                const dx = e.clientX - drag.startClientX, dy = e.clientY - drag.startClientY;
+                if (Math.hypot(dx, dy) < 4) return;
+                drag.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+                recordHistory();
+                if (drag.axis === 'x') draggingLineId = drag.lineId;
+                else drag.col = ensureOwnColumn(step);
+            }
+            if (drag.axis === 'y') { timeStepDragMove(e); return; }
+            const pt = toSvgPoint(svg, e.clientX, e.clientY);
+            output.x = Math.max(0, drag.startX + (pt.x - drag.startSvgX));
+            refresh();
+        }
+
         // ---------- attach listeners to the freshly-rendered SVG ----------
-        // A line's name tag: drag it sideways to change the ingredient's own
-        // starting position directly (no step inserted -- there's nothing
-        // before it to move away from); dblclick renames in place; a plain
-        // click (no real movement) selects it, revealing its color swatch +
-        // thickness scrubber + delete button (see renderSelectionUi above).
+        // A line's name tag: drag EITHER its quantity or name pill sideways
+        // to change the ingredient's own starting position directly (no
+        // step inserted -- there's nothing before it to move away from);
+        // dblclick edits whichever pill was clicked (quantity vs name) on
+        // its own; a plain click (no real movement) selects it, revealing
+        // its color swatch + thickness scrubber + delete button (see
+        // renderSelectionUi above).
         svg.querySelectorAll('text[data-kind="line"][data-line-kind="ingredient"]').forEach(node => {
             const lineId = node.getAttribute('data-id');
             const ing = model.ingredients.find(i => i.id === lineId);
             if (!ing) return;
             node.addEventListener('mousedown', e => startIngredientLabelDrag(e, ing));
-            node.addEventListener('dblclick', e => { e.stopPropagation(); editIngredientName(ing, e.clientX, e.clientY); });
+            node.addEventListener('dblclick', e => {
+                e.stopPropagation();
+                if (node.getAttribute('data-part') === 'quantity') editIngredientQuantity(ing, e.clientX, e.clientY);
+                else editIngredientName(ing, e.clientX, e.clientY);
+            });
         });
         // A combined ingredient has its own editable color/thickness, same
         // as a raw one (see renderSelectionUi) -- dragging the label sideways
@@ -1143,29 +1402,35 @@
             node.addEventListener('mousedown', e => startMergeLabelDrag(e, mergeStep));
             node.addEventListener('dblclick', e => { e.stopPropagation(); editMergeOutputName(lineId, e.clientX, e.clientY); });
         });
+        // A split output's name tag: drag sideways to reposition it (its
+        // own stored `x`, same idea as a merge's `outputX`), vertically to
+        // move the whole split to a different point in time; a plain click
+        // (no movement) selects it (color/thickness/delete-whole-split).
+        svg.querySelectorAll('text[data-kind="line"][data-line-kind="split"]').forEach(node => {
+            const lineId = node.getAttribute('data-id');
+            if (!findSplitOutput(lineId)) return;
+            node.addEventListener('mousedown', e => startSplitOutputDrag(e, lineId));
+            node.addEventListener('dblclick', e => { e.stopPropagation(); editSplitOutputName(lineId, e.clientX, e.clientY); });
+        });
         svg.querySelectorAll('[data-kind="add-timestep"]').forEach(node => {
             node.addEventListener('click', addTimeStepAction);
         });
-        svg.querySelectorAll('[data-kind="add-ingredient"]').forEach(node => {
-            node.addEventListener('click', addIngredientAndEdit);
+        svg.querySelectorAll('[data-kind="step-number"]').forEach(node => {
+            node.addEventListener('mousedown', e => startColumnReorder(e, node.getAttribute('data-id')));
         });
-        // A utensil: drag the body to reposition (within/across zones),
-        // dblclick to rename; a plain click selects it (color + delete). The
-        // "+ Process" hint stays hover-triggered (it's a creation action,
-        // not one of the utensil's own attributes).
+        svg.querySelectorAll('[data-kind="ingredient-create-band"]').forEach(node => {
+            node.addEventListener('click', addIngredientAtClick);
+        });
+        svg.querySelectorAll('[data-kind="utensil-create-band"]').forEach(node => {
+            node.addEventListener('click', addUtensilAtClick);
+        });
+        // A utensil: drag it sideways to reposition, dblclick to rename. Its
+        // name (in the utensil section) selects it on click (color + delete);
+        // clicking its body adds a process there.
         svg.querySelectorAll('[data-kind="utensil"]').forEach(node => {
-            node.addEventListener('mousedown', e => startUtensilDrag(e, node.getAttribute('data-id')));
+            const fromBody = node.tagName.toLowerCase() === 'rect';
+            node.addEventListener('mousedown', e => startUtensilDrag(e, node.getAttribute('data-id'), fromBody));
             node.addEventListener('dblclick', e => { e.stopPropagation(); editUtensil(node.getAttribute('data-id'), e.clientX, e.clientY); });
-            node.addEventListener('mousemove', e => {
-                if (drag) return;
-                const u = model.utensils.find(x => x.id === node.getAttribute('data-id'));
-                if (!u) return;
-                const pt = toSvgPoint(svg, e.clientX, e.clientY);
-                const columnX = pt.y - R.LAYOUT.topMargin;
-                const pos = svgToClient(svg, R.laneX(u.x), pt.y);
-                showHoverButton('process', pos.x - 24, pos.y, '+ Process', () => quickAddProcess(u.id, columnX, pos.x - 60, pos.y));
-                registerHoverOrigin('process', e.clientX, e.clientY);
-            });
         });
         svg.querySelectorAll('[data-kind="utensil-edge"]').forEach(node => {
             node.addEventListener('mousedown', e => startUtensilResize(e, node.getAttribute('data-id'), node.getAttribute('data-edge')));
@@ -1174,20 +1439,42 @@
             node.addEventListener('mousedown', e => startStepDrag(e, node.getAttribute('data-id')));
             node.addEventListener('dblclick', e => { e.stopPropagation(); editStepText(node.getAttribute('data-id'), e.clientX, e.clientY); });
         });
-        // A process: drag the body to shift both ends together, grab an
-        // edge to change just the start/finish; a plain click selects it
-        // (color + opacity + delete). Its label/sublabel text edit in place.
+        // An `add` step's label/pill -- vertical-only reposition drag, click
+        // (no movement) selects it for deletion; no free text to edit.
+        svg.querySelectorAll('[data-kind="add-step"]').forEach(node => {
+            node.addEventListener('mousedown', e => startAddStepDrag(e, node.getAttribute('data-id')));
+        });
+        // A process: drag its body or label to move its start row, grab the
+        // bottom edge to change its length; click selects, dblclick the label renames.
         svg.querySelectorAll('[data-kind="process"]').forEach(node => {
             node.addEventListener('mousedown', e => startProcessDrag(e, node.getAttribute('data-id')));
         });
         svg.querySelectorAll('[data-kind="process-label"]').forEach(node => {
+            node.addEventListener('mousedown', e => startProcessDrag(e, node.getAttribute('data-id')));
             node.addEventListener('dblclick', e => { e.stopPropagation(); editProcessLabel(node.getAttribute('data-id'), e.clientX, e.clientY); });
         });
-        svg.querySelectorAll('[data-kind="process-sublabel"]').forEach(node => {
-            node.addEventListener('dblclick', e => { e.stopPropagation(); editProcessSublabel(node.getAttribute('data-id'), e.clientX, e.clientY); });
-        });
         svg.querySelectorAll('[data-kind="process-edge"]').forEach(node => {
-            node.addEventListener('mousedown', e => startProcessResize(e, node.getAttribute('data-id'), node.getAttribute('data-edge')));
+            node.addEventListener('mousedown', e => startProcessResize(e, node.getAttribute('data-id')));
+        });
+        // Timer field: dblclick edits it.
+        svg.querySelectorAll('[data-kind="step-timer"]').forEach(node => {
+            node.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
+            node.addEventListener('dblclick', e => { e.stopPropagation(); editTimer(node.getAttribute('data-id'), e.clientX, e.clientY); });
+        });
+        // Hovering any step label without a timer offers a small timer button
+        // just left of it.
+        svg.querySelectorAll('[data-kind="step"], [data-kind="add-step"], [data-kind="process-label"], text[data-kind="line"][data-line-kind="merge"], text[data-kind="line"][data-line-kind="split"]').forEach(node => {
+            node.addEventListener('mousemove', e => {
+                if (drag) return;
+                const step = timerStepForNode(node);
+                if (!step || step.timer > 0) return;
+                const pill = svg.querySelector(`rect.pill-label-bg[data-id="${CSS.escape(node.getAttribute('data-id'))}"]`);
+                if (!pill) return;
+                const r = pill.getBoundingClientRect();
+                const y = r.top + r.height / 2;
+                showHoverButton('timer', r.left - 14, y, '\u23F1', () => { hideHoverButton('timer'); editTimer(step.id, r.left - 14, y); });
+                registerHoverOrigin('timer', e.clientX, e.clientY);
+            });
         });
         // Hovering the last curving segment right before a merge reveals a
         // scissors button to cancel just that input (it then just continues
@@ -1201,14 +1488,12 @@
             if (!line) return;
             function pointOnLine(clientX, clientY) {
                 const pt = toSvgPoint(svg, clientX, clientY);
-                const col = segmentColumnAt(line.birth, Math.max(line.death - 1, line.birth), pt.y);
-                const from = layouts[col] && layouts[col][lineId];
-                const to = layouts[col + 1] && layouts[col + 1][lineId];
-                if (!from || !to) return null;
-                const y0 = R.rowY(model, col), y1 = R.rowY(model, col + 1);
-                const clampedY = Math.min(Math.max(pt.y, y0), y1);
-                const t = y1 > y0 ? (clampedY - y0) / (y1 - y0) : 0;
-                const x = R.laneX(from.x + (to.x - from.x) * t);
+                const keys = R.buildLineGeometry(model, line, layouts);
+                if (keys.length < 2) return null;
+                const clampedY = Math.min(Math.max(pt.y, keys[0].y), keys[keys.length - 1].y);
+                // The step row the pointer is over, within the line's own life.
+                const col = Math.max(line.birth, Math.min(nearestColumnIndex(clampedY), line.death));
+                const x = R.laneX(R.lineXAtY(keys, clampedY));
                 return { col, clampedY, pos: svgToClient(svg, x, clampedY), newColumnX: clampedY - R.LAYOUT.topMargin };
             }
             node.addEventListener('mousemove', e => {
@@ -1219,7 +1504,7 @@
                 const deathStep = deathTs && (deathTs.steps || []).find(s =>
                     (s.type === 'merge' && s.inputLineIds.includes(lineId)) ||
                     (s.type === 'add' && s.addedLineId === lineId));
-                const isMergingAway = hit.col === line.death - 1 && !!deathStep;
+                const isMergingAway = hit.col === line.death && !!deathStep;
                 if (isMergingAway) {
                     showHoverButton('cut', hit.pos.x, hit.pos.y, '\u2702', () => cancelMergeInput(line.death, lineId));
                     registerHoverOrigin('cut', e.clientX, e.clientY);
@@ -1233,17 +1518,15 @@
                 startLineCombineDrag(e, lineId, hit.pos.y, hit.col, hit.newColumnX, (clientX, clientY) => openAddStepPopover(lineId, hit.col, hit.newColumnX, clientX, clientY));
             });
         });
-        // Double-click empty zone space to place a new utensil fixture there;
-        // a plain click on empty space deselects whatever's selected (every
-        // other element's own mousedown handler already stops propagation,
-        // so this only ever fires for genuinely empty background).
-        svg.querySelectorAll('rect[data-kind="zone"]').forEach(node => {
-            node.addEventListener('dblclick', e => {
-                e.stopPropagation();
-                addUtensilInZone(node.getAttribute('data-id'), e.clientX, e.clientY);
-            });
-        });
+        // A plain click on empty background deselects whatever's selected
+        // (every other element's own mousedown handler already stops
+        // propagation, so this only ever fires for genuinely empty space --
+        // utensil/ingredient creation now live in their own dedicated bands
+        // above, not a dblclick on the background itself).
         svg.addEventListener('mousedown', () => deselect());
+
+        // Cook mode re-applies its row focus after every re-render.
+        if (typeof svg._vepAfterRender === 'function') svg._vepAfterRender();
 
         renderSelectionUi();
     }

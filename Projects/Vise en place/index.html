@@ -12,7 +12,12 @@
     <header id="toolbar">
         <h1>Vise en place</h1>
         <input type="text" id="titleInput" placeholder="Recipe title" />
+        <label class="row-height-ctl" title="Height of each step row (px)">Row height
+            <input type="range" id="rowHeightInput" min="14" max="60" step="1" value="20" />
+            <output id="rowHeightOut">20</output>
+        </label>
         <div class="toolbar-actions">
+            <button id="cookBtn" class="cook-toggle">Cook</button>
             <button id="newBtn">New</button>
             <button id="exampleBtn">Load Example</button>
             <button id="saveBtn">Save</button>
@@ -29,10 +34,27 @@
         </main>
     </div>
 
+    <footer id="cookBar" hidden>
+        <div class="cook-nav">
+            <button id="cookBack">◀ Back</button>
+            <span id="cookStatus">Step 1</span>
+            <button id="cookNext" class="cook-primary">Next ▶</button>
+            <button id="cookRestart">Restart</button>
+        </div>
+        <div class="cook-mic">
+            <button id="cookMic">Listen for finger snaps</button>
+            <div id="cookMeter" class="cook-meter" title="Mic level (dashed line = trigger level)"><div id="cookMeterBar"></div></div>
+            <label>Sensitivity <input type="range" id="cookSens" min="1" max="10" value="5" /></label>
+            <span id="cookMicMsg"></span>
+        </div>
+        <div id="cookTimers"></div>
+    </footer>
+
     <script src="js/model.js"></script>
     <script src="js/renderer.js"></script>
     <script src="js/export.js"></script>
     <script src="js/interact.js"></script>
+    <script src="js/cook.js"></script>
     <script src="js/main.js"></script>
 </body>
 
