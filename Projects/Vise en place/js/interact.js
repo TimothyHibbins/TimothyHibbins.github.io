@@ -810,10 +810,10 @@
             if (node) pos = svgToClient(svg, parseFloat(node.getAttribute('x')), parseFloat(node.getAttribute('y')));
             editTextInPlace(pos.x, pos.y, ing.quantity || '', val => { ing.quantity = val.trim(); refresh(); },
                 null, {
-                    anchor: 'middle', sourceEl: node, transparent: true, color: R.readableTextColor(ing.color),
-                    hideEls: [node], rect: measureInlineRect(node, pillNode), placeholder: 'QTY',
-                    onTab: () => editIngredientName(ing, clientX, clientY)
-                });
+                anchor: 'middle', sourceEl: node, transparent: true, color: R.readableTextColor(ing.color),
+                hideEls: [node], rect: measureInlineRect(node, pillNode), placeholder: 'QTY',
+                onTab: () => editIngredientName(ing, clientX, clientY)
+            });
         }
 
         function editMergeOutputName(lineId, clientX, clientY) {
