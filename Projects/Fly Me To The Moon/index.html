@@ -3,11 +3,18 @@
 
 <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="../../mystyle.css">
     <link rel="icon" type="image/x-icon" href="favicon.png">
     <title>Fly Me To The Moon</title>
 </head>
 <style>
+    :root {
+        --essay-height: 33.33vh;
+        --essay-height: 33.33dvh;
+        --accent: #ff00b3;
+    }
+
     html,
     body {
         height: 100%;
@@ -23,150 +30,145 @@
     body {
         margin: 0;
         padding: 0;
-        display: flex;
-        flex-direction: column;
         height: 100vh;
+        height: 100dvh;
         position: fixed;
         inset: 0;
     }
 
-    :root {
-        --controls-height: 80px;
-        --controls-offset: 40px;
+    /* Essay pane: top third, continuously scrollable */
+    #essayPane {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: var(--essay-height);
+        overflow-y: auto;
+        /* allow touch scrolling here despite the global touch-action: none */
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
+        -webkit-user-select: text;
+        user-select: text;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.13);
+        z-index: 5;
     }
 
-    #myCanvas {
+    #essayContent {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 72px 0 24px;
+        /* let the first and last lines reach the focal point */
+        padding-top: calc(var(--essay-height) * 0.4);
+        padding-bottom: calc(var(--essay-height) * 0.65);
+    }
+
+    /* every readable unit gets this; the active one is highlighted */
+    .essay-line {
+        border-left: 3px solid transparent;
+        padding-left: 10px;
+        margin-left: -13px;
+        transition: background-color 0.25s ease, border-color 0.25s ease, opacity 0.25s ease;
+        opacity: 0.65;
+        cursor: pointer;
+    }
+
+    .essay-line.active-line {
+        border-left-color: var(--accent);
+        background-color: rgba(255, 0, 179, 0.08);
+        opacity: 1;
+    }
+
+    #essayContent ul {
+        margin-left: 13px;
+    }
+
+    /* Simulation pane: bottom two thirds */
+    #simPane {
+        position: fixed;
+        top: var(--essay-height);
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #000;
+    }
+
+    #simPane iframe {
+        position: absolute;
+        inset: 0;
         width: 100%;
         height: 100%;
         border: none;
+        display: block;
         touch-action: none;
         -webkit-user-select: none;
         user-select: none;
         -webkit-touch-callout: none;
     }
 
-    /* Slide System Styles */
-    .slide-container {
-        position: fixed;
-        inset: 0;
-        width: 100%;
-        height: 100vh;
-        overflow: hidden;
-    }
-
-    .slide {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 100%;
-        padding: 0;
-        box-sizing: border-box;
-        overflow: hidden;
-        display: flex;
+    /* hide with visibility (not display) so the iframe keeps its size: a
+       display toggle collapses its viewport to 0x0, which blanks or breaks
+       the p5 sketch inside when switching back */
+    #simPane iframe.hiddenSim {
         visibility: hidden;
-        opacity: 0;
-        animation: fadeIn 0.5s forwards;
         pointer-events: none;
     }
 
-    body.panes-swapped .slide {
-        flex-direction: row-reverse;
-    }
-
-    .slide.active {
-        visibility: visible;
-        opacity: 1;
-        pointer-events: auto;
-    }
-
-    .slide-left {
-        width: 50%;
-        height: 100vh;
-        padding: 0;
-        box-sizing: border-box;
-        overflow: hidden;
-        background-color: #f0f0f0;
-    }
-
-    .slide-right {
-        width: 50%;
-        height: calc(100vh - var(--controls-height, 80px));
-        padding: 40px;
-        padding-bottom: var(--controls-offset, 120px);
-        box-sizing: border-box;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        position: relative;
-    }
-
-    .slide-right .slide-controls {
-        display: none;
-    }
-
-    .slide-controls {
+    /* floating essay scroll control over the sim pane (touch devices only);
+       lives in the parent DOM so sim switches never affect it */
+    #essayScroller {
         position: fixed;
-        bottom: 0;
-        right: 0;
-        left: auto;
-        width: 50%;
-        flex: 0 0 auto;
-        display: flex;
-        justify-content: center;
+        right: 10px;
+        bottom: 20px;
+        width: 56px;
+        height: min(40vh, 420px);
+        z-index: 7;
+        display: none;
+        flex-direction: column;
+        justify-content: space-between;
         align-items: center;
-        gap: 15px;
-        padding: 15px 0;
-        border-top: 1px solid rgba(0, 0, 0, 0.13);
-        background-color: white;
-        flex-wrap: wrap;
-        z-index: 2;
+        padding: 14px 0;
+        box-sizing: border-box;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.07);
+        border-radius: 28px;
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 20px;
+        line-height: 1;
+        transition: background-color 0.15s, border-color 0.15s;
     }
 
-    body.panes-swapped .slide-controls {
-        left: 0;
-        right: auto;
+    #essayScroller.dragging {
+        border-color: rgba(255, 255, 255, 0.75);
+        background: rgba(255, 255, 255, 0.18);
+        color: rgba(255, 255, 255, 0.9);
     }
 
-    .slide-btn {
-        padding: 10px 20px;
+    #essayScroller .grip {
+        letter-spacing: 0;
         font-size: 16px;
-        border: none;
-        background-color: #000000ab;
-        color: white;
-        border-radius: 5px;
-        cursor: pointer;
-        transition: background-color 0.3s;
-    }
-
-    .slide-btn:hover {
-        background-color: #000000e6;
-    }
-
-    .slide-btn:disabled {
-        background-color: rgba(0, 0, 0, 0.2);
-        cursor: not-allowed;
-    }
-
-    .slide-indicator {
-        text-align: center;
-        margin: 10px 0;
-        color: rgba(0, 0, 0, 0.6);
-        font-size: 14px;
     }
 
     #fullscreenBtn {
-        position: absolute;
-        right: 15px;
-        bottom: 50%;
-        transform: translateY(50%);
+        position: fixed;
+        right: 12px;
+        top: calc(var(--essay-height) + 12px);
+        z-index: 6;
+        padding: 8px 14px;
+        font-size: 14px;
+        border: none;
+        background-color: #00000080;
+        color: rgba(255, 255, 255, 0.8);
+        border-radius: 5px;
+        cursor: pointer;
+        opacity: 0.6;
+        transition: opacity 0.3s;
     }
 
-    #swapPanesBtn {
-        position: absolute;
-        left: 15px;
-        bottom: 50%;
-        transform: translateY(50%);
+    #fullscreenBtn:hover {
+        opacity: 1;
     }
 
     .message {
@@ -180,8 +182,8 @@
 
     #settingsGear {
         position: fixed;
-        top: 20px;
-        right: 20px;
+        top: 12px;
+        right: 12px;
         cursor: pointer;
         width: 40px;
         height: 40px;
@@ -195,11 +197,6 @@
         display: flex;
         align-items: center;
         justify-content: center;
-    }
-
-    body.panes-swapped #settingsGear {
-        right: calc(50% + 20px);
-        left: auto;
     }
 
     #settingsGear svg {
@@ -245,8 +242,8 @@
 
     #settingsMenu {
         position: fixed;
-        top: 70px;
-        right: 20px;
+        top: 62px;
+        right: 12px;
         background-color: white;
         border: 1px solid rgba(0, 0, 0, 0.13);
         border-radius: 3px;
@@ -261,11 +258,6 @@
         transform: scaleY(0);
         pointer-events: none;
         visibility: hidden;
-    }
-
-    body.panes-swapped #settingsMenu {
-        right: calc(50% + 20px);
-        left: auto;
     }
 
     #settingsMenu.show {
@@ -380,6 +372,14 @@
         color: white;
     }
 
+    body.dark-mode #essayPane {
+        border-bottom-color: rgba(255, 255, 255, 0.13);
+    }
+
+    body.dark-mode .essay-line.active-line {
+        background-color: rgba(255, 0, 179, 0.16);
+    }
+
     body.dark-mode #settingsMenu {
         background-color: rgba(255, 255, 255, 0.08) !important;
         border-color: rgba(255, 255, 255, 0.13);
@@ -387,6 +387,7 @@
 
     body.dark-mode .theme-btn {
         background: transparent;
+        color: white;
     }
 
     body.dark-mode .theme-btn:hover {
@@ -395,6 +396,10 @@
 
     body.dark-mode .theme-btn.active {
         background-color: rgba(255, 255, 255, 0.15);
+    }
+
+    body.dark-mode .theme-btn-label {
+        color: white;
     }
 
     body.dark-mode .menu-separator {
@@ -421,89 +426,34 @@
         color: white;
     }
 
-    body.dark-mode .slide-right {
-        background-color: #161616;
-        color: white;
-    }
+    /* mobile: use the full width and scale typography down */
+    @media (max-width: 700px) {
+        #essayContent {
+            max-width: none;
+            padding-left: 14px;
+            padding-right: 14px;
+        }
 
-    body.dark-mode .slide-left {
-        background-color: #161616;
-    }
+        #essayContent p,
+        #essayContent li {
+            font-size: 16px;
+            line-height: 1.45;
+        }
 
-    body.dark-mode .slide-controls {
-        background-color: #161616 !important;
-        color: white;
-        border-top-color: rgba(255, 255, 255, 0.13);
-    }
+        #essayContent h1 {
+            font-size: 26px;
+        }
 
-    body.dark-mode .slide-btn {
-        background-color: rgba(255, 255, 255, 0.15);
-        color: white;
-    }
+        #essayContent h2 {
+            font-size: 20px;
+        }
 
-    body.dark-mode .slide-btn:hover {
-        background-color: rgba(255, 255, 255, 0.2);
-    }
-
-    body.dark-mode #settingsMenu {
-        background-color: rgba(255, 255, 255, 0.08);
-        border-color: rgba(255, 255, 255, 0.13);
-    }
-
-    body.dark-mode .theme-btn {
-        background-color: transparent;
-        color: white;
-    }
-
-    body.dark-mode .theme-btn:hover {
-        background-color: rgba(255, 255, 255, 0.1);
-    }
-
-    body.dark-mode .theme-btn.active {
-        background-color: rgba(255, 255, 255, 0.15);
-    }
-
-    body.dark-mode .theme-btn-label {
-        color: white;
-    }
-
-    body.dark-mode .slide-indicator {
-        color: #aaa;
+        .essay-line {
+            padding-left: 8px;
+            margin-left: -11px;
+        }
     }
 </style>
-<script>
-    const revealed = [];
-
-    window.addEventListener("message", (event) => {
-        const type = event.data?.type;
-        if (!type) return;
-
-        revealNext(type);
-    });
-
-    function revealNext(type) {
-        const msg = document.querySelector(
-            `.message[data-event="${type}"]:not([data-shown])`
-        );
-
-        if (!msg) return;
-
-        msg.hidden = false;
-        msg.dataset.shown = "true";
-        document.getElementById("log").appendChild(msg);
-
-        // Ensure the newly revealed paragraph is visible
-        requestAnimationFrame(() => {
-            const container = msg.closest('.slide-right');
-            if (container) {
-                container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
-            }
-        });
-
-        // Recalculate padding in case control panel height changed (e.g., wrapping buttons)
-        requestAnimationFrame(adjustContentPadding);
-    }
-</script>
 
 <body>
     <button id="settingsGear" aria-label="Settings">
@@ -574,13 +524,11 @@
         </button>
     </div>
 
-    <div class="slide-container">
-        <!-- Slide 1: Introduction -->
-        <div class="slide active">
-            <div class="slide-left">
-                <iframe id="myCanvas" src="slide1-sketch.html"></iframe>
-            </div>
-            <div class="slide-right">
+    <div id="essayPane">
+        <div id="essayContent">
+
+            <!-- Section 1: Introduction -->
+            <section data-sketch="0">
                 <h1>Fly Me To The Moon</h1>
 
                 <p>
@@ -589,27 +537,24 @@
 
                 <p>
                     This simulation is, of course, greatly simplified, in many respects–for example:
+                </p>
                 <ul>
                     <li>It is purely 2-dimensional.</li>
                     <li>It is wildly not-to-scale (the moon is actually much further away and much smaller).</li>
                     <li>The rocket itself has infinite fuel.</li>
                     <li>The Earth and Moon are both completely stationary.</li>
                 </ul>
-                Nevertheless, I promise that it is physically realistic in the key respects that make it so the
-                basic
-                principles
-                of piloting this simulated rocketship to the moon are identical to piloting a real one.
+                <p>
+                    Nevertheless, I promise that it is physically realistic in the key respects that make it so the
+                    basic principles of piloting this simulated rocketship to the moon are identical to piloting a real
+                    one.
 
-                These simplifications are so that those basic principles will be all that you need to successfully
-                land
-                on the
-                moon.
+                    These simplifications are so that those basic principles will be all that you need to successfully
+                    land on the moon.
                 </p>
                 <p>
                     So, give it a go. Press up to fire the rocket and use the left and right arrow keys to set your
-                    heading
-                    (the
-                    direction the nose of the rocketship is pointing).
+                    heading (the direction the nose of the rocketship is pointing).
                 </p>
 
                 <div id="log">
@@ -654,16 +599,10 @@
                         much further afield.
                     </p>
                 </div>
+            </section>
 
-            </div>
-        </div>
-
-        <!-- Slide 2: Falling in Style -->
-        <div class="slide">
-            <div class="slide-left">
-                <iframe id="myCanvas" src="slide2-sketch.html"></iframe>
-            </div>
-            <div class="slide-right">
+            <!-- Section 2: Falling in Style -->
+            <section data-sketch="1">
                 <h2>Falling in Style</h2>
 
                 <p>I'll admit, flying to the moon is maybe a slightly ambitious goal to begin with. Lets start with a
@@ -680,99 +619,118 @@
                     that is possible*, its not going to work for getting to the Moon, because the Earth's gravity is
                     still strong there—that's why the Moon orbits the Earth, after all.</p>
 
-                <p>If you stand on top of a tall tower and you drop one metal ball off the edge at the same time as
-                    firing
-                    another
-                    one from a cannon, then all other things being equal, they would hit the water at the same time,
-                    although
-                    obviously the cannonball would have travelled a significant horizontal distance. This is because
+                <p>To make this clearer, let's make gravity itself visible. In this visualisation, Earth gravity is blue
+                    and Moon gravity is yellow. Where they overlap, we see a mixed green colour. The brighter the color,
+                    the stronger the pull--the weaker, the darker. The black area shows where the Earth's and Moon's
+                    gravity, pulling in opposite directions with equal force, exactly cancel each other out!</p>
+
+                <p>For now though, we'll get rid of the moon to keep things nice and simple. Don't worry, we'll bring it
+                    back later</p>
+            </section>
+
+            <!-- Section 2b: the slingshot / Newton's cannonball -->
+            <section data-sketch="2">
+
+                <p>Let's perform an experiment. If we drop a ball off of this tower, and launch another ball sideways
+                    from the tower with a slingshot, how long will it take each of them to land?
+                    Have a guess, and pull back on the slingshot to launch.</p>
+
+                <p>They hit the ground at the same time. This is because
                     they
-                    *fall* at
-                    the same rate. However, the direction of 'down' is not constant. If you travel far enough on a
-                    curved
-                    planet,
-                    then the
-                    direction of down will change considerably. If you walk halfway around the planet, then the
-                    direction of
-                    down
-                    will be perpendicular to the direction of down where you started!</p>
-
-                <p>To help you out, we're going to add a projection of your trajectory so you can see how it changes
-                    live.
+                    <em>fall</em> at
+                    the same rate, and nothing has been done to slow the fall of either.
+                    We've neglected air resistance, of course, but this would slow the fall of both by the same amount.
                 </p>
-            </div>
-        </div>
 
-        <!-- Slide 3: Orbits Explanation -->
-        <div class="slide">
-            <div class="slide-left">
-            </div>
-            <div class="slide-right">
-                <p>We therefore see that there is nothing fundamentally special about orbits. Any object, were it able
-                    to
-                    pass
-                    through the ground like a ghost, would not stop upon reaching the centre of the earth. This would be
+                <p id="sling-up-1">However, what happens when the Earth's surface starts to curve? Try launching again with this
+                    upgraded slingshot.</p>
+
+                <p id="sling-up-2">It stayed airborne for longer! Let's try an even faster launch.</p>
+
+                <p>We can see that gravity is still curving the trajectory, but the rate of altitude loss is decreasing
+                    as we move faster, because we are getting to take advantage of more and more curvature per second
+                    whilst being subject to the same amount of gravity per second. The ground is curving away beneath
+                    the ball at closer and closer rate to that which the ball is falling.</p>
+
+                <p id="sling-up-match">Let's keep upgrading the slingshot and see if we can get curvature of our freefall trajectory to
+                    match the curvature of the Earth.</p>
+                <p id="sling-up-ecc">Ta-da! We've just achieved orbit. Specifically, a circular orbit. But what happens if we add MORE
+                    POWER?</p>
+                <p>Another orbit! This time, though, we actually gained altitude—so much altitude we went to space, in
+                    fact—resulting in this egg
+                    shaped trajectory. Note that the principle of 'What goes up must come down' is still true!
+                    After it
+                    orbits halfway around the Earth to its high point, the ball returns to its initial altitude at the
+                    tower before
+                    repeating its elliptical circuit. That highest altitude point in an orbit furthest from the Earth
+                    is called apoapsis, and the lowest altitude point of closest approach is called periapsis. When
+                    talking about Earth orbits, we use the special terms apogee and perigee for these points</p>
+                <p>If we were to launch the ball faster still, we would raise the apogee further.</p>
+
+
+                <p id="sling-ghost">Of course, the only thing separating our beautiful never-ending orbits from our previous short-lived
+                    trajectories is that they
+                    eventually hit the ground. What would happen if the balls could pass through the ground like ghosts?
+                </p>
+                <p>We see that the dropped ball doesn't stop upon reaching the centre of the earth, but continues until
+                    it reaches its initial altitude but on the other side of the Earth—what goes down must come up, it
+                    would seem. This forms a
                     a
-                    1-dimensional orbit, one with 'infinite' eccentricity. If it had a little bit of sideways momentum,
-                    like
-                    the
-                    cannonball, then it would carve out a veeeery eccentric but still 2-dimensional eliptical orbit. The
-                    more
-                    momentum, the less eccentric it would become. Eventually, given the exact right amount of momentum,
-                    it
-                    would be
-                    a perfect circle. Adding more would make it elliptical again but on a perpenduclar axis.</p>
+                    1-dimensional but still endlessly repeating 'orbit'. Our previous collision trajectories,
+                    are eccentric two dimensional orbits, which, like the dropped ball, have two apogees both at the
+                    initial altitude. As they gain more launch velocity
+                    the less eccentric their orbits become and their 'perigees' inside the Earth rise closer and closer
+                    to the surface. Eventually, given the exact right amount of momentum,
+                    the orbit becomes a perfect circle with constant altitude where apogee and perigee lose all meaning.
+                    Adding more would make it elliptical again but on a perpenduclar axis.</p>
 
                 <p>Therefore, we do not so much as need to "achieve orbit" as achieve *an* orbit which *doesn't
                     intersect
                     the
-                    surface of the planet*. In the real-world, we also need to achieve a minimum altitude to avoid
-                    atmospheric drag
-                    slowing us down and de-orbiting, but in our simplified simulation we don't even need to worry about
-                    that.</p>
+                    surface of the planet*.</p>
+            </section>
 
-                <p>So, step 1 of getting to the moon is achieving a stable orbit. To do this, rather than pointing 'up',
-                    we
-                    need to
-                    point 'forward' in the direction we'd like to orbit, like the cannonball. This is called 'firing
-                    prograde'. Try
-                    it now!</p>
-            </div>
-        </div>
+            <!-- Section 3: Reaching orbit (earth-only rocket) -->
+            <section data-sketch="3">
 
-        <!-- Slide 7: Orbital Maneuvering -->
-        <div class="slide">
-            <div class="slide-left">
-            </div>
-            <div class="slide-right">
-                <p>Congratulations, you have achieved orbit. Remember, you are still constantly falling. There is no way
-                    to
-                    stay
-                    still in space (well there is, but we'll get to that). So from now on, we're not so much moving the
+
+                <p>
+                    Step 1 of getting to the Moon is reaching orbit around <em>Earth</em>.
+                    In the real-world, a stable orbit can only be achieved in space, since within the atmosphere air
+                    resistance slows us down causing us to lose altitude and eventually crash. In our simplified
+                    simulation, however, there is no atmosphere so we don't need to worry about that. Nevertheless,
+                    since
+                    we don't have a tower or a slingshot for our rocket ship, we will still want to boost upwards until
+                    we have reached an altitude where we can safely point the rocketship 'forward' in the direction we'd
+                    like to orbit—this direction is called 'prograde'.
+                </p>
+                <p class="message" data-event="altitudeReached" hidden>
+                    Then, we can perform a prograde burn just like how we launched the balls. We need to keep firing
+                    prograde until our collision trajectory becomes a proper orbit. To help you
+                    out, we're going to add a projection of your trajectory so you can see how it changes
+                    live.
+                </p>
+                <p class="message" data-event="orbitAchieved" hidden>Congratulations, your rocketship has achieved orbit! Remember, you are still in freefall—the only
+                    reason you aren't crashing is because of your rocketship is moving so fast towards the horizon—
+                    <em>there is therefore no way to stay still in space, you must always be in an orbit</em> (well
+                    there is one way, but we'll get to that).
+                    From now on, then, we're not so much moving the
                     rocketship
-                    directly as we are changing our orbit. Spoiler alert, but we need to move to a higher altitude orbit
-                    if
-                    we're
-                    going to reach the moon. Have a go at trying to achieve such an orbit. What direction should we fire
+                    directly as we are <em>changing our orbit</em>. Spoiler alert, but we need to move to a higher
+                    altitude orbit if we're going to reach the moon. Have a go at trying to achieve such an orbit. What
+                    direction should we fire
                     the
                     rocket?
                 </p>
 
-                <p>It is intuitive to fire 'up', since we want to gain altitude. But remember, we didn't achieve orbit
+                <p class="message" data-event="firedUp" hidden>It is intuitive to fire 'up', since we want to gain altitude. But remember, we didn't achieve orbit
                     in
                     the first
                     place by firing up, because what goes up must come down. Indeed, you'll see that you gain altitude
                     initially
                     from this manouvre, but you fall right back down.</p>
-            </div>
-        </div>
 
-        <!-- Slide 4: Hohmann Transfer -->
-        <div class="slide">
-            <div class="slide-left">
-            </div>
-            <div class="slide-right">
-                <p>Well done! Your logic is correct; if firing prograde is what got us into orbit, then surely we'd fire
+                <p class="message" data-event="apoapsisRaised" hidden>Well done! Your logic is correct; if firing prograde is what got us into orbit, then surely we'd fire
                     prograde to
                     increase our altitude. The issue is, as you can see, whilst this has increased the peak altitude or
                     apoapsis,
@@ -786,7 +744,7 @@
                     think
                     is the second step?</p>
 
-                <p>Ding ding ding! Your logic is correct again. If firing raises the altitude a half orbit ahead of
+                <p class="message" data-event="circularisedHigher" hidden>Ding ding ding! Your logic is correct again. If firing raises the altitude a half orbit ahead of
                     where we
                     are,
                     then if we want to raise the periapsis to 'circularise' the orbit, we must do another prograde burn
@@ -798,20 +756,16 @@
                     the altitude? You should be able to figure this one out; what's the opposite of what we did before?
                 </p>
 
-                <p>Bingo! That's called a 'retro-grade' burn. One more a half orbit ahead and you'll circularise the
+                <p class="message" data-event="orbitLowered" hidden>Bingo! That's called a 'retro-grade' burn. One more a half orbit ahead and you'll circularise the
                     orbit
                     at the
                     new lower altitude. Now, you have the power to orbit at any altitude you like! Lets test your
                     skills.
                 </p>
-            </div>
-        </div>
+            </section>
 
-        <!-- Slide 5: Impulse Control -->
-        <div class="slide">
-            <div class="slide-left">
-            </div>
-            <div class="slide-right">
+            <!-- Section 6: Impulse Control -->
+            <section>
                 <h2>Impulse Control</h2>
                 <p>So far, you've been controlling the rocket by turning it on and off again. There hasn't been any way
                     to
@@ -827,14 +781,10 @@
                     the rocketship effectively remains more or less in the same
                     place for
                     the duration of the burn.</p>
-            </div>
-        </div>
+            </section>
 
-        <!-- Slide 6: Lunar Orbit -->
-        <div class="slide">
-            <div class="slide-left">
-            </div>
-            <div class="slide-right">
+            <!-- Section 7: Lunar Orbit -->
+            <section>
                 <p>Ok, clearly you've got the hang of orbital manouvreing. Its time to bring back the Moon. Before we
                     can
                     land on
@@ -861,83 +811,235 @@
                     you're
                     ready,
                     hop back in the rocketship and see if you can use the same principles to get back home.</p>
-            </div>
-        </div>
+            </section>
 
+        </div>
     </div>
 
-    <div class="slide-controls">
-        <button class="slide-btn" id="swapPanesBtn" onclick="swapPanes()">⇆ Swap Panes</button>
-        <button class="slide-btn" id="prevBtn" onclick="changeSlide(-1)">← Previous</button>
-        <div class="slide-indicator">
-            <span id="slideNumber">1</span> / <span id="totalSlides">12</span>
-        </div>
-        <button class="slide-btn" id="nextBtn" onclick="changeSlide(1)">Next →</button>
-        <button class="slide-btn" id="fullscreenBtn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+    <div id="simPane">
+        <iframe class="sim" src="slide1-sketch.html?v=20261101e"></iframe>
+        <iframe class="sim hiddenSim" src="slide2-sketch.html?v=20261101e"></iframe>
+        <iframe class="sim hiddenSim" src="slingshot-sketch.html?v=20261101e"></iframe>
+        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261101e"></iframe>
     </div>
+
+    <div id="essayScroller" aria-hidden="true">
+        <span>∧</span>
+        <span class="grip">⋮</span>
+        <span>∨</span>
+    </div>
+
+    <button id="fullscreenBtn" onclick="toggleFullscreen()">⛶</button>
 
     <script>
-        let currentSlide = 0;
-        const slides = document.querySelectorAll('.slide');
-        const totalSlides = slides.length;
-        let panesSwapped = false;
+        //
+        // Scroll-driven essay with an always-active line
+        //
 
-        document.getElementById('totalSlides').textContent = totalSlides;
-        adjustContentPadding();
+        const essayPane = document.getElementById('essayPane');
+        const essayContent = document.getElementById('essayContent');
+        const sections = Array.from(essayContent.querySelectorAll('section'));
+        const simFrames = Array.from(document.querySelectorAll('#simPane iframe'));
 
-        function showSlide(n) {
-            slides.forEach(slide => slide.classList.remove('active'));
-            slides[n].classList.add('active');
-            document.getElementById('slideNumber').textContent = n + 1;
+        let lines = [];
+        let activeLine = null;
+        let activeFrameIndex = 0;
 
-            // Update button states
-            document.getElementById('prevBtn').disabled = n === 0;
-            document.getElementById('nextBtn').disabled = n === totalSlides - 1;
+        function collectLines() {
+            lines = Array.from(essayContent.querySelectorAll('h1, h2, p, li'))
+                .filter(el => !el.hidden && el.textContent.trim().length > 0);
+            lines.forEach(el => el.classList.add('essay-line'));
         }
 
-        function changeSlide(direction) {
-            currentSlide += direction;
-            if (currentSlide < 0) currentSlide = 0;
-            if (currentSlide >= totalSlides) currentSlide = totalSlides - 1;
-            showSlide(currentSlide);
+        function focalY() {
+            const r = essayPane.getBoundingClientRect();
+            return r.top + r.height * 0.4;
         }
 
-        function swapPanes() {
-            panesSwapped = !panesSwapped;
-            document.body.classList.toggle('panes-swapped', panesSwapped);
-            const btn = document.getElementById('swapPanesBtn');
-            if (btn) {
-                btn.textContent = panesSwapped ? '⇆ Swap Back' : '⇆ Swap Panes';
+        function updateActiveLine() {
+            const fy = focalY();
+            let best = null;
+            let bestDist = Infinity;
+
+            for (const el of lines) {
+                const r = el.getBoundingClientRect();
+                if (r.height === 0) continue;
+
+                let d;
+                if (fy >= r.top && fy <= r.bottom) {
+                    d = 0;
+                } else {
+                    d = Math.min(Math.abs(r.top - fy), Math.abs(r.bottom - fy));
+                }
+
+                if (d < bestDist) {
+                    bestDist = d;
+                    best = el;
+                }
             }
-            adjustContentPadding();
+
+            if (best && best !== activeLine) {
+                setActiveLine(best);
+            }
         }
 
-        function adjustContentPadding() {
-            const controls = document.querySelector('.slide-controls');
-            const extra = 40; // breathing room under last paragraph
-            const controlsHeight = controls ? controls.offsetHeight : 80;
-            const offset = extra; // match top padding
-            document.documentElement.style.setProperty('--controls-height', `${controlsHeight}px`);
-            document.documentElement.style.setProperty('--controls-offset', `${offset}px`);
-            document.querySelectorAll('.slide-right').forEach(pane => {
-                pane.style.paddingBottom = `${offset}px`;
+        function setActiveLine(el) {
+            if (activeLine) activeLine.classList.remove('active-line');
+            activeLine = el;
+            el.classList.add('active-line');
+
+            const section = el.closest('section');
+            const sectionIndex = sections.indexOf(section);
+            switchSim(sectionIndex);
+
+            // tell the active simulation which line is active so it can react;
+            // passedIds lets sims unlock capabilities by scroll progress
+            const frame = simFrames[activeFrameIndex];
+            if (frame && frame.contentWindow) {
+                const sectionLines = lines.filter(l => l.closest('section') === section);
+                const lineIndex = lines.indexOf(el);
+                const passedIds = [];
+                for (let i = 0; i <= lineIndex; i++) {
+                    if (lines[i].id) passedIds.push(lines[i].id);
+                }
+                frame.contentWindow.postMessage({
+                    type: 'essayLineActive',
+                    section: sectionIndex,
+                    line: lineIndex,
+                    lineInSection: sectionLines.indexOf(el),
+                    id: el.id || null,
+                    passedIds: passedIds
+                }, '*');
+            }
+        }
+
+        function frameIndexForSection(sectionIndex) {
+            // the sketch of the nearest preceding section that declares one
+            let frameIndex = 0;
+            for (let i = 0; i <= sectionIndex; i++) {
+                if (sections[i].dataset.sketch !== undefined) {
+                    frameIndex = parseInt(sections[i].dataset.sketch, 10);
+                }
+            }
+            return frameIndex;
+        }
+
+        function switchSim(sectionIndex) {
+            const frameIndex = frameIndexForSection(sectionIndex);
+
+            if (frameIndex === activeFrameIndex) return;
+            activeFrameIndex = frameIndex;
+            simFrames.forEach((f, i) => f.classList.toggle('hiddenSim', i !== frameIndex));
+        }
+
+        essayPane.addEventListener('scroll', updateActiveLine, { passive: true });
+
+        window.addEventListener('resize', updateActiveLine);
+
+        function scrollLineToFocus(el) {
+            const r = el.getBoundingClientRect();
+            essayPane.scrollTo({
+                top: essayPane.scrollTop + (r.top + r.height / 2 - focalY()),
+                behavior: 'smooth'
             });
         }
 
-        window.addEventListener('resize', adjustContentPadding);
-
-        // Keyboard navigation
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowLeft') changeSlide(-1);
-            if (e.key === 'ArrowRight') changeSlide(1);
+        // click/tap a line to make it active
+        essayContent.addEventListener('click', (e) => {
+            const el = e.target.closest('h1, h2, p, li');
+            if (el && lines.includes(el)) {
+                scrollLineToFocus(el);
+            }
         });
 
-        function toggleFullscreen() {
-            const elem = document.documentElement;
-            const isFullscreen = document.fullscreenElement;
+        function stepLine(dir) {
+            const i = Math.max(0, lines.indexOf(activeLine));
+            const next = lines[Math.min(lines.length - 1, Math.max(0, i + dir))];
+            if (next) scrollLineToFocus(next);
+        }
 
-            if (!isFullscreen) {
-                elem.requestFullscreen().catch(err => {
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') stepLine(-1);
+            if (e.key === 'ArrowRight') stepLine(1);
+        });
+
+        //
+        // Floating essay scroll control (touch devices): a parent-DOM overlay,
+        // independent of the simulations, so sim switches can't disturb it
+        //
+
+        const essayScroller = document.getElementById('essayScroller');
+        const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+        if (isTouchDevice) {
+            essayScroller.style.display = 'flex';
+        }
+
+        let scrollerLastY = null;
+
+        essayScroller.addEventListener('pointerdown', (e) => {
+            scrollerLastY = e.clientY;
+            try {
+                essayScroller.setPointerCapture(e.pointerId);
+            } catch (err) { /* keep working even if capture isn't available */ }
+            essayScroller.classList.add('dragging');
+            e.preventDefault();
+        });
+
+        essayScroller.addEventListener('pointermove', (e) => {
+            if (scrollerLastY === null) return;
+            const dy = e.clientY - scrollerLastY;
+            scrollerLastY = e.clientY;
+            // natural touch-scroll direction with some leverage
+            essayPane.scrollTop -= dy * 2.5;
+        });
+
+        for (const t of ['pointerup', 'pointercancel']) {
+            essayScroller.addEventListener(t, () => {
+                scrollerLastY = null;
+                essayScroller.classList.remove('dragging');
+            });
+        }
+
+        //
+        // Messages from the simulations
+        //
+
+        window.addEventListener('message', (event) => {
+            const data = event.data;
+            if (!data || !data.type) return;
+
+            revealNext(data.type, event.source);
+        });
+
+        function revealNext(type, source = null) {
+            const msg = document.querySelector(
+                `.message[data-event="${type}"]:not([data-shown])`
+            );
+            if (!msg) return;
+
+            // only reveal when the event came from the simulation that owns the
+            // message's section — e.g. crashing in a later simulation shouldn't
+            // trigger the first-flight commentary
+            if (source) {
+                const ownerIndex = frameIndexForSection(sections.indexOf(msg.closest('section')));
+                const ownerFrame = simFrames[ownerIndex];
+                if (ownerFrame && source !== ownerFrame.contentWindow) return;
+            }
+
+            msg.hidden = false;
+            msg.dataset.shown = 'true';
+            collectLines();
+            msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            updateActiveLine();
+        }
+
+        //
+        // Fullscreen
+        //
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
                     console.error(`Error attempting to enable fullscreen: ${err.message}`);
                 });
             } else {
@@ -945,17 +1047,15 @@
             }
         }
 
-        // Update fullscreen button text when fullscreen state changes
         document.addEventListener('fullscreenchange', () => {
             const btn = document.getElementById('fullscreenBtn');
-            if (document.fullscreenElement) {
-                btn.textContent = '⛶ Exit Fullscreen';
-            } else {
-                btn.textContent = '⛶ Fullscreen';
-            }
+            btn.textContent = document.fullscreenElement ? '⛶ Exit' : '⛶';
         });
 
-        // Settings menu functions
+        //
+        // Settings menu (theme + background color)
+        //
+
         function toggleSettingsMenu() {
             const menu = document.getElementById('settingsMenu');
             const gear = document.getElementById('settingsGear');
@@ -996,11 +1096,9 @@
             }
         }
 
-        // Hover behavior
         let hoverTimeout;
         let isHoveringMenuArea = false;
 
-        // Add click handler to settings gear button
         const gearButton = document.getElementById('settingsGear');
         if (gearButton) {
             gearButton.addEventListener('click', (e) => {
@@ -1008,7 +1106,6 @@
                 toggleSettingsMenu();
             });
 
-            // Hover to open after delay
             gearButton.addEventListener('mouseenter', () => {
                 isHoveringMenuArea = true;
                 hoverTimeout = setTimeout(() => {
@@ -1019,7 +1116,6 @@
             gearButton.addEventListener('mouseleave', () => {
                 clearTimeout(hoverTimeout);
                 isHoveringMenuArea = false;
-                // Delay closing slightly to allow moving to menu
                 setTimeout(() => {
                     if (!isHoveringMenuArea) {
                         closeSettingsMenu();
@@ -1028,7 +1124,6 @@
             });
         }
 
-        // Keep menu open when hovering over it
         const settingsMenu = document.getElementById('settingsMenu');
         if (settingsMenu) {
             settingsMenu.addEventListener('mouseenter', () => {
@@ -1063,29 +1158,24 @@
         function setTheme(theme) {
             const body = document.body;
             const menu = document.getElementById('settingsMenu');
-            const controls = document.querySelector('.slide-controls');
             const savedBgColor = localStorage.getItem('bgColor') || '#FFFFFF';
 
             if (theme === 'dark') {
                 body.classList.add('dark-mode');
                 localStorage.setItem('theme', 'dark');
                 menu.style.removeProperty('background-color');
-                if (controls) controls.style.removeProperty('background-color');
             } else if (theme === 'light') {
                 body.classList.remove('dark-mode');
                 localStorage.setItem('theme', 'light');
                 menu.style.setProperty('background-color', savedBgColor, 'important');
-                if (controls) controls.style.setProperty('background-color', savedBgColor, 'important');
             } else if (theme === 'auto') {
                 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                 if (prefersDark) {
                     body.classList.add('dark-mode');
                     menu.style.removeProperty('background-color');
-                    if (controls) controls.style.removeProperty('background-color');
                 } else {
                     body.classList.remove('dark-mode');
                     menu.style.setProperty('background-color', savedBgColor, 'important');
-                    if (controls) controls.style.setProperty('background-color', savedBgColor, 'important');
                 }
                 localStorage.setItem('theme', 'auto');
             }
@@ -1096,16 +1186,12 @@
         function setBackgroundColor(color) {
             const body = document.body;
             const menu = document.getElementById('settingsMenu');
-            const controls = document.querySelector('.slide-controls');
 
             body.style.backgroundColor = color;
             if (!body.classList.contains('dark-mode')) {
                 menu.style.setProperty('background-color', color, 'important');
-                if (controls) controls.style.setProperty('background-color', color, 'important');
             } else {
-                // Force remove in dark mode
                 menu.style.removeProperty('background-color');
-                if (controls) controls.style.removeProperty('background-color');
             }
 
             localStorage.setItem('bgColor', color);
@@ -1115,27 +1201,26 @@
         function updateColorButtons() {
             const savedColor = localStorage.getItem('bgColor') || '#FFFFFF';
             document.getElementById('colorWhite').classList.remove('active');
+            document.getElementById('colorOffwhite').classList.remove('active');
             document.getElementById('colorSepia').classList.remove('active');
             document.getElementById('colorCream').classList.remove('active');
 
             if (savedColor === '#FFFFFF') {
                 document.getElementById('colorWhite').classList.add('active');
+            } else if (savedColor === '#F8F8F8') {
+                document.getElementById('colorOffwhite').classList.add('active');
             } else if (savedColor === '#FDF6E3') {
                 document.getElementById('colorSepia').classList.add('active');
             } else if (savedColor === '#FFF1E5') {
                 document.getElementById('colorCream').classList.add('active');
             }
 
-            // Update menu and controls background color if not in dark mode
             const menu = document.getElementById('settingsMenu');
-            const controls = document.querySelector('.slide-controls');
             if (menu && !document.body.classList.contains('dark-mode')) {
                 menu.style.setProperty('background-color', savedColor, 'important');
-                if (controls) controls.style.setProperty('background-color', savedColor, 'important');
             }
         }
 
-        // Close settings menu when clicking outside
         document.addEventListener('click', (e) => {
             const gear = document.getElementById('settingsGear');
             const menu = document.getElementById('settingsMenu');
@@ -1160,26 +1245,19 @@
             }
         }
 
-        // Update button states on load
         updateThemeButtons();
 
-        // Load and apply saved background color
         const savedBgColor = localStorage.getItem('bgColor') || '#FFFFFF';
-        const controls = document.querySelector('.slide-controls');
-        const menu = document.getElementById('settingsMenu');
-
         document.body.style.backgroundColor = savedBgColor;
-
-        // Only set menu and controls background if not in dark mode
         if (!document.body.classList.contains('dark-mode')) {
+            const menu = document.getElementById('settingsMenu');
             if (menu) menu.style.setProperty('background-color', savedBgColor, 'important');
-            if (controls) controls.style.setProperty('background-color', savedBgColor, 'important');
         }
-
         updateColorButtons();
 
         // Initialize
-        showSlide(0);
+        collectLines();
+        updateActiveLine();
     </script>
 </body>
 

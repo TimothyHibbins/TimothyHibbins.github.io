@@ -4,9 +4,14 @@ function setup() {
     createCanvas(windowWidth, windowHeight);
     disableMobileGestureConflicts();
 
-    gravLights = false;
+    // 'what goes up must come down': gravity visible, a limited fuel budget,
+    // labelled force arrows, and the ship locked to its initial orientation
+    gravLights = true;
     showTrajectory = true;
     showTrajectoryDescription = true;
+    showArrows = true;
+    maxFuel = 300;
+    orientationLocked = true;
 
     rocketColor = color("#ff00b3ff");
     earthColor = color("#00ffffff");
@@ -66,7 +71,7 @@ function draw() {
     // Updating state
     //
 
-    if (mouseIsPressed || keyIsDown(UP_ARROW)) {
+    if (boostInputActive() && ship.getFuelRemaining() > 0) {
         launched = true;
     }
 
@@ -219,12 +224,17 @@ function draw() {
     framesToSkip = 0;
 
     if (!paused) {
-        framesToSkip = 1;
+        if (timelineScrubActive()) {
+            // hold playback while scrubbing; just render the current frame
+            drawFrame();
+        } else {
+            framesToSkip = 1;
+        }
     } else {
         if (instantaneousMode) {
             ship.instantaneousModeUpdate();
 
-            if (mouseIsPressed) {
+            if (rocketPointerActive()) {
                 instantaneousMode = false;
                 paused = false;
                 T++;

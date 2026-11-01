@@ -56,7 +56,43 @@ Finished features:
 
 const KEYS = 'keys';
 const MOUSE = 'mouse'
+const TOUCH = 'touch';
 let controlMode = KEYS;
+
+const TIMELINE_FRAMES_PER_PIXEL = 5;
+
+// true while a press that started inside the virtual joystick is held
+let joystickActive = false;
+
+// user-chosen joystick position (null = default: center of the screen)
+let joystickPos = null;
+
+// offset vector while the reposition handle is being dragged, false otherwise
+let joystickHandleDrag = false;
+
+// info about the essay's currently active line, sent by the parent essay page;
+// sketches can define window.onEssayLineActive(data) to react to changes
+let essayActiveLine = null;
+
+window.addEventListener('message', (event) => {
+    let data = event.data;
+    if (data && data.type === 'essayLineActive') {
+        essayActiveLine = data;
+        if (typeof window.onEssayLineActive === 'function') {
+            window.onEssayLineActive(data);
+        }
+    }
+});
+
+// timeline scrubbing (click/drag or touch over the timeline strip)
+// only interactive in sketches that actually call drawTimeline()
+let timelineEnabled = false;
+let timelineScrub = {
+    active: false,
+    lastX: 0,
+    accum: 0,
+    moved: 0
+};
 
 let cameraMode;
 
@@ -107,14 +143,62 @@ let gap = 100;
 let exhaustPlumeLengthRandomCycle = [];
 
 
-let accArrowScale = 40000;
+// arrows depict change over 100 frames:
+// - the velocity arrow is the positional change over 100 frames (v * 100)
+// - acceleration arrows are the change in the velocity arrow over 100 frames
+//   ((a * 100) * velArrowScale)
 let velArrowScale = 100;
+let accArrowScale = 100 * velArrowScale;
+
+// arrow display modes
+const ARROWS_TIP_TO_TIP = 'tipToTip'; // forces out from the ship, parallelogram to the net point
+const ARROWS_INWARD = 'inward'; // everything pointing in towards the ship
+let arrowMode = ARROWS_TIP_TO_TIP;
 
 
 let gravFieldImg;
 let polarImg;
 
 let stars = [];
+
+// prerendered buffer holding the stars and moon-orbit dots, which are
+// static in world space (rebuilding them every frame is slow on mobile)
+let staticWorldBuffer = false;
+let staticWorldBufferHalf = 0;
+
+function buildStaticWorldBuffer() {
+
+    let half = gridSize / 2;
+    for (let p of moonOrbit) {
+        half = max(half, abs(p.x) + 2, abs(p.y) + 2);
+    }
+    half = ceil(half);
+
+    let pg = createGraphics(half * 2, half * 2);
+    pg.pixelDensity(1);
+    pg.push();
+    pg.translate(half, half);
+
+    for (let star of stars) {
+        pg.strokeWeight(star.size);
+        pg.stroke(star.brightness);
+        pg.point(star.pos.x, star.pos.y);
+    }
+
+    pg.strokeWeight(1);
+    pg.stroke(red(moonColor), green(moonColor), blue(moonColor), 25);
+    if (moonEnabled) {
+        for (let p of moonOrbit) {
+            pg.point(p.x, p.y);
+        }
+    }
+
+    pg.pop();
+
+    staticWorldBuffer = pg;
+    staticWorldBufferHalf = half;
+
+}
 
 let instantaneousMode = false;
 
@@ -128,6 +212,16 @@ let gravLights = false;
 let showTrajectory = false;
 let showTrajectoryDescription = false;
 let showArrows = false;
+
+// when false the moon exists as a massless, invisible body so shared code
+// paths still work, but nothing moon-related is drawn
+let moonEnabled = true;
+
+// frames of burn available; sketches may set a finite budget in setup()
+let maxFuel = Infinity;
+
+// when true the ship keeps its initial orientation and only the burn is controllable
+let orientationLocked = false;
 
 
 
@@ -333,6 +427,9 @@ function generateMoonOrbit() {
 class Ship {
     constructor(startingPos, l) {
 
+        this.initialPos = startingPos.copy();
+        this.initialOrientation = p5.Vector.fromAngle(-TAU / 4);
+
         this.bodyLandedOn = bodies[0];
         this.landingPos = startingPos.copy().sub(bodies[0].pos);
 
@@ -357,6 +454,46 @@ class Ship {
         this.shipOrbitingMoon = false;
         this.shipOrbitingMoonEndOfFirstOrbit = false;
 
+    }
+
+    // restore the ship to its construction state (landing spots and histories
+    // accumulated during flight would otherwise leak into the next run)
+    reset() {
+        this.bodyLandedOn = bodies[0];
+        this.landingPos = this.initialPos.copy().sub(bodies[0].pos);
+
+        this.posHistory = [this.initialPos.copy()];
+        this.velHistory = [createVector(0, 0)];
+        this.accHistory = [createVector(0, 0)];
+        this.orientationHistory = [this.initialOrientation.copy()];
+        this.boostingHistory = [false];
+
+        this.apoapsis = this.initialPos.copy();
+        this.periapsis = this.initialPos.copy();
+        this.periapsisAlt = false;
+        this.apoapsisAlt = false;
+
+        this.trajectoryType = false;
+        this.shipOrbitingMoon = false;
+        this.shipOrbitingMoonEndOfFirstOrbit = false;
+    }
+
+    // frames of burn left at time T, derived from the boost history so that
+    // scrubbing the timeline and resetting stay consistent automatically
+    getFuelRemaining() {
+        if (maxFuel == Infinity) {
+            return Infinity;
+        }
+
+        let burned = 0;
+        let end = min(T, this.boostingHistory.length - 1);
+        for (let i = 0; i <= end; i++) {
+            if (this.boostingHistory[i]) {
+                burned++;
+            }
+        }
+
+        return max(0, maxFuel - burned);
     }
 
     drawShipBody(x, y, alphaValue, ghost = false) {
@@ -467,96 +604,44 @@ class Ship {
     }
 
     drawTrajectory() {
-        strokeWeight(1);
 
         let lineColor = color("#ff57fcd6");
         let frameSkip = 5;
+        let len = this.posHistory.length;
 
+        // only visit the frames that are actually drawn: multiples of
+        // frameSkip after T, plus a final partial segment to the end
+        let start = (floor(T / frameSkip) + 1) * frameSkip;
 
-        for (let PT = 0; PT < this.posHistory.length; PT++) {
+        for (let PT = start; PT < len; PT += frameSkip) {
 
-            // if (PT < T) {
-            //   stroke("#36f725ff");
-            //   point(this.posHistory[PT].x, this.posHistory[PT].y);
-            // }
+            let next = min(PT + frameSkip, len - 1);
+            if (next <= PT) {
+                break;
+            }
 
+            let posRelativeToMoon = p5.Vector.sub(this.posHistory[PT], moonOrbit[PT % moonOrbit.length]);
+            let drawInHillSphere = posRelativeToMoon.mag() < moonHillSphereRadius ||
+                (this.shipOrbitingMoon && PT < this.shipOrbitingMoonEndOfFirstOrbit);
 
-            if (PT > T) {
+            strokeWeight(3);
+            lineColor.setAlpha(255);
+            stroke(lineColor);
 
-                let posRelativeToMoon = p5.Vector.sub(this.posHistory[PT], moonOrbit[PT % moonOrbit.length]);
-                let drawInHillSphere = false;
-                if (posRelativeToMoon.mag() < moonHillSphereRadius || (this.shipOrbitingMoon && PT < this.shipOrbitingMoonEndOfFirstOrbit)) {
-                    drawInHillSphere = true;
-                }
+            if (drawInHillSphere) {
 
-                strokeWeight(3);
+                let nextPosRelativeToMoon = p5.Vector.sub(this.posHistory[next], moonOrbit[next % moonOrbit.length]);
+
+                line(bodies[1].pos.x + posRelativeToMoon.x, bodies[1].pos.y + posRelativeToMoon.y,
+                    bodies[1].pos.x + nextPosRelativeToMoon.x, bodies[1].pos.y + nextPosRelativeToMoon.y);
+
+                lineColor.setAlpha(50);
                 stroke(lineColor);
-                lineColor.setAlpha(255);
-
-
-
-                if (PT + frameSkip < this.posHistory.length) {
-
-                    if (PT % frameSkip == 0) {
-
-                        if (drawInHillSphere) {
-
-                            let nextPosRelativeToMoon = p5.Vector.sub(this.posHistory[PT + frameSkip], moonOrbit[(PT + frameSkip) % moonOrbit.length])
-
-                            line(bodies[1].pos.x + posRelativeToMoon.x, bodies[1].pos.y + posRelativeToMoon.y,
-                                bodies[1].pos.x + nextPosRelativeToMoon.x, bodies[1].pos.y + nextPosRelativeToMoon.y);
-
-                            lineColor.setAlpha(50);
-                            stroke(lineColor);
-
-                        }
-
-                        line(this.posHistory[PT].x, this.posHistory[PT].y,
-                            this.posHistory[PT + frameSkip].x, this.posHistory[PT + frameSkip].y);
-
-
-
-                    }
-
-                } else if (PT != this.posHistory.length - 1) {
-
-                    if (drawInHillSphere) {
-
-                        let nextPosRelativeToMoon = p5.Vector.sub(this.posHistory[this.posHistory.length - 1], moonOrbit[(this.posHistory.length - 1) % moonOrbit.length])
-
-                        line(bodies[1].pos.x + posRelativeToMoon.x, bodies[1].pos.y + posRelativeToMoon.y,
-                            bodies[1].pos.x + nextPosRelativeToMoon.x, bodies[1].pos.y + nextPosRelativeToMoon.y);
-
-                        lineColor.setAlpha(50);
-                        stroke(lineColor);
-
-                    }
-
-                    line(this.posHistory[PT].x, this.posHistory[PT].y,
-                        this.posHistory[this.posHistory.length - 1].x, this.posHistory[this.posHistory.length - 1].y);
-
-                }
-
-                // if (PT % 50 == 0) {
-                //   drawArrow(this.posHistory[PT], p5.Vector.add(this.posHistory[PT], this.velHistory[PT].copy().mult(velArrowScale)));
-                // }
-
-                // // stroke("#d8ff58ff");
-                // point(this.posHistory[PT].x, this.posHistory[PT].y);
-
 
             }
 
-
-            // if ((T + i) % 100 == 0) {
-            //   this.drawShipBody(projection.pos.x, projection.pos.y, 60, true);
-            // } else if ((T + i) % 10 == 0) {
-            //   this.drawShipBody(projection.pos.x, projection.pos.y, 10, true);
-            // }
-
-
-            // this.drawShipBody(projection_pos.x, projection_pos.y, 10 * ((i%100)/100), true);
-
+            line(this.posHistory[PT].x, this.posHistory[PT].y,
+                this.posHistory[next].x, this.posHistory[next].y);
 
         }
     }
@@ -622,66 +707,122 @@ class Ship {
 
     drawArrows(pos) {
 
-        strokeWeight(2);
+        textFont("menlo");
+        textAlign(LEFT, CENTER);
 
         let moonPos = moonOrbit[T % moonOrbit.length];
 
-        let arrowsFromShip = false;
-        let arrowsFromVel = false;
+        let gravity = bodies[0].getGravitationalAcceleration(pos)
+            .add(bodies[1].getGravitationalAcceleration(pos, moonPos));
 
+        let burning = this.boostingHistory[T];
+        let thrust = burning ? this.accHistory[T].copy().sub(gravity) : false;
 
-        let accArrowEndpoint = this.accHistory[T].copy().mult(accArrowScale);
+        let net = gravity.copy();
+        if (thrust) {
+            net.add(thrust);
+        }
 
-        let earthGravArrowEndpoint = bodies[0].getGravitationalAcceleration(pos).mult(accArrowScale);
-        let moonGravArrowEndpoint = bodies[1].getGravitationalAcceleration(pos, moonPos).mult(accArrowScale);
+        if (arrowMode == ARROWS_INWARD) {
+            this.drawArrowsInward(pos, gravity, thrust, net);
+        } else {
+            this.drawArrowsTipToTip(pos, gravity, thrust, net);
+        }
+    }
 
-        let boostForceArrow = accArrowEndpoint.copy().sub(p5.Vector.add(earthGravArrowEndpoint, moonGravArrowEndpoint));
+    // forces come out from the ship; faint copies of each force extend from
+    // the other's tip, completing the parallelogram at the net point, which a
+    // dotted line connects to a net force arrow at the tip of the velocity
+    // arrow (showing how the net force is about to shift the velocity)
+    drawArrowsTipToTip(pos, gravity, thrust, net) {
 
-        let velArrowEndpoint = this.velHistory[T].copy().mult(velArrowScale);
+        let labelOffset = 10;
 
-        // Draw force arrows from ship
+        let earthR = red(earthColor), earthG = green(earthColor), earthB = blue(earthColor);
+        let rocketR = red(rocketColor), rocketG = green(rocketColor), rocketB = blue(rocketColor);
 
-        if (arrowsFromShip) {
-            stroke(earthColor);
-            drawArrow(pos, p5.Vector.add(pos, earthGravArrowEndpoint));
+        let gravTip = p5.Vector.add(pos, gravity.copy().mult(accArrowScale));
 
-            stroke(moonColor);
-            drawArrow(pos, p5.Vector.add(pos, moonGravArrowEndpoint));
+        drawFatArrow(pos, gravTip, color(earthR, earthG, earthB), 2, 10, 10);
+        noStroke();
+        fill(earthR, earthG, earthB);
+        text("gravity", gravTip.x + labelOffset, gravTip.y);
 
-            stroke(rocketColor);
-            drawArrow(pos, p5.Vector.add(pos, boostForceArrow));
+        let netPoint = p5.Vector.add(pos, net.copy().mult(accArrowScale));
 
-            stroke("#fff");
-            drawArrow(pos, p5.Vector.add(pos, accArrowEndpoint));
+        if (thrust) {
+
+            let thrustTip = p5.Vector.add(pos, thrust.copy().mult(accArrowScale));
+
+            drawFatArrow(pos, thrustTip, color(255, 159, 28), 2, 10, 10);
+            noStroke();
+            fill(255, 159, 28);
+            text("thrust", thrustTip.x + labelOffset, thrustTip.y);
+
+            // faint copies completing the parallelogram at the net point
+            drawFatArrow(gravTip, netPoint, color(255, 159, 28, 90), 2, 10, 10);
+            drawFatArrow(thrustTip, netPoint, color(earthR, earthG, earthB, 90), 2, 10, 10);
 
         }
 
-        // draw velocity arrow from ship
-        stroke(rocketColor);
-        drawArrow(pos, p5.Vector.add(pos, velArrowEndpoint));
+        // velocity out from the ship
+        let velTip = p5.Vector.add(pos, this.velHistory[T].copy().mult(velArrowScale));
 
-        if (arrowsFromVel) {
-            let startPos = p5.Vector.add(pos, velArrowEndpoint);
+        drawFatArrow(pos, velTip, color(rocketR, rocketG, rocketB), 2, 10, 10);
+        noStroke();
+        fill(rocketR, rocketG, rocketB);
+        text("velocity", velTip.x + labelOffset, velTip.y);
 
+        // net force from the tip of the velocity arrow
+        let netVelTip = p5.Vector.add(velTip, net.copy().mult(accArrowScale));
 
-            // Draw acceleration arrows end to end from end of velocity arrow
-            stroke("#fff");
-            drawArrow(startPos, p5.Vector.add(startPos, accArrowEndpoint));
+        drawFatArrow(velTip, netVelTip, color(255), 3, 13, 13);
+        noStroke();
+        fill(255);
+        text("net force", netVelTip.x + labelOffset, netVelTip.y);
 
+        // dotted connector from the parallelogram's net point to the net
+        // force arrow at the velocity tip
+        drawingContext.setLineDash([3, 8]);
+        stroke(255, 120);
+        strokeWeight(2);
+        line(netPoint.x, netPoint.y, netVelTip.x, netVelTip.y);
+        drawingContext.setLineDash([]);
 
-            stroke(earthColor);
-            drawArrow(startPos, p5.Vector.add(startPos, earthGravArrowEndpoint));
+    }
 
-            startPos.add(earthGravArrowEndpoint);
+    // alternate mode: every arrow points in towards the ship with its triangle
+    // tip centred on it; the ship body is drawn afterwards, covering the tips
+    drawArrowsInward(pos, gravity, thrust, net) {
 
-            stroke(moonColor);
-            drawArrow(startPos, p5.Vector.add(startPos, moonGravArrowEndpoint));
+        let labelOffset = 10;
 
-            startPos.add(moonGravArrowEndpoint);
+        let drawInwardArrow = (vector, scale, r, g, b, alphaValue, thickness, headSize, label) => {
 
-            stroke(rocketColor);
-            drawArrow(startPos, p5.Vector.add(startPos, boostForceArrow));
+            let tail = p5.Vector.sub(pos, vector.copy().mult(scale));
+            if (p5.Vector.dist(tail, pos) < 2) {
+                return;
+            }
+
+            drawFatArrow(tail, pos, color(r, g, b, alphaValue), thickness, headSize, headSize);
+
+            noStroke();
+            fill(r, g, b, 230);
+            text(label, tail.x + labelOffset, tail.y);
+        };
+
+        // net force: thicker and behind the individual forces
+        drawInwardArrow(net, accArrowScale, 255, 255, 255, 70, 13, 26, "net force");
+
+        drawInwardArrow(gravity, accArrowScale,
+            red(earthColor), green(earthColor), blue(earthColor), 110, 7, 16, "gravity");
+
+        if (thrust) {
+            drawInwardArrow(thrust, accArrowScale, 255, 159, 28, 110, 7, 16, "thrust");
         }
+
+        drawInwardArrow(this.velHistory[T], velArrowScale,
+            red(rocketColor), green(rocketColor), blue(rocketColor), 110, 7, 16, "velocity");
     }
 
     draw() {
@@ -701,7 +842,9 @@ class Ship {
             this.drawTrajectoryDescription(pos, offset);
         }
 
-        if (showArrows) {
+        // the inward mode hides its arrow tips behind the ship, so it draws
+        // first; the tip-to-tip mode draws over the ship (after it, below)
+        if (showArrows && arrowMode == ARROWS_INWARD) {
             this.drawArrows(pos);
         }
 
@@ -712,6 +855,15 @@ class Ship {
 
         text("Alt: " + round(p5.Vector.dist(pos, bodies[closestBody].pos) - bodies[closestBody].radius) + " px", pos.x + offset, pos.y + offset);
 
+        let fuelString;
+        if (maxFuel == Infinity) {
+            fuelString = "∞";
+        } else {
+            fuelString = round(100 * this.getFuelRemaining() / maxFuel) + "%";
+        }
+        fill(rocketColor);
+        text("Fuel: " + fuelString, pos.x + offset, pos.y + offset + 18);
+
         // fill("#00ff22ff");
 
         // offset = 3;
@@ -721,6 +873,10 @@ class Ship {
 
 
         this.drawShipBody(pos.x, pos.y, 255);
+
+        if (showArrows && arrowMode != ARROWS_INWARD) {
+            this.drawArrows(pos);
+        }
 
     }
 
@@ -990,7 +1146,23 @@ class Ship {
         let turnVel = TAU / 50;
         let amt = false;
 
-        if (controlMode == MOUSE) {
+        if (orientationLocked) {
+
+            // section-controlled: the ship keeps its initial orientation
+
+        } else if (controlMode == TOUCH) {
+
+            if (joystickActive) {
+                let j = getJoystickGeometry();
+                let dir = createVector(mouseX - j.x, mouseY - j.y);
+
+                if (dir.mag() > 0) {
+                    // turning is instantaneous: rotate all the way to the pressed direction
+                    amt = p5.Vector.angleBetween(this.orientationHistory[T], dir);
+                }
+            }
+
+        } else if (controlMode == MOUSE && !timelineScrub.active) {
             let cursorPos = camera.screenToWorld(mouseX, mouseY);
 
             cursorPos.sub(this.posHistory[T]);
@@ -1015,7 +1187,12 @@ class Ship {
 
         }
 
-        this.projectTrajectory((mouseIsPressed || (keyIsDown(UP_ARROW))), amt);
+        let boost = boostInputActive();
+        if (boost && this.getFuelRemaining() <= 0) {
+            boost = false;
+        }
+
+        this.projectTrajectory(boost, amt);
 
     }
 
@@ -1032,7 +1209,7 @@ class Ship {
         let boostThrottle = cursorPos.copy().mag() / magDenominator;
         // console.log(boostThrottle);
 
-        this.projectTrajectory(true, 0, boostThrottle);
+        this.projectTrajectory(this.getFuelRemaining() > 0, 0, boostThrottle);
 
     }
 
@@ -1050,6 +1227,34 @@ function drawArrow(p1, p2, headLength = 5) {
     line(0, 0, headLength / 2, -headLength);
 
     pop();
+
+}
+
+// thick shaft with a filled triangular head whose tip sits exactly at p2
+function drawFatArrow(p1, p2, arrowColor, thickness, headLength, headWidth) {
+
+    let dir = p5.Vector.sub(p2, p1);
+    let len = dir.mag();
+    if (len < 0.5) {
+        return;
+    }
+    dir.div(len);
+
+    let effHead = min(headLength, len);
+    let base = p5.Vector.sub(p2, dir.copy().mult(effHead));
+    let perp = createVector(-dir.y, dir.x).mult(headWidth / 2);
+
+    if (len > effHead) {
+        stroke(arrowColor);
+        strokeWeight(thickness);
+        line(p1.x, p1.y, base.x, base.y);
+    }
+
+    noStroke();
+    fill(arrowColor);
+    triangle(p2.x, p2.y,
+        base.x + perp.x, base.y + perp.y,
+        base.x - perp.x, base.y - perp.y);
 
 }
 
@@ -1268,10 +1473,182 @@ function mouseWheel(event) {
     return false;
 }
 
+function isTouchDevice() {
+    return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+}
+
+function getTimelineTop() {
+    return height - height / 10;
+}
+
+function pointerOverTimeline(x = mouseX, y = mouseY) {
+    return timelineEnabled && y >= getTimelineTop();
+}
+
+function getJoystickGeometry() {
+    let r = min(width, height) / 5.5;
+
+    let bottomLimit = (timelineEnabled ? getTimelineTop() : height);
+
+    // default: bottom of the screen, horizontally centred
+    let x = joystickPos ? joystickPos.x : width / 2;
+    let y = joystickPos ? joystickPos.y : bottomLimit - r - 12;
+
+    x = constrain(x, r, width - r);
+    y = constrain(y, r, bottomLimit - r);
+
+    // corner triangles fitted to the circle's bounding box, sized so they
+    // don't overlap the circle (max leg length is r * (2 - sqrt(2)))
+    let cornerSize = r * 0.55;
+
+    return {
+        x: x,
+        y: y,
+        r: r,
+        cornerSize: cornerSize,
+        handleX: x + r, // bottom-right corner: move handle
+        handleY: y + r,
+        resetX: x + r, // top-right corner: reset button
+        resetY: y - r
+    };
+}
+
+// pointer input that should drive the rocket (never timeline presses)
+function rocketPointerActive() {
+    if (timelineScrub.active) {
+        return false;
+    }
+
+    if (isTouchDevice()) {
+        return joystickActive;
+    }
+
+    return mouseIsPressed;
+}
+
+function boostInputActive() {
+    return keyIsDown(UP_ARROW) || rocketPointerActive();
+}
+
+function timelineScrubActive() {
+    return timelineScrub.active;
+}
+
+// drag the timeline like scrubbing in video software:
+// dragging right moves the strip right, i.e. backwards in time
+function scrubTimelineBy(dxPixels) {
+
+    timelineScrub.accum += -dxPixels * TIMELINE_FRAMES_PER_PIXEL;
+
+    let frames = Math.trunc(timelineScrub.accum);
+    if (frames == 0) {
+        return;
+    }
+    timelineScrub.accum -= frames;
+
+    if (frames > 0) {
+        if (launched && !crashedOut) {
+            framesToSkip += frames;
+        }
+    } else {
+        framesToSkip += frames;
+        crashedOut = false;
+    }
+}
+
+function resetSimulation() {
+    T = 0;
+    launched = false;
+    crashedOut = false;
+    paused = false;
+    instantaneousMode = false;
+    ship.reset();
+}
+
 function mousePressed() {
+
+    if (pointerOverTimeline()) {
+        timelineScrub.active = true;
+        timelineScrub.lastX = mouseX;
+        timelineScrub.accum = 0;
+        timelineScrub.moved = 0;
+        instantaneousMode = false;
+        return false;
+    }
+
+    if (isTouchDevice()) {
+
+        let j = getJoystickGeometry();
+        let dCenter = dist(mouseX, mouseY, j.x, j.y);
+
+        if (dCenter > j.r && dist(mouseX, mouseY, j.resetX, j.resetY) <= j.cornerSize) {
+            resetSimulation();
+            return false;
+        }
+
+        if (dCenter > j.r && dist(mouseX, mouseY, j.handleX, j.handleY) <= j.cornerSize) {
+            joystickHandleDrag = createVector(j.x - mouseX, j.y - mouseY);
+            return false;
+        }
+
+        if (dCenter <= j.r) {
+            joystickActive = true;
+            controlMode = TOUCH;
+        }
+        return false;
+    }
 
     controlMode = MOUSE;
 
+}
+
+function mouseDragged() {
+
+    if (timelineScrub.active) {
+        timelineScrub.moved += abs(mouseX - timelineScrub.lastX);
+        scrubTimelineBy(mouseX - timelineScrub.lastX);
+        timelineScrub.lastX = mouseX;
+        return false;
+    }
+
+    if (joystickHandleDrag) {
+        joystickPos = createVector(mouseX + joystickHandleDrag.x, mouseY + joystickHandleDrag.y);
+        return false;
+    }
+
+}
+
+function mouseReleased() {
+
+    // a tap (press without dragging) on the timeline toggles pause
+    if (timelineScrub.active && timelineScrub.moved < 5 && !crashedOut) {
+        paused = !paused;
+    }
+
+    joystickActive = false;
+    joystickHandleDrag = false;
+    timelineScrub.active = false;
+    timelineScrub.accum = 0;
+
+}
+
+// p5 only falls back to the mouse handlers via browser-emulated mouse events,
+// which iOS Safari doesn't fire during press-and-hold or drags. Defining the
+// touch handlers makes p5 call these directly on real touches (with
+// mouseX/mouseY already updated to the touch position).
+function touchStarted() {
+    mousePressed();
+    return false;
+}
+
+function touchMoved() {
+    mouseDragged();
+    return false;
+}
+
+function touchEnded() {
+    mouseReleased();
+    return false;
 }
 
 
@@ -1296,9 +1673,7 @@ function keyPressed(event) {
     }
 
     if (key == 'r') {
-        T = 0;
-        launched = false;
-
+        resetSimulation();
     }
 
     if (key == 'p' & !crashedOut) {
@@ -1323,11 +1698,11 @@ function drawFrame() {
 
     // Rendering in camera
 
-    strokeWeight(2);
-    stroke(255);
-    for (let star of stars) {
-        star.draw();
+    // stars and moon-orbit dots (prerendered, static in world space)
+    if (!staticWorldBuffer) {
+        buildStaticWorldBuffer();
     }
+    image(staticWorldBuffer, -staticWorldBufferHalf, -staticWorldBufferHalf);
 
     if (gravLights) {
         push();
@@ -1338,19 +1713,13 @@ function drawFrame() {
         pop();
     }
 
-    // draw moon orbit
-    for (let i = 0; i < moonOrbit.length; i++) {
-
-        let moonPos = moonOrbit[(T + i) % moonOrbit.length];
+    // draw hill sphere boundary
+    if (moonEnabled) {
+        noFill();
         strokeWeight(1);
         stroke(red(moonColor), green(moonColor), blue(moonColor), 25);
-        point(moonPos.x, moonPos.y);
-
+        circle(bodies[1].pos.x, bodies[1].pos.y, moonHillSphereRadius * 2);
     }
-
-    // draw hill sphere boundary
-    noFill();
-    circle(bodies[1].pos.x, bodies[1].pos.y, moonHillSphereRadius * 2);
 
 
     bodies[1].pos = moonOrbit[T % moonOrbit.length].copy();
@@ -1381,7 +1750,95 @@ function drawFrame() {
         text("You have crashed.", ship.posHistory[T].x - offset, ship.posHistory[T].y + offset);
     }
 
+    // sketches can draw extra world-space elements (e.g. target orbit bands)
+    if (typeof window.drawWorldOverlay === 'function') {
+        window.drawWorldOverlay();
+    }
+
     // camera
+    pop();
+
+    if (isTouchDevice()) {
+        drawVirtualJoystick();
+    }
+
+}
+
+function drawVirtualJoystick() {
+
+    let j = getJoystickGeometry();
+
+    push();
+
+    // transparent base circle
+    noStroke();
+    fill(255, joystickActive ? 20 : 10);
+    circle(j.x, j.y, j.r * 2);
+
+    noFill();
+    stroke(255, joystickActive ? 90 : 50);
+    strokeWeight(2);
+    circle(j.x, j.y, j.r * 2);
+
+    // transparent rocket at the center, showing the current orientation
+    drawingContext.save();
+    drawingContext.globalAlpha = joystickActive ? 0.55 : 0.3;
+
+    translate(j.x, j.y);
+    scale(j.r / ship.length);
+    ship.drawShipBody(0, 0, 255);
+
+    drawingContext.restore();
+
+    // marker for where the joystick is being pressed
+    if (joystickActive) {
+        let d = createVector(mouseX - j.x, mouseY - j.y);
+        d.limit(j.r);
+        noStroke();
+        fill(255, 80);
+        circle(j.x + d.x, j.y + d.y, j.r / 3);
+    }
+
+    let s = j.cornerSize;
+
+    // move handle: triangle fitted to the bottom-right corner of the bounding box
+    stroke(255, joystickHandleDrag ? 180 : 70);
+    strokeWeight(2);
+    fill(255, joystickHandleDrag ? 50 : 15);
+    triangle(j.handleX, j.handleY,
+        j.handleX - s, j.handleY,
+        j.handleX, j.handleY - s);
+
+    // diagonal double-headed arrow glyph
+    let aIn = s * 0.42;
+    let aOut = s * 0.12;
+    drawArrow(createVector(j.handleX - aIn, j.handleY - aIn),
+        createVector(j.handleX - aOut, j.handleY - aOut), s * 0.16);
+    drawArrow(createVector(j.handleX - aOut, j.handleY - aOut),
+        createVector(j.handleX - aIn, j.handleY - aIn), s * 0.16);
+
+    // reset button: triangle fitted to the top-right corner of the bounding box
+    stroke(255, 70);
+    fill(255, 15);
+    triangle(j.resetX, j.resetY,
+        j.resetX - s, j.resetY,
+        j.resetX, j.resetY + s);
+
+    // circular-arrow glyph
+    let cx = j.resetX - s * 0.33;
+    let cy = j.resetY + s * 0.33;
+    let d = s * 0.5;
+    let a1 = TAU * 0.35;
+    noFill();
+    arc(cx, cy, d, d, -TAU * 0.4, a1);
+
+    let ax = cx + cos(a1) * d / 2;
+    let ay = cy + sin(a1) * d / 2;
+    let back = a1 + TAU / 4 + TAU / 2; // pointing back along the arc
+    let hl = s * 0.18;
+    line(ax, ay, ax + cos(back - 0.5) * hl, ay + sin(back - 0.5) * hl);
+    line(ax, ay, ax + cos(back + 0.5) * hl, ay + sin(back + 0.5) * hl);
+
     pop();
 
 }
@@ -1414,6 +1871,8 @@ function drawPlayBack() {
 
 function drawTimeline() {
 
+    timelineEnabled = true;
+
     push();
     clip(timelineMask);
 
@@ -1421,12 +1880,18 @@ function drawTimeline() {
     fill(0);
     rect(0, height - h, width, h);
 
-    framesPerPixel = 5;
+    framesPerPixel = TIMELINE_FRAMES_PER_PIXEL;
 
     sliceMinAlt = 0;
     sliceMaxAlt = floor(bodies[0].radius + ship.apoapsisAlt + 100);
 
-    for (let PT = 0; PT < ship.posHistory.length; PT += framesPerPixel) {
+    // only draw the slices that are actually on screen (1px per framesPerPixel frames)
+    let anchor = T - (T % framesPerPixel);
+    let halfSpanFrames = (ceil(width / 2) + 1) * framesPerPixel;
+    let PTstart = max(0, anchor - halfSpanFrames);
+    let PTend = min(ship.posHistory.length, anchor + halfSpanFrames);
+
+    for (let PT = PTstart; PT < PTend; PT += framesPerPixel) {
 
         let x = width / 2 + (PT - (T - (T % framesPerPixel))) / framesPerPixel;
 
@@ -1502,4 +1967,37 @@ function disableMobileGestureConflicts() {
         }
     `;
     document.head.appendChild(style);
+
+    // if iOS cancels a touch (e.g. a system gesture), release any held inputs
+    const releaseHeldInputs = () => {
+        joystickActive = false;
+        joystickHandleDrag = false;
+        timelineScrub.active = false;
+        timelineScrub.accum = 0;
+    };
+    window.addEventListener('touchcancel', releaseHeldInputs);
+
+    // iOS Safari often fails to deliver touch events to listeners bound to an
+    // iframe's window, which is where p5 attaches its handlers. When embedded
+    // (e.g. the essay page), forward touches from the canvas element itself to
+    // p5's handlers, and stop propagation so browsers that do deliver them to
+    // the window don't handle each touch twice.
+    if (window.self !== window.top && isTouchDevice()) {
+        const canvas = document.querySelector('canvas');
+
+        for (const type of ['touchstart', 'touchmove', 'touchend']) {
+            canvas.addEventListener(type, (e) => {
+                const handler = p5.instance._events[type];
+                if (handler) {
+                    handler(e);
+                }
+                e.stopPropagation();
+            }, { passive: false });
+        }
+
+        canvas.addEventListener('touchcancel', (e) => {
+            releaseHeldInputs();
+            e.stopPropagation();
+        });
+    }
 }

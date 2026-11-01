@@ -62,7 +62,7 @@ function draw() {
     // Updating state
     //
 
-    if (mouseIsPressed || keyIsDown(UP_ARROW)) {
+    if (boostInputActive() && ship.getFuelRemaining() > 0) {
         launched = true;
     }
 
@@ -215,12 +215,17 @@ function draw() {
     framesToSkip = 0;
 
     if (!paused) {
-        framesToSkip = 1;
+        if (timelineScrubActive()) {
+            // hold playback while scrubbing; just render the current frame
+            drawFrame();
+        } else {
+            framesToSkip = 1;
+        }
     } else {
         if (instantaneousMode) {
             ship.instantaneousModeUpdate();
 
-            if (mouseIsPressed) {
+            if (rocketPointerActive()) {
                 instantaneousMode = false;
                 paused = false;
                 T++;

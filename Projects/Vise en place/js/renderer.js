@@ -43,8 +43,8 @@
         // at least the pill's own rendered height (text + 2*pillPadY) or
         // adjacent tiers overlap VERTICALLY regardless of how much
         // horizontal clearance the packing itself reserves.
-        labelLineHeight: 24,
-        labelBaseGap: 10,
+        labelLineHeight: 18,
+        labelBaseGap: 6,
         labelMinGap: 8,
         // Padding around a label's text -- shared between sizing the
         // background rect and reserving horizontal clearance for it during
@@ -60,15 +60,14 @@
         // itself rather than a separate handle floating off to the side.
         edgeHandleSize: 8,
         // Every bend (a move, a combine/add convergence, a split divergence)
-        // spans exactly its own step row, top edge to bottom edge. Bends are
-        // sampled as this many straight segments, bulge by `bendTrailBulge`
-        // extra half-width mid-bend, and keep at least `bendMinPerp` px of
-        // half-thickness PERPENDICULAR to their path -- a wide sideways move
-        // across one short row is nearly horizontal, so its literal
-        // horizontal thickness alone would be thinner than a pixel.
-        bendTrailSteps: 14,
-        bendTrailBulge: 4,
-        bendMinPerp: 3,
+        // is a pure sideways translation completed in the first
+        // `bendFraction` of its step row; the rest of the row runs straight.
+        // While in motion a line is at least `movingHalf` px of half-width so
+        // very thin ingredients stay visible.
+        bendFraction: 0.5,
+        bendSamples: 14,
+        movingHalf: 8,
+        bendMinPerp: 1.5,
         // Time is DISCRETE: every column is one step row, stacked flush like
         // table rows -- order is all that matters, not a continuous y. The
         // row height itself is user-adjustable per recipe (`model.rowHeight`,
@@ -77,7 +76,8 @@
         minRowHeight: 14,
         maxRowHeight: 60,
         // Left gutter step-number cells.
-        stepNumberWidth: 26,
+        // Step-number cells match the Utensils/Ingredients heading column.
+        stepNumberWidth: 68,
         // Default width of the lane axis (grows to fit whatever is placed).
         laneWidth: 1270
     };
@@ -117,6 +117,8 @@
                 deathKind: null,
                 xChanges: [{ col: 0, x: ing.x || 0 }],
                 thicknessChanges: [{ col: 0, thickness: ing.thickness }],
+                stripes: [{ color: ing.color, thickness: ing.thickness }],
+                addEvents: [],
                 kind: 'ingredient'
             });
         });
@@ -147,6 +149,8 @@
                         deathKind: null,
                         xChanges: [{ col: c, x: step.outputX || 0 }],
                         thicknessChanges: [{ col: c, thickness: step.outputThickness || 10 }],
+                        stripes: [{ color: step.outputColor || '#888888', thickness: step.outputThickness || 10 }],
+                        addEvents: [],
                         kind: 'merge',
                         timerStepId: step.id,
                         timer: step.timer || 0
@@ -157,26 +161,31 @@
                     // and the base's own thickness steps up from this
                     // column on (see `getThicknessAt`).
                     const added = lines.get(step.addedLineId);
+                    const addedThickness = added ? getThicknessAt(added, c) : 0;
                     if (added) { added.death = c; added.endsInMerge = true; added.deathKind = 'add'; }
                     const base = lines.get(step.baseLineId);
                     if (base) {
                         const newThickness = step.newThickness || base.thickness;
-                        base.thicknessChanges.push({ col: c, thickness: newThickness });
+                        base.thicknessChanges.push({ col: c, thickness: newThickness, mode: 'expand', addedHalf: Math.max(addedThickness / 2, LAYOUT.movingHalf) });
                         base.thickness = newThickness;
+                        // The mixture is striped from here on: one band per ingredient absorbed.
+                        if (added) {
+                            base.stripes = base.stripes.concat(added.stripes);
+                            base.addEvents.push({ col: c, stripes: base.stripes });
+                        }
                     }
                 } else if (step.type === 'split') {
                     // The time-reverse of an `add`: the source line carries on
-                    // UNMOVED (just thinner, stepping down at the row's top
-                    // edge) and a brand new ingredient is born touching it and
-                    // diverges sideways to its own resting `x` (stored on the
-                    // step, like a merge's `outputX`).
+                    // UNMOVED (thinning over the row's first half) while a brand
+                    // new ingredient peels out of its centre and diverges
+                    // sideways to its own resting `x` (stored on the step).
                     const source = lines.get(step.sourceLineId);
                     const o = step.output;
                     if (!o) return;
                     if (source) {
                         const cur = source.thicknessChanges[source.thicknessChanges.length - 1].thickness;
                         const newT = step.newThickness || Math.max(1, cur - (o.thickness || 1));
-                        source.thicknessChanges.push({ col: c, thickness: newT, at: 'top' });
+                        source.thicknessChanges.push({ col: c, thickness: newT, mode: 'shrink' });
                         source.thickness = newT;
                     }
                     lines.set(o.lineId, {
@@ -191,6 +200,8 @@
                         deathKind: null,
                         xChanges: [{ col: c, x: o.x || 0 }],
                         thicknessChanges: [{ col: c, thickness: o.thickness || 10 }],
+                        stripes: [{ color: o.color || (source ? source.color : '#888888'), thickness: o.thickness || 10 }],
+                        addEvents: [],
                         kind: 'split',
                         splitSourceId: step.sourceLineId,
                         timerStepId: step.id,
@@ -216,6 +227,8 @@
 
     function getXAt(line, col) {
         let x = line.xChanges[0] ? line.xChanges[0].x : 0;
+        // In its birth row a line is still at its seed position (any move that row happens within it).
+        if (col === line.birth) return x;
         for (const change of line.xChanges) {
             if (change.col <= col) x = change.x; else break;
         }
@@ -258,22 +271,11 @@
                         edge += e.entry.thickness;
                     });
                 } else if (step.type === 'add') {
-                    // Same idea with only one "input" -- it slides to touch
-                    // whichever outer edge of the base's own (pre-add)
-                    // width it's already closer to, rather than overlapping
-                    // the base's centre. Must use the base's thickness just
-                    // BEFORE this column, not `layout[baseLineId].thickness`
-                    // (which already reflects the post-add value, since
-                    // `getThicknessAt` includes this exact column) -- the
-                    // base hasn't actually widened yet at the touch point.
+                    // The absorbed line converges on the CENTRE of the base.
                     const baseEntry = layout[step.baseLineId];
                     const addedEntry = layout[step.addedLineId];
                     if (!baseEntry || !addedEntry) return;
-                    const baseLine = lines.get(step.baseLineId);
-                    const baseOldThickness = baseLine ? getThicknessAt(baseLine, c - 1) : baseEntry.thickness;
-                    const side = addedEntry.x < baseEntry.x ? -1 : 1;
-                    const slotCenter = baseEntry.x + side * (baseOldThickness / 2 + addedEntry.thickness / 2);
-                    layout[step.addedLineId] = { x: slotCenter, thickness: addedEntry.thickness };
+                    layout[step.addedLineId] = { x: baseEntry.x, thickness: addedEntry.thickness };
                 }
                 // A split's outputs need no override here -- each one's own
                 // `x` (set once, at creation time, see interact.js) is a
@@ -291,6 +293,7 @@
     // row's vertical CENTRE -- the anchor every line point, bend and step
     // label hangs off -- so it's purely a function of array order.
     function rowH(model) {
+        if (model && model.__compactRowHeight) return model.__compactRowHeight;
         const h = model && model.rowHeight;
         const v = Number.isFinite(h) ? h : LAYOUT.rowHeight;
         return Math.max(LAYOUT.minRowHeight, Math.min(LAYOUT.maxRowHeight, v));
@@ -388,57 +391,64 @@
     // the bend runs from that row's top edge to its bottom edge.
     function buildLineGeometry(model, line, layouts) {
         const top = c => rowTop(model, c), bot = c => rowTop(model, c + 1);
+        const mid = c => top(c) + rowH(model) * LAYOUT.bendFraction;
         const keys = [];
         const first = layouts[line.birth] && layouts[line.birth][line.id];
         if (!first) return keys;
-        let x = first.x, h = first.thickness / 2;
-        // A combine's output starts where its inputs finish (row bottom);
-        // everything else starts at its row's top edge.
-        let y = line.kind === 'merge' ? bot(line.birth) : top(line.birth);
+        const seedX = line.xChanges[0], seedT = line.thicknessChanges[0];
+        // Position/width AFTER every event up to and including row c.
+        const xAfter = c => line.xChanges.reduce((v, ch) => (ch.col <= c ? ch.x : v), seedX.x);
+        let x = first.x, h = (line.kind === 'ingredient' ? seedT.thickness : first.thickness) / 2;
+        // A combine's output starts where its inputs finish (mid-row); a
+        // split's new line starts at the centre of its source at the row top.
+        let y = line.kind === 'merge' ? mid(line.birth) : top(line.birth);
         if (line.kind === 'split') {
-            // Born touching the side of the source it peels away from (whose
-            // own thickness has already stepped down at this row's top),
-            // then diverges out to its resting x across the split's row.
             const src = layouts[line.birth] && layouts[line.birth][line.splitSourceId];
-            if (src) {
-                const side = first.x < src.x ? -1 : 1;
-                x = src.x + side * (src.thickness / 2 + first.thickness / 2);
-            }
+            if (src) x = src.x;
         }
         keys.push({ x, h, y, bend: false });
         if (line.kind === 'split') {
-            keys.push({ x: first.x, h, y: bot(line.birth), bend: true });
+            keys.push({ x: first.x, h, y: mid(line.birth), bend: true });
             x = first.x;
-            y = bot(line.birth);
+            y = mid(line.birth);
         }
-        const hasX = c => line.xChanges.some(ch => ch.col === c && ch.col > line.birth);
-        const thickAt = c => line.thicknessChanges.find(ch => ch.col === c && ch.col > line.birth);
-        for (let c = line.birth + 1; c <= line.death; c++) {
+        // Raw ingredients can already have events in their first row.
+        const hasX = c => line.xChanges.some(ch => ch.col === c && ch !== seedX);
+        const thickAt = c => line.thicknessChanges.find(ch => ch.col === c && ch !== seedT);
+        const startRow = line.kind === 'ingredient' ? line.birth : line.birth + 1;
+        for (let c = startRow; c <= line.death; c++) {
             if (c === line.death && (line.deathKind === 'merge' || line.deathKind === 'add')) {
                 const slot = layouts[c] && layouts[c][line.id];
                 if (!slot) return keys;
                 if (y < top(c)) keys.push({ x, h, y: top(c), bend: false });
-                keys.push({ x: slot.x, h, y: bot(c), bend: true });
+                keys.push({ x: slot.x, h, y: mid(c), bend: true });
                 return keys;
             }
             const mv = hasX(c), tc = thickAt(c);
             if (!mv && !tc) continue;
             const nh = tc ? getThicknessAt(line, c) / 2 : h;
             if (mv) {
-                const nx = getXAt(line, c);
+                const nx = xAfter(c);
                 if (y < top(c)) keys.push({ x, h, y: top(c), bend: false });
-                keys.push({ x: nx, h: nh, y: bot(c), bend: true });
-                x = nx; h = nh; y = bot(c);
+                keys.push({ x: nx, h: nh, y: mid(c), bend: true });
+                x = nx; h = nh; y = mid(c);
+            } else if (tc.mode === 'shrink') {
+                // A split's source thins smoothly over the first half of the row.
+                if (y < top(c)) keys.push({ x, h, y: top(c), bend: false });
+                keys.push({ x, h: nh, y: mid(c), bend: false, taper: true });
+                h = nh; y = mid(c);
             } else {
-                // A pure width change is an instant flat step, never a taper:
-                // at the row's bottom edge (an add), or its top edge (a split).
-                const yy = tc.at === 'top' ? top(c) : bot(c);
-                if (y < yy) keys.push({ x, h, y: yy, bend: false });
-                keys.push({ x, h: nh, y: yy, bend: false });
-                h = nh; y = yy;
+                // An add: the absorbed line has arrived at mid-row, then the
+                // mixture swells to its new width over the second half.
+                if (y < mid(c)) keys.push({ x, h, y: mid(c), bend: false });
+                const start = Math.min(Math.max(h, tc.addedHalf || 0), Math.max(h, nh));
+                if (start !== h) keys.push({ x, h: start, y: mid(c), bend: false });
+                keys.push({ x, h: nh, y: bot(c), bend: false, taper: true });
+                h = nh; y = bot(c);
             }
         }
-        const endY = bot(model.timeSteps.length - 1);
+        // Runs on through the "+" row at the bottom, like the utensils.
+        const endY = bot(model.timeSteps.length);
         if (y < endY) keys.push({ x, h, y: endY, bend: false });
         return keys;
     }
@@ -464,34 +474,60 @@
     function ribbonPath(keys) {
         const L = [], Rr = [];
         const push = (x, h, y) => { L.push({ x: laneX(x) - h, y }); Rr.push({ x: laneX(x) + h, y }); };
+        const smooth = t => 3 * t * t - 2 * t * t * t;
         push(keys[0].x, keys[0].h, keys[0].y);
         for (let i = 1; i < keys.length; i++) {
             const a = keys[i - 1], k = keys[i];
-            if (!k.bend) {
+            const dy = k.y - a.y;
+            if (k.bend && dy > 0) {
+                // Pure x-translation of the ribbon; while in motion it is at
+                // least `movingHalf` wide so thin lines stay visible.
+                const n = LAYOUT.bendSamples;
+                for (let s = 1; s <= n; s++) {
+                    const t = s / n;
+                    const cx = a.x + (k.x - a.x) * smooth(t);
+                    const base = a.h + (k.h - a.h) * t;
+                    const env = smooth(Math.min(1, t / 0.25, (1 - t) / 0.25));
+                    const half = base + Math.max(0, LAYOUT.movingHalf - base) * env;
+                    // A long sideways move over one short row is nearly
+                    // horizontal, so its sheared width alone can fall below a
+                    // pixel; keep a small floor on the perpendicular thickness.
+                    const slope = (k.x - a.x) * 6 * (t - t * t) / dy;
+                    const len = Math.hypot(slope, 1);
+                    const nx = 1 / len, ny = -slope / len;
+                    const extra = Math.max(0, LAYOUT.bendMinPerp - half * nx) * Math.sin(Math.PI * t);
+                    const y = a.y + dy * t;
+                    L.push({ x: laneX(cx) - half - nx * extra, y: y - ny * extra });
+                    Rr.push({ x: laneX(cx) + half + nx * extra, y: y + ny * extra });
+                }
+            } else if (k.taper && dy > 0) {
+                const n = 8;
+                for (let s = 1; s <= n; s++) {
+                    const t = s / n;
+                    push(a.x, a.h + (k.h - a.h) * smooth(t), a.y + dy * t);
+                }
+            } else {
                 if (k.y > a.y) push(a.x, a.h, k.y);
-                if (k.h !== a.h) push(k.x, k.h, k.y);
-                continue;
-            }
-            const n = LAYOUT.bendTrailSteps, dy = k.y - a.y;
-            for (let s = 1; s <= n; s++) {
-                const t = s / n;
-                const cx = a.x + (k.x - a.x) * (3 * t * t - 2 * t * t * t);
-                const cy = a.y + dy * t;
-                const half = a.h + (k.h - a.h) * t + LAYOUT.bendTrailBulge * Math.sin(Math.PI * t);
-                // Slope of x over y, to keep a visible thickness
-                // perpendicular to the path where it runs nearly sideways.
-                const slope = dy > 0 ? (k.x - a.x) * (6 * t - 6 * t * t) / dy : 0;
-                const len = Math.hypot(slope, 1);
-                const nx = 1 / len, ny = -slope / len;
-                const extra = Math.max(0, LAYOUT.bendMinPerp - half * nx) * Math.sin(Math.PI * t);
-                L.push({ x: laneX(cx) - half - nx * extra, y: cy - ny * extra });
-                Rr.push({ x: laneX(cx) + half + nx * extra, y: cy + ny * extra });
+                if (k.h !== a.h || k.x !== a.x) push(k.x, k.h, k.y);
             }
         }
         let d = `M ${L[0].x} ${L[0].y}`;
         for (let i = 1; i < L.length; i++) d += ` L ${L[i].x} ${L[i].y}`;
         for (let i = Rr.length - 1; i >= 0; i--) d += ` L ${Rr[i].x} ${Rr[i].y}`;
         return d + ' Z';
+    }
+
+    // Diagonal candy-cane fill for a line that has had things added to it:
+    // one band per ingredient absorbed so far, each as thick as it was.
+    function addStripePattern(defs, id, stripes) {
+        const total = stripes.reduce((s, x) => s + x.thickness, 0) || 1;
+        const pat = svgEl('pattern', { id, patternUnits: 'userSpaceOnUse', width: total, height: total, patternTransform: 'rotate(45)' });
+        let yy = 0;
+        stripes.forEach(s => {
+            pat.appendChild(svgEl('rect', { x: 0, y: yy, width: total, height: s.thickness + 0.5, fill: s.color }));
+            yy += s.thickness;
+        });
+        defs.appendChild(pat);
     }
 
     // Raw-ingredient name tags stack in tiers above their birth row so
@@ -668,14 +704,19 @@
         });
     }
 
+    // Pattern/clip ids must be unique across every svg in the document (the
+    // folder thumbnails live alongside the editor).
+    let renderSeq = 0;
+
     function renderDiagram(model, svg, opts) {
         opts = opts || {};
+        const uid = ++renderSeq;
         // Size the ingredient section to its label tiers FIRST: every row's y
         // hangs off `topMargin`.
         LAYOUT.utensilLabelBandTop = LAYOUT.headerTopPad;
         LAYOUT.ingredientBandTop = LAYOUT.utensilLabelBandTop + LAYOUT.utensilLabelBandHeight;
         const tiers = measureIngredientTiers(model, svg);
-        LAYOUT.topMargin = LAYOUT.ingredientBandTop + tiers * LAYOUT.labelLineHeight + LAYOUT.labelBaseGap + 6;
+        LAYOUT.topMargin = LAYOUT.ingredientBandTop + tiers * LAYOUT.labelLineHeight + 1;
         LAYOUT.ingredientBandBottom = LAYOUT.topMargin;
         LAYOUT.utensilTop = LAYOUT.topMargin;
 
@@ -695,6 +736,7 @@
         const timeStepLayer = svgEl('g', { class: 'layer-timesteps' });
         const utensilLayer = svgEl('g', { class: 'layer-utensils' });
         const lineLayer = svgEl('g', { class: 'layer-lines' });
+        const eventLayer = svgEl('g', { class: 'layer-line-events' });
         const processLayer = svgEl('g', { class: 'layer-processes' });
         const labelLayer = svgEl('g', { class: 'layer-labels' });
         const separatorLayer = svgEl('g', { class: 'layer-separators' });
@@ -704,6 +746,7 @@
         svg.appendChild(timeStepLayer);
         svg.appendChild(utensilLayer);
         svg.appendChild(lineLayer);
+        svg.appendChild(eventLayer);
         svg.appendChild(processLayer);
         svg.appendChild(labelLayer);
         // Row separators paint over EVERYTHING else.
@@ -724,12 +767,8 @@
         const bandX0 = laneX(0), bandX1 = laneEndX;
         const ingH = LAYOUT.ingredientBandBottom - LAYOUT.ingredientBandTop;
         function sectionHeader(top, height, text) {
-            creationLayer.appendChild(svgEl('rect', {
-                x: LAYOUT.headerX, y: top, width: LAYOUT.leftMargin - LAYOUT.headerX - 6, height,
-                class: 'section-header'
-            }));
             const t = svgEl('text', {
-                x: LAYOUT.headerX + (LAYOUT.leftMargin - LAYOUT.headerX - 6) / 2, y: top + height / 2,
+                x: LAYOUT.headerX + LAYOUT.stepNumberWidth / 2, y: top + height / 2,
                 'text-anchor': 'middle', 'dominant-baseline': 'central', class: 'section-header-label'
             });
             t.textContent = text;
@@ -746,10 +785,10 @@
             class: 'ingredient-create-band', 'data-kind': 'ingredient-create-band'
         }));
         creationLayer.appendChild(svgEl('line', {
-            x1: bandX0, y1: LAYOUT.ingredientBandTop, x2: bandX1, y2: LAYOUT.ingredientBandTop, class: 'ingredient-band-border'
+            x1: LAYOUT.headerX, y1: LAYOUT.ingredientBandTop, x2: bandX1, y2: LAYOUT.ingredientBandTop, class: 'ingredient-band-border'
         }));
         creationLayer.appendChild(svgEl('line', {
-            x1: bandX0, y1: LAYOUT.ingredientBandBottom, x2: bandX1, y2: LAYOUT.ingredientBandBottom, class: 'ingredient-band-border'
+            x1: LAYOUT.headerX, y1: LAYOUT.ingredientBandBottom, x2: bandX1, y2: LAYOUT.ingredientBandBottom, class: 'ingredient-band-border'
         }));
 
         // Discrete steps render as flush TABLE ROWS -- no padding between
@@ -884,30 +923,64 @@
         const labelEntries = [];
         const inRowEntries = [];
         const linePaths = [];
+        const eventPaths = [];
         const geoms = new Map();
         lines.forEach(line => {
             const keys = buildLineGeometry(model, line, layouts);
             geoms.set(line.id, keys);
             if (keys.length > 1) {
+                const d = ribbonPath(keys);
                 const pathEl = svgEl('path', {
-                    d: ribbonPath(keys),
+                    d,
                     fill: line.color,
                     stroke: 'none',
                     class: 'ingredient-line',
                     'data-kind': 'line',
                     'data-id': line.id
                 });
+                // From each add onward, the same ribbon is overpainted with the
+                // striped mixture (non-interactive, clipped below the add's mid-row).
+                const safe = line.id.replace(/[^\w-]/g, '');
+                const stripeSpecs = (line.addEvents || []).map((ev, i) => {
+                    const pid = `stripes-${uid}-${safe}-${i}`, cid = `clip-${uid}-${safe}-${i}`;
+                    addStripePattern(defs, pid, ev.stripes);
+                    const clip = svgEl('clipPath', { id: cid });
+                    const y0 = rowTop(model, ev.col) + rowH(model) * LAYOUT.bendFraction;
+                    clip.appendChild(svgEl('rect', { x: 0, y: y0, width: size.width, height: Math.max(size.height - y0, 0) }));
+                    defs.appendChild(clip);
+                    return { pid, cid };
+                });
+                const stripePaths = () => stripeSpecs.map(sp => svgEl('path', {
+                    d, fill: `url(#${sp.pid})`, stroke: 'none', 'clip-path': `url(#${sp.cid})`, class: 'line-stripes'
+                }));
                 // Collected, not appended yet, so stationary lines can be
                 // drawn first and lines in motion layered on top.
                 const moving = line.xChanges.length > 1 || line.splitSourceId != null
                     || line.deathKind === 'merge' || line.deathKind === 'add';
-                linePaths.push({ el: pathEl, moving });
+                linePaths.push({ el: pathEl, extras: stripePaths(), moving });
+
+                // Every bend/swell is repainted in a layer above ALL lines, so
+                // a move/add/combine/split never hides behind a neighbour.
+                const bands = [];
+                for (let i = 1; i < keys.length; i++) {
+                    if (keys[i].bend || keys[i].taper) bands.push([keys[i - 1].y, keys[i].y]);
+                }
+                if (bands.length) {
+                    const evId = `evclip-${uid}-${safe}`;
+                    const evClip = svgEl('clipPath', { id: evId });
+                    bands.forEach(([a, b]) => evClip.appendChild(svgEl('rect', { x: 0, y: a - 0.5, width: size.width, height: b - a + 1 })));
+                    defs.appendChild(evClip);
+                    const g = svgEl('g', { 'clip-path': `url(#${evId})`, 'pointer-events': 'none' });
+                    g.appendChild(svgEl('path', { d, fill: line.color, stroke: 'none', class: 'ingredient-line' }));
+                    stripePaths().forEach(p => g.appendChild(p));
+                    eventPaths.push({ el: g, moving });
+                }
             }
             // Name tag: raw ingredients sit above their birth row (tiered,
             // with a leader down to the line); combine/split outputs sit on
             // their own step row instead.
             const startEntry = layouts[line.birth][line.id];
-            if (!startEntry) return;
+            if (!startEntry || (opts.thumbnail && line.kind !== 'ingredient')) return;
             const tag = makeNameTag(line, leaderLayer, nameLayer, true);
             const laneXPos = laneX(startEntry.x);
             if (line.kind === 'ingredient') {
@@ -917,8 +990,11 @@
             }
         });
         // Stationary lines first, then moving ones on top.
-        linePaths.forEach(p => { if (!p.moving) lineLayer.appendChild(p.el); });
-        linePaths.forEach(p => { if (p.moving) lineLayer.appendChild(p.el); });
+        const appendLine = p => { lineLayer.appendChild(p.el); p.extras.forEach(e => lineLayer.appendChild(e)); };
+        linePaths.forEach(p => { if (!p.moving) appendLine(p); });
+        linePaths.forEach(p => { if (p.moving) appendLine(p); });
+        eventPaths.forEach(p => { if (!p.moving) eventLayer.appendChild(p.el); });
+        eventPaths.forEach(p => { if (p.moving) eventLayer.appendChild(p.el); });
         layoutLineLabels(model, labelEntries);
         layoutInRowLabels(model, inRowEntries);
 
@@ -965,7 +1041,7 @@
                 sizePillLabel(pillRect, t, LAYOUT.pillPadX, LAYOUT.pillPadY);
             }
         }
-        model.timeSteps.forEach((ts, c) => {
+        if (!opts.thumbnail) model.timeSteps.forEach((ts, c) => {
             const yC = rowY(model, c);
             (ts.steps || []).forEach(step => {
                 if (step.type === 'add') {
@@ -991,6 +1067,9 @@
                 }
             });
         });
+
+        // Thumbnails show only the recipe itself: no row numbers, gridlines or step labels.
+        if (opts.thumbnail) { clear(timeStepLayer); clear(separatorLayer); }
 
         return { lines, layouts, size, geoms };
     }

@@ -1,67 +1,153 @@
-// App entry point: wires toolbar actions to the model and renderer. Everything
-// else (ingredients, time steps, steps, utensils, processes) is edited
-// directly on the canvas -- see js/interact.js.
+// App entry point: the recipe folder view, opening a recipe into the editor,
+// and the header controls. Everything inside a recipe (ingredients, rows,
+// steps, utensils, processes) is edited directly on the canvas -- see
+// js/interact.js.
 (function () {
     'use strict';
 
+    const VEP = window.VEP;
     const svg = document.getElementById('diagram');
+    const canvasWrap = document.getElementById('canvasWrap');
+    const folderView = document.getElementById('folderView');
+    const folderGrid = document.getElementById('folderGrid');
+    const titleEl = document.getElementById('recipeTitle');
     const rowHeightInput = document.getElementById('rowHeightInput');
     const rowHeightOut = document.getElementById('rowHeightOut');
-    // Keeps the slider showing whatever the CURRENT model's row height is
-    // (the model gets swapped wholesale by undo/new/load/example).
-    function syncRowHeightControl() {
-        const h = window.VEP.renderer.rowH(app.model);
-        rowHeightInput.value = h;
-        rowHeightOut.textContent = h;
-    }
+    const show = (id, on) => { document.getElementById(id).hidden = !on; };
+
     const app = {
-        model: window.VEP.io.loadDraft() || window.VEP.model.createEmptyRecipe(),
+        model: null,
+        id: null,
         rerender() {
+            if (!app.model) return;
             syncRowHeightControl();
-            window.VEP.renderer.renderDiagram(app.model, svg);
-            window.VEP.interact.bindAll(svg, app.model, app.rerender);
-            window.VEP.io.saveDraft(app.model);
+            VEP.renderer.renderDiagram(app.model, svg);
+            VEP.interact.bindAll(svg, app.model, app.rerender);
+            VEP.library.save(app.id, app.model);
         }
     };
 
-    // ---------- undo / redo: a plain stack of whole-model JSON snapshots.
-    // `window.VEP.history.record()` is called by interact.js once per
-    // logical action (a whole drag, a whole text edit, a whole color-picker
-    // session) right before it mutates anything, so one undo always undoes
-    // one whole gesture rather than one intermediate frame of it. ----------
+    document.getElementById('versionTag').textContent = window.VEP_VERSION;
+    document.title = `Vise en place ${window.VEP_VERSION}`;
+
+    // Keeps the slider showing whatever the CURRENT model's row height is
+    // (the model gets swapped wholesale by undo).
+    function syncRowHeightControl() {
+        const h = VEP.renderer.rowH(app.model);
+        rowHeightInput.value = h;
+        rowHeightOut.textContent = h;
+    }
+
+    // ---------- undo / redo: a plain stack of whole-model JSON snapshots,
+    // one per logical gesture (see interact.js). Cleared on switching recipe. ----------
     const MAX_HISTORY = 100;
-    const undoStack = [];
-    const redoStack = [];
-    function snapshotJSON() { return JSON.stringify(app.model); }
+    let undoStack = [];
+    let redoStack = [];
+    const snapshotJSON = () => JSON.stringify(app.model);
     function recordHistory() {
+        if (!app.model) return;
         undoStack.push(snapshotJSON());
         if (undoStack.length > MAX_HISTORY) undoStack.shift();
         redoStack.length = 0;
     }
     function undo() {
-        if (!undoStack.length) return;
+        if (!undoStack.length || !app.model) return;
         redoStack.push(snapshotJSON());
         app.model = JSON.parse(undoStack.pop());
         app.rerender();
+        syncTitle();
     }
     function redo() {
-        if (!redoStack.length) return;
+        if (!redoStack.length || !app.model) return;
         undoStack.push(snapshotJSON());
         app.model = JSON.parse(redoStack.pop());
         app.rerender();
+        syncTitle();
     }
-    window.VEP.history = { record: recordHistory, undo, redo };
+    function resetHistory() { undoStack = []; redoStack = []; }
+    VEP.history = { record: recordHistory, undo, redo };
     document.addEventListener('keydown', e => {
         const mod = e.metaKey || e.ctrlKey;
-        if (!mod) return;
+        if (!mod || (document.activeElement && document.activeElement.isContentEditable)) return;
         const key = e.key.toLowerCase();
         if (key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
         else if (key === 'z') { e.preventDefault(); undo(); }
         else if (key === 'y') { e.preventDefault(); redo(); }
     });
 
-    window.VEP.cook.init(svg, () => app.model);
-    app.rerender();
+    VEP.cook.init(svg, () => app.model);
+
+    // ---------- views ----------
+    function setTitle(text, editable) {
+        titleEl.textContent = text;
+        titleEl.contentEditable = editable ? 'true' : 'false';
+        titleEl.classList.toggle('is-editable', editable);
+        if (editable) titleEl.title = 'Click to rename'; else titleEl.removeAttribute('title');
+    }
+    function syncTitle() {
+        if (app.model) setTitle(app.model.title || 'Untitled Recipe', true);
+    }
+
+    function showFolder() {
+        VEP.cook.stop();
+        VEP.interact.closePopover();
+        app.model = null;
+        app.id = null;
+        resetHistory();
+        canvasWrap.hidden = true;
+        folderView.hidden = false;
+        ['backBtn', 'cookBtn', 'exportImageBtn', 'rowHeightCtl'].forEach(id => show(id, false));
+        setTitle('Recipes', false);
+        VEP.folder.render(folderGrid, VEP.library.list(), {
+            onOpen: openRecipe,
+            onCreate: () => openRecipe(VEP.library.create()),
+            onDelete: (id, title) => {
+                if (!confirm(`Delete "${title || 'Untitled Recipe'}"? This cannot be undone.`)) return;
+                VEP.library.remove(id);
+                showFolder();
+            }
+        });
+    }
+
+    function openRecipe(id) {
+        const model = VEP.library.get(id);
+        if (!model) return;
+        app.id = id;
+        app.model = model;
+        resetHistory();
+        folderView.hidden = true;
+        canvasWrap.hidden = false;
+        ['backBtn', 'cookBtn', 'exportImageBtn', 'rowHeightCtl'].forEach(id2 => show(id2, true));
+        syncTitle();
+        app.rerender();
+        canvasWrap.scrollTop = 0;
+    }
+
+    document.getElementById('backBtn').addEventListener('click', showFolder);
+
+    // ---------- header controls ----------
+    titleEl.addEventListener('focus', () => {
+        const range = document.createRange();
+        range.selectNodeContents(titleEl);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+    });
+    titleEl.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); titleEl.blur(); }
+        else if (e.key === 'Escape') { syncTitle(); titleEl.blur(); }
+    });
+    titleEl.addEventListener('blur', () => {
+        window.getSelection().removeAllRanges();
+        if (!app.model) return;
+        const next = titleEl.textContent.trim() || 'Untitled Recipe';
+        if (next !== app.model.title) {
+            recordHistory();
+            app.model.title = next;
+            VEP.library.save(app.id, app.model);
+        }
+        syncTitle();
+    });
 
     // One undo snapshot per slider gesture (pointer down), not per tick.
     rowHeightInput.addEventListener('pointerdown', recordHistory);
@@ -73,46 +159,21 @@
         app.rerender();
     });
 
-    document.getElementById('newBtn').addEventListener('click', () => {
-        if (!confirm('Start a new blank recipe? Unsaved changes will be lost.')) return;
-        recordHistory();
-        app.model = window.VEP.model.createEmptyRecipe();
-        app.rerender();
-    });
-
-    document.getElementById('exampleBtn').addEventListener('click', () => {
-        if (!confirm('Load the built-in example recipe? Unsaved changes will be lost.')) return;
-        recordHistory();
-        app.model = window.VEP.model.createExampleRecipe();
-        app.rerender();
-    });
-
-    document.getElementById('saveBtn').addEventListener('click', () => {
-        window.VEP.io.saveRecipe(app.model);
-    });
-
-    document.getElementById('loadInput').addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        e.target.value = '';
-        if (!file) return;
-        try {
-            recordHistory();
-            app.model = await window.VEP.io.loadRecipeFromFile(file);
-            app.rerender();
-        } catch (err) {
-            alert(`Could not load recipe: ${err.message}`);
-        }
-    });
-
     document.getElementById('exportImageBtn').addEventListener('click', () => {
         const filename = `${(app.model.title || 'recipe').replace(/[^a-z0-9-_ ]/gi, '').trim() || 'recipe'}.png`;
-        window.VEP.io.exportImage(svg, filename);
+        VEP.io.exportImage(svg, filename);
     });
 
-    document.getElementById('titleInput').addEventListener('change', (e) => {
-        recordHistory();
-        app.model.title = e.target.value;
-        window.VEP.io.saveDraft(app.model);
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const root = document.documentElement;
+    fullscreenBtn.addEventListener('click', () => {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else if (root.requestFullscreen) root.requestFullscreen();
     });
-    document.getElementById('titleInput').value = app.model.title || '';
+    document.addEventListener('fullscreenchange', () => {
+        fullscreenBtn.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
+    });
+    if (!root.requestFullscreen) fullscreenBtn.hidden = true;
+
+    showFolder();
 })();
