@@ -1,27 +1,22 @@
 // Newton's cannonball, as a slingshot on a tower.
 //
-// Two balls sit on a tower on a zoomed-in (visually flat) Earth. One ball is
-// in a slingshot that can only be pulled back left, orthogonal to 'down', so
-// it releases due right. Each completed shot upgrades the slingshot: landing
-// with the dropped ball, landing later and further, reaching the far side of
-// the planet, grazing past the antipode to arrive back at the slingshot after
-// a near-full orbit, a circular orbit, and an eccentric orbit. After that,
-// balls fall *through* the Earth as if orbiting a point mass, showing that
-// all falling is just incomplete orbits.
+// Each essay unit that matters is tied to a sim state (see applyUnitState):
+// 'ready:N' is the launch-ready slingshot at power N, 'landed:N' the aftermath
+// of that launch, plus ghost variants. Scrolling to a unit puts the sim in
+// its state, in both directions; completed shots post outcome events that
+// move the essay to the matching landing unit. Orbit outcomes fire when the
+// orbit completes.
 //
 // The physics uses exact closed-form solutions: outside the Earth each ball
 // follows a Keplerian conic evaluated from Kepler's equation; inside it (in
 // ghost mode) gravity for a uniform-density Earth is linear in r, so motion
 // is an exact 2D harmonic oscillator — ellipses centred on the Earth's
 // centre. Segments are stitched at surface crossings, where the two force
-// laws agree. Energy and momentum are conserved exactly: a dropped ball
-// passes straight through to the antipode at the same altitude, and sideways
-// velocity widens that path into ever-fatter centred ellipses until the
-// orbit clears the surface entirely.
+// laws agree.
 //
-// Every new shot also re-fires all previously slung balls (faint) and
-// re-drops the dropped ball, each with a flight timer that freezes when it
-// lands.
+// Every new shot also re-fires all previously slung balls (faint, in their
+// stage colours) and re-drops the dropped ball, each with a flight timer
+// that freezes when it lands.
 //
 // shared.js is loaded first purely for its mobile touch plumbing
 // (disableMobileGestureConflicts and the touch->mouse forwarding); all of its
@@ -33,99 +28,195 @@ let mu; // gravitational parameter = surfaceG * earthR^2
 let omega; // interior (uniform density) oscillation frequency = sqrt(mu / earthR^3)
 let landR; // radius at which balls touch down
 
-let towerH = 60;
+let towerH = 69;
 let ballRadius = 6;
 
 let towerAngle = -Math.PI / 2; // tower at the top of the earth
 let towerBase, towerTop, upDir, rightDir;
 
-let slingAnchor; // handle / intersection of the Y
-let slingRelease; // level with the prong tips: ball rest + release point
+let prongBase, prongUp, prongDn; // the slingshot fork, rotated 90° onto the tower
+let slingRelease; // prong-tip level: ball rest + release point
+let dropArmEnd; // the arm on the other side holding the dropped ball
 let launchDir; // exactly tangential at the release point (visually due right)
-let dropAnchor;
 
 let vCircular;
 let powerLevels = [];
 let stage = 0;
 let shotCount = 0;
-let ghostMode = false; // balls pass through the earth (point-mass orbits)
+let ghostMode = false;
 
-// upgrades are gated by how far the reader has scrolled in the essay: ids of
-// paragraphs they have passed map to the highest stage allowed
-let unlockedStage = 0;
-let ghostUnlocked = false;
-
-// essay paragraph id -> slingshot capability
-// 'immediate' stages apply as soon as the paragraph is reached; the
-// progressive block ('sling-up-match') upgrades one stage per shot instead
-const UNLOCKS = {
-    'sling-up-1': { cap: 1, jumpTo: 1 },
-    'sling-up-2': { cap: 2, jumpTo: 2 },
-    'sling-up-match': { cap: 6, jumpTo: 3 },
-    'sling-up-ecc': { cap: 7, jumpTo: 7 },
-    'sling-ghost': { ghost: true }
-};
+// the essay state the sim currently mirrors, e.g. 'ready:2' or 'landed:2'
+let simState = null;
+let pendingState = null; // arrives before setup() has run
+let simInitialised = false;
 
 window.onEssayLineActive = function (data) {
 
-    if (!data || !data.passedIds) return;
+    if (!data || !data.state) return;
 
-    let jumped = false;
-
-    for (let id of data.passedIds) {
-        let u = UNLOCKS[id];
-        if (!u) continue;
-
-        if (u.cap !== undefined && u.cap > unlockedStage) {
-            unlockedStage = u.cap;
-        }
-
-        if (u.jumpTo !== undefined && u.jumpTo > stage) {
-            stage = u.jumpTo;
-            jumped = true;
-        }
-
-        if (u.ghost && !ghostUnlocked) {
-            ghostUnlocked = true;
-            if (!ghostMode) {
-                ghostMode = true;
-                upgradeMessage = "The ground is now a ghost — balls fall straight through!";
-                upgradeMessageTimer = 240;
-            }
-        }
+    if (!simInitialised) {
+        pendingState = data.state;
+        return;
     }
 
-    if (jumped) {
-        upgradeMessage = "Slingshot upgraded!";
-        upgradeMessageTimer = 160;
-    }
+    applyUnitState(data.state);
 
 };
 
-let shotState = 'ready'; // 'ready' | 'flying' | 'done'
+function parseUnitState(key) {
+
+    let last = powerLevels.length - 1;
+
+    if (key === 'ghost-ready') return { kind: 'ready', stage: last, ghost: true };
+    if (key === 'ghost-landed') return { kind: 'landed', stage: last, ghost: true };
+
+    let [kind, n] = key.split(':');
+    return { kind: kind, stage: Math.min(parseInt(n, 10) || 0, last), ghost: false };
+
+}
+
+function applyUnitState(key) {
+
+    if (key === simState) return;
+
+    let from = simState ? parseUnitState(simState) : null;
+    let target = parseUnitState(key);
+    simState = key;
+
+    let oldStage = stage;
+
+    // the usual step forward — a landed shot to the next upgrade — keeps the
+    // reader's own shots on screen; anything else is rebuilt from scratch
+    let forwardStep = from && from.kind === 'landed' && target.kind === 'ready' &&
+        !from.ghost && (target.ghost ? target.stage === from.stage : target.stage === from.stage + 1);
+
+    if (forwardStep) {
+        if (shotState !== 'ready') finalizeShot();
+        resetShot();
+        stage = target.stage;
+        ghostMode = target.ghost;
+        ghostShotsFired = 0;
+    } else {
+        rebuildState(target);
+    }
+
+    wideReady = target.kind === 'landed';
+
+    if (!target.ghost && stage !== oldStage) {
+        upgradeMessage = stage > oldStage ? "Slingshot upgraded!" : "Slingshot downgraded.";
+        upgradeMessageTimer = 160;
+    } else if (target.ghost && target.kind === 'ready' && forwardStep) {
+        upgradeMessage = "The ground is now a ghost — balls fall straight through!";
+        upgradeMessageTimer = 240;
+    }
+
+}
+
+// reproduce a state from scratch: the earlier shots are replayed at full
+// power instantly (the physics is closed form), so a landing unit shows its
+// landed shot and a launch unit shows the slingshot freshly armed
+function rebuildState(target) {
+
+    if (shotState !== 'ready') resetShot();
+
+    balls = [];
+    ghostTrails = [];
+    pastShots = [];
+    shotCount = 0;
+    ghostShotsFired = 0;
+    lastShotBounds = null;
+    donePhase = null;
+
+    let last = powerLevels.length - 1;
+    let plain, ghostShot;
+
+    if (target.ghost) {
+        plain = last + 1; // every plain stage, then the ghost run if landed
+        ghostShot = target.kind === 'landed';
+    } else {
+        plain = target.stage + (target.kind === 'landed' ? 1 : 0);
+        ghostShot = false;
+    }
+
+    // a landed target leaves its own shot on screen
+    let keepLast = target.kind === 'landed';
+
+    ghostMode = false;
+    for (let s = 0; s < plain; s++) {
+        replayShot(s, keepLast && !ghostShot && s === plain - 1);
+    }
+
+    if (ghostShot) {
+        ghostMode = true;
+        replayShot(last, true);
+    }
+
+    stage = target.stage;
+    ghostMode = target.ghost;
+
+}
+
+function replayShot(s, keepOnScreen) {
+
+    stage = s;
+    launchShot(powerLevels[s]);
+
+    let guard = 0;
+    while (!stepFlightOnce() && guard++ < maxFlightFrames + 10) { }
+
+    if (keepOnScreen) {
+        shotState = 'done';
+        donePhase = 'zoomout';
+        doneTimer = 0;
+        return;
+    }
+
+    finalizeShot();
+
+}
+
+let shotState = 'ready'; // 'ready' | 'releasing' | 'flying' | 'done'
+let donePhase = null; // 'linger' (hold the chase view) | 'zoomout'
 let doneTimer = 0;
+let launchStage = 0; // stage at the moment of launch, for outcome events
+let wideReady = false; // after a shot, ready-state stays zoomed out until the next upgrade
+let releaseProgress = 0;
+const RELEASE_FRAMES = 6;
+let pendingRelease = null; // { pulledPos, v }
+
 let draggingSling = false;
 let pullDist = 0;
-let maxPull = 110;
 
-let fastForward = false; // true while the fast-forward button is held
+let fastForward = false;
 
 let slingBallPos; // resting/dragged position while ready
 
-let balls = []; // balls in flight for the current shot
-let pastVelocities = []; // release speeds of all previous slung shots
+let balls = [];
+let pastShots = []; // { v, col } of all previous slung shots
 let ghostTrails = [];
 
 let sweptAngle = 0;
+let prevHeading = 0;
 let flightFrames = 0;
 let maxFlightFrames = 30000;
 
 let upgradeMessageTimer = 0;
 let upgradeMessage = "";
 
-let cam = { x: 0, y: 0, scale: 1 };
+let cam = { x: 0, y: 0, scale: 1, rot: 0 };
+let shotBounds = null; // bbox of the current shot's flight, for the camera
+let lastShotBounds = null; // kept after the shot ends, for the re-armed wide view
+let aimBounds = null; // bbox of the aiming projection, while dragging
 
-let earthColorSling, ballColorSling, dropColorSling;
+let ghostShotsFired = 0; // the first surface-removed run hides the prediction
+
+let slingStars = [];
+
+let earthColorSling, dropColorSling;
+let stageColors = [];
+let gravityImg;
+const GRAV_IMG_WORLD_RADIUS = 8000;
+const GRAV_IMG_SIZE = 1000;
 
 
 function setup() {
@@ -144,11 +235,16 @@ function setup() {
     towerBase = upDir.copy().mult(earthR);
     towerTop = upDir.copy().mult(earthR + towerH);
 
-    slingAnchor = p5.Vector.add(towerTop, rightDir.copy().mult(12));
-    slingRelease = p5.Vector.add(slingAnchor, upDir.copy().mult(9));
-    // the dropped ball rests at the same altitude as the sling release point,
-    // so equal fall times really are equal
-    dropAnchor = p5.Vector.sub(towerTop, rightDir.copy().mult(12)).add(upDir.copy().mult(9));
+    // slingshot rotated 90°: handle attaches to the tower top, prongs open
+    // rightward above and below the flight line; the ball rests at prong level
+    prongBase = p5.Vector.add(towerTop, rightDir.copy().mult(10));
+    prongUp = p5.Vector.add(prongBase, rightDir.copy().mult(8)).add(upDir.copy().mult(7));
+    prongDn = p5.Vector.add(prongBase, rightDir.copy().mult(8)).sub(upDir.copy().mult(7));
+    slingRelease = p5.Vector.add(towerTop, rightDir.copy().mult(18));
+
+    // the arm on the other side holds the ball to be dropped, at the same
+    // altitude so equal fall times really are equal
+    dropArmEnd = p5.Vector.sub(towerTop, rightDir.copy().mult(18));
 
     // launch exactly tangentially (the release point sits a hair off the
     // tower's radial, and a horizontal launch there would not be at apoapsis)
@@ -156,24 +252,13 @@ function setup() {
 
     //
     // Stage speeds, in closed form. A tangential launch is a launch from
-    // apoapsis, so r(true anomaly ν past apoapsis) = r0(1-e)/(1 - e cos ν),
-    // and landing at r = landR after sweeping φ requires
-    //   e = (r0 - landR) / (r0 - landR cos φ)
-    // with launch speed v = sqrt(mu (1-e) / r0).
+    // apoapsis, so landing at r = landR after sweeping φ requires
+    //   e = (r0 - landR) / (r0 - landR cos φ),  v = sqrt(mu (1-e) / r0)
     //
     let r0 = slingRelease.mag();
 
-    // lands most of the way to the far side of the planet (φ = 170°)
     let eFar = (r0 - landR) / (r0 - landR * Math.cos(radians(170)));
     let vFar = Math.sqrt(mu * (1 - eFar) / r0);
-
-    // periapsis clears the ground over the antipode by a hair, so the ball
-    // comes all the way back around and lands at the slingshot itself (a
-    // ground landing can never sweep past the antipode: a tangential launch
-    // is an apoapsis, and the orbit is symmetric about it)
-    let qPass = landR + 6;
-    let ePass = (r0 - qPass) / (r0 + qPass);
-    let vPass = Math.sqrt(mu * (1 - ePass) / r0);
 
     vCircular = Math.sqrt(mu / r0);
 
@@ -183,21 +268,90 @@ function setup() {
         3,
         3.9, // noticeably later and further
         vFar, // reaches the far side of the planet
-        vPass, // grazes the antipode and returns to the slingshot
         vCircular, // low circular orbit
         vCircular * 1.18 // eccentric orbit
     ];
 
     earthColorSling = color("#a3ffffff");
-    ballColorSling = color("#ff9f1c");
-    dropColorSling = color("#00ffffff");
+
+    // rocket hue throughout: the resting/launched ball gains saturation and
+    // brightness with each upgrade; the stationary drop ball stays pale
+    colorMode(HSB, 360, 100, 100);
+    for (let s = 0; s < powerLevels.length; s++) {
+        let t = s / (powerLevels.length - 1);
+        stageColors.push(color(318, 40 + 60 * t, 55 + 45 * t));
+    }
+    dropColorSling = color(318, 18, 90);
+    colorMode(RGB, 255, 255, 255, 255);
+
+    gravityImg = generateSlingGravityField();
+
+    // starfield, bucketed by size so each frame draws a few batched passes
+    for (let i = 0; i < 1600; i++) {
+        slingStars.push({
+            x: random(-9000, 9000),
+            y: random(-9000, 9000),
+            brightness: random(100, 255),
+            size: floor(random(0, 3))
+        });
+    }
 
     cam.x = towerTop.x;
     cam.y = towerTop.y;
     cam.scale = 1;
+    cam.rot = 0;
 
     resetShot();
 
+    simInitialised = true;
+    applyUnitState(pendingState || 'ready:0');
+
+}
+
+// gravity glow including the interior of the distributed-mass Earth:
+// linear in r inside, inverse-square outside (radially symmetric, so it's
+// built from a 1D profile at reduced resolution and drawn scaled up).
+// normalisation reaches exactly zero at the image edge so there is no
+// visible cutoff however far the camera zooms out
+function generateSlingGravityField() {
+
+    let buffer = createGraphics(GRAV_IMG_SIZE, GRAV_IMG_SIZE);
+    buffer.pixelDensity(1);
+    buffer.loadPixels();
+
+    let worldPerPx = (2 * GRAV_IMG_WORLD_RADIUS) / GRAV_IMG_SIZE;
+
+    let gMax = surfaceG;
+    let gMin = gMax * 0.004;
+    let gEdge = surfaceG * earthR * earthR / (GRAV_IMG_WORLD_RADIUS * GRAV_IMG_WORLD_RADIUS);
+    let logEdge = Math.log10(gEdge + gMin);
+    let logRange = Math.log10(gMax + gMin) - logEdge;
+
+    let maxR = Math.ceil(GRAV_IMG_SIZE * 0.7072) + 2;
+    let alphaByR = new Array(maxR);
+    for (let rp = 0; rp < maxR; rp++) {
+        let r = rp * worldPerPx;
+        let g = r < earthR ? surfaceG * r / earthR : surfaceG * earthR * earthR / (r * r);
+        let normalized = (Math.log10(g + gMin) - logEdge) / logRange;
+        alphaByR[rp] = constrain(normalized, 0, 1) * 255;
+    }
+
+    let half = GRAV_IMG_SIZE / 2;
+    for (let y = 0; y < GRAV_IMG_SIZE; y++) {
+        let dy = y - half;
+        for (let x = 0; x < GRAV_IMG_SIZE; x++) {
+            let dx = x - half;
+            let rp = Math.round(Math.sqrt(dx * dx + dy * dy));
+            let idx = 4 * (x + y * GRAV_IMG_SIZE);
+            buffer.pixels[idx] = 0;
+            buffer.pixels[idx + 1] = 255;
+            buffer.pixels[idx + 2] = 255;
+            buffer.pixels[idx + 3] = alphaByR[Math.min(rp, maxR - 1)];
+        }
+    }
+
+    buffer.updatePixels();
+    return buffer;
 }
 
 function resetShot() {
@@ -207,9 +361,11 @@ function resetShot() {
 
     shotState = 'ready';
     draggingSling = false;
+    pendingRelease = null;
     pullDist = 0;
     sweptAngle = 0;
     flightFrames = 0;
+    shotBounds = null;
 
 }
 
@@ -237,7 +393,6 @@ function computeOrbit(pos0, vel0) {
         let theta0 = Math.acos(cosT);
         let vr = (pos0.x * vel0.x + pos0.y * vel0.y) / r;
         if (vr > 0) {
-            // ascending: place in the second half of the out-and-back
             theta0 = 4 * Math.PI - theta0;
         }
 
@@ -251,16 +406,14 @@ function computeOrbit(pos0, vel0) {
         };
     }
 
-    // eccentricity vector
     let rv = pos0.x * vel0.x + pos0.y * vel0.y;
     let coef = v2 - mu / r;
     let ex = (coef * pos0.x - rv * vel0.x) / mu;
     let ey = (coef * pos0.y - rv * vel0.y) / mu;
     let e = Math.hypot(ex, ey);
 
-    // perifocal frame: p towards periapsis, q 90° ahead in the direction of motion
     let px, py;
-    if (e > 1e-9) {
+    if (e > 1e-6) {
         px = ex / e;
         py = ey / e;
     } else {
@@ -271,8 +424,9 @@ function computeOrbit(pos0, vel0) {
     let qx = -py * sgn;
     let qy = px * sgn;
 
-    // initial eccentric anomaly and mean anomaly
-    let E0 = Math.atan2(rv / Math.sqrt(mu * a), 1 - r / a);
+    // for a (near-)circular orbit the eccentric anomaly is ill-defined and
+    // atan2 of rounding noise can land on the antipode; start at 'periapsis'
+    let E0 = e > 1e-6 ? Math.atan2(rv / Math.sqrt(mu * a), 1 - r / a) : 0;
 
     return {
         radial: false,
@@ -287,7 +441,6 @@ function computeOrbit(pos0, vel0) {
 
 // Kepler's equation M = E - e sin E, solved by bisection: f is monotonic and
 // the root always lies in [M - e, M + e], so this is unconditionally robust
-// even for the near-parabolic ellipses of barely-pulled ghost shots
 function solveKepler(M, e) {
 
     let lo = M - e;
@@ -312,7 +465,6 @@ function orbitPositionAt(orbit, t) {
         let period = 4 * Math.PI * orbit.C;
         let tau = (orbit.t0 + t) % period;
 
-        // invert t = C (θ + sin θ) by bisection (monotonic)
         let guess = tau / orbit.C;
         let lo = Math.max(0, guess - 1.1);
         let hi = Math.min(4 * Math.PI, guess + 1.1);
@@ -350,7 +502,6 @@ function orbitPositionAt(orbit, t) {
 function makeSegment(pos, vel, tStart, interior) {
 
     if (interior) {
-        // 2D harmonic oscillator: pos(t) = A cos(ωt) + B sin(ωt)
         return {
             type: 'shm',
             t0: tStart,
@@ -397,29 +548,37 @@ function makeBall(pos, vel, col, alphaValue, kind) {
     };
 }
 
-function launchShot() {
-
-    let v = releaseSpeed();
+function launchShot(v) {
 
     balls = [];
 
-    // the new shot
-    balls.push(makeBall(slingRelease, launchDir.copy().mult(v), ballColorSling, 255, 'primary'));
+    balls.push(makeBall(slingRelease, launchDir.copy().mult(v), stageColors[stage], 255, 'primary'));
 
-    // every previously slung ball fires again, faint
-    for (let pv of pastVelocities) {
-        balls.push(makeBall(slingRelease, launchDir.copy().mult(pv), ballColorSling, 90, 'past'));
+    // every previously slung ball fires again, faint, in its stage colour
+    for (let past of pastShots) {
+        balls.push(makeBall(slingRelease, launchDir.copy().mult(past.v), past.col, 90, 'past'));
     }
 
-    // and the dropped ball drops again
-    balls.push(makeBall(dropAnchor, createVector(0, 0), dropColorSling, 255, 'drop'));
+    balls.push(makeBall(dropArmEnd, createVector(0, 0), dropColorSling, 255, 'drop'));
 
-    pastVelocities.push(v);
+    pastShots.push({ v: v, col: stageColors[stage] });
 
+    if (ghostMode) {
+        ghostShotsFired++;
+    }
+
+    launchStage = stage;
     shotState = 'flying';
+    prevHeading = slingRelease.heading();
     sweptAngle = 0;
     flightFrames = 0;
+    shotBounds = null;
 
+}
+
+function currentMaxPull() {
+    // the draw-back length grows with each upgrade
+    return 55 + stage * 12;
 }
 
 function currentMaxSpeed() {
@@ -427,7 +586,7 @@ function currentMaxSpeed() {
 }
 
 function releaseSpeed() {
-    return (pullDist / maxPull) * currentMaxSpeed();
+    return (pullDist / currentMaxPull()) * currentMaxSpeed();
 }
 
 function primaryBall() {
@@ -436,6 +595,17 @@ function primaryBall() {
 
 function dropBallOf() {
     return balls.find(b => b.kind === 'drop');
+}
+
+function expandShotBounds(p) {
+    if (!shotBounds) {
+        shotBounds = { minX: p.x, maxX: p.x, minY: p.y, maxY: p.y };
+    } else {
+        shotBounds.minX = min(shotBounds.minX, p.x);
+        shotBounds.maxX = max(shotBounds.maxX, p.x);
+        shotBounds.minY = min(shotBounds.minY, p.y);
+        shotBounds.maxY = max(shotBounds.maxY, p.y);
+    }
 }
 
 function stepBall(ball) {
@@ -448,14 +618,11 @@ function stepBall(ball) {
 
     if (ghostMode) {
 
-        // hand over between the exterior Kepler and interior harmonic closed
-        // forms at the surface, where the two force laws agree
         let wasIn = oldPos.mag() < earthR;
         let isIn = newPos.mag() < earthR;
 
         if (wasIn != isIn) {
 
-            // bisect the crossing time on the current segment
             let lo = ball.t - 1;
             let hi = ball.t;
             for (let i = 0; i < 30; i++) {
@@ -480,8 +647,6 @@ function stepBall(ball) {
         }
     }
 
-    // keep the trail smooth through fast stretches: the closed forms can be
-    // evaluated at fractional times
     let jump = p5.Vector.dist(oldPos, newPos);
     if (jump > 20) {
         let extra = min(12, ceil(jump / 15));
@@ -508,118 +673,271 @@ function stepsPerFrame() {
     return fastForward ? 16 : 2;
 }
 
-function endShot() {
+// completed-shot outcomes reveal the matching essay paragraphs (based on the
+// stage the shot was launched at)
+function shotOutcomeEvent() {
+
+    if (ghostMode) return 'slingGhost';
+
+    switch (launchStage) {
+        case 0: return 'slingSameTime';
+        case 1: return 'slingLonger';
+        case 2: return 'slingCurving';
+        case 3: return 'slingFurther';
+        case 4: return 'slingFarSide';
+        case 5: return 'slingCircular';
+        case 6: return 'slingEccentric';
+    }
+    return null;
+}
+
+// archive the finished shot and re-arm the slingshot
+function finalizeShot() {
 
     for (let ball of balls) {
         ghostTrails.push({ points: ball.trail, col: ball.col });
     }
-
     shotCount++;
+    if (shotBounds) {
+        lastShotBounds = shotBounds;
+    }
+    resetShot();
 
-    // upgrades only come as the reader scrolls on; within an unlocked block
-    // ('keep upgrading the slingshot'), each shot advances one stage
-    if (stage < unlockedStage) {
-        stage++;
-        upgradeMessage = "Slingshot upgraded!";
-        upgradeMessageTimer = 160;
+}
+
+// advance every ball one step; true once the shot is complete
+function stepFlightOnce() {
+
+    let primary = primaryBall();
+    let drop = dropBallOf();
+
+    for (let ball of balls) {
+        stepBall(ball);
+        expandShotBounds(ball.pos);
+    }
+    flightFrames++;
+
+    let newAngle = primary.pos.heading();
+    if (!primary.landed) {
+        let d = newAngle - prevHeading;
+        if (d > PI) d -= TAU;
+        if (d < -PI) d += TAU;
+        sweptAngle += d;
+    }
+    prevHeading = newAngle;
+
+    if (flightFrames % 3 == 0) {
+        for (let ball of balls) {
+            if (!ball.landed) {
+                ball.trail.push(ball.pos.copy());
+            }
+        }
     }
 
-    resetShot();
+    let orbitComplete = abs(sweptAngle) >= TAU;
+    let mainOnesLanded = primary.landed && drop.landed;
+
+    return mainOnesLanded || orbitComplete || flightFrames > maxFlightFrames;
 
 }
 
 function updateFlight() {
 
-    let primary = primaryBall();
-    let drop = dropBallOf();
-
-    let prevAngle = primary.pos.heading();
-
     for (let s = 0; s < stepsPerFrame(); s++) {
 
-        for (let ball of balls) {
-            stepBall(ball);
-        }
-        flightFrames++;
+        if (!stepFlightOnce()) continue;
 
-        let newAngle = primary.pos.heading();
-        if (!primary.landed) {
-            let d = newAngle - prevAngle;
-            if (d > PI) d -= TAU;
-            if (d < -PI) d += TAU;
-            sweptAngle += d;
-        }
-        prevAngle = newAngle;
+        // the shot is complete (for orbits, the moment the orbit closes):
+        // the sim is now in this stage's landed state, and the outcome event
+        // moves the essay to the matching landing unit. In ghost mode only
+        // the first run announces itself; later ones are free play.
+        simState = ghostMode ? 'ghost-landed' : 'landed:' + launchStage;
 
-        if (flightFrames % 3 == 0) {
-            for (let ball of balls) {
-                if (!ball.landed) {
-                    ball.trail.push(ball.pos.copy());
-                }
-            }
+        let outcome = shotOutcomeEvent();
+        if (outcome && (!ghostMode || ghostShotsFired === 1)) {
+            window.parent.postMessage({ type: outcome }, "*");
         }
 
-        let orbitComplete = abs(sweptAngle) >= TAU;
-        let mainOnesLanded = primary.landed && drop.landed;
-
-        if (mainOnesLanded || orbitComplete || flightFrames > maxFlightFrames) {
-
-            // linger for a moment so the result is readable before resetting
-            shotState = 'done';
-            doneTimer = 90;
-            return;
-        }
+        // hold the chase view for a beat, then relax out to the whole
+        // trajectory; the slingshot re-arms in the wide view and only
+        // zooms back in when the reader scrolls to the next upgrade
+        shotState = 'done';
+        wideReady = true;
+        donePhase = ghostMode ? 'zoomout' : 'linger';
+        doneTimer = ghostMode ? 100 : 70;
+        return;
     }
 
 }
 
 //
-// Camera
+// Camera. During a flight it chases the active ball, rotating so the ball's
+// local 'down' stays screen-down and zooming just enough to keep the ball and
+// the surface beneath it in frame. After landing it zooms out (unrotated) to
+// show the whole trajectory, and when the next shot is prepared it swings
+// back in on the slingshot. Ghost (surface-removed) runs use the wide view
+// throughout.
 //
 
 function updateCamera() {
 
-    let targets = [towerTop];
+    let cx, cy, targetScale, targetRot = 0;
+    let posLerp = 0.08, scaleLerp = 0.08, rotLerp = 0.08;
 
-    if (shotState === 'ready') {
-        targets.push(slingBallPos, dropAnchor);
-    } else {
-        for (let ball of balls) {
-            targets.push(ball.pos);
+    const fitBox = (minX, maxX, minY, maxY) => {
+        cx = (minX + maxX) / 2;
+        cy = (minY + maxY) / 2;
+        let margin = height / 10; // the same inset on every side
+        let spreadX = max(maxX - minX, 160);
+        let spreadY = max(maxY - minY, 160);
+        targetScale = min((width - 2 * margin) / spreadX, (height - 2 * margin) / spreadY);
+    };
+
+    const fitWide = () => {
+        let minX = -earthR, maxX = earthR, minY = -earthR, maxY = earthR;
+        const include = (b) => {
+            if (!b) return;
+            minX = min(minX, b.minX); maxX = max(maxX, b.maxX);
+            minY = min(minY, b.minY); maxY = max(maxY, b.maxY);
+        };
+        include(shotBounds || lastShotBounds);
+        include(aimBounds);
+        fitBox(minX, maxX, minY, maxY);
+    };
+
+    // just the flown trajectory (plus the tower), not the whole planet
+    const fitTrajectory = () => {
+        let minX = towerTop.x, maxX = towerTop.x, minY = towerTop.y, maxY = towerTop.y;
+        minX = min(minX, towerBase.x); maxX = max(maxX, towerBase.x);
+        minY = min(minY, towerBase.y); maxY = max(maxY, towerBase.y);
+        let b = shotBounds || lastShotBounds;
+        if (b) {
+            minX = min(minX, b.minX); maxX = max(maxX, b.maxX);
+            minY = min(minY, b.minY); maxY = max(maxY, b.maxY);
         }
+        fitBox(minX, maxX, minY, maxY);
+    };
+
+    const fitCloseup = () => {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let p of [towerTop, towerBase, slingBallPos, dropArmEnd]) {
+            minX = min(minX, p.x); maxX = max(maxX, p.x);
+            minY = min(minY, p.y); maxY = max(maxY, p.y);
+        }
+        fitBox(minX, maxX, minY, maxY);
+    };
+
+    let inFlight = (shotState === 'flying' || shotState === 'done');
+    let chase = inFlight && !ghostMode &&
+        (shotState === 'flying' || donePhase === 'linger');
+
+    if (chase) {
+
+        // chase cam: the ball's 'down' stays screen-down; keep the ball and
+        // the ground beneath it in view, with the ball locked to centre
+        let primary = primaryBall();
+        let pos = primary.pos;
+        let r = pos.mag();
+        let alt = max(0, r - earthR);
+        let radial = pos.copy().div(max(r, 1));
+
+        targetRot = -HALF_PI - pos.heading();
+
+        let mid = p5.Vector.mult(radial, earthR + alt / 2);
+        cx = mid.x;
+        cy = mid.y;
+        targetScale = min(1.6, height * 0.78 / max(alt + 150, 260));
+
+        // fast-forward covers ground quickly: lock the camera to the ball
+        posLerp = fastForward ? 1 : 0.3;
+
+    } else if (inFlight) {
+
+        // ghost runs show the whole planet; landed shots relax out to just
+        // the flown trajectory
+        if (ghostMode) {
+            fitWide();
+        } else {
+            fitTrajectory();
+            posLerp = scaleLerp = rotLerp = 0.02;
+        }
+
+    } else if (wideReady) {
+
+        // re-armed after a shot: hold the post-shot view until the next upgrade
+        if (ghostMode) {
+            fitWide();
+        } else {
+            fitTrajectory();
+        }
+
+    } else {
+
+        // close in on the slingshot for the next launch
+        fitCloseup();
     }
 
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (let t of targets) {
-        minX = min(minX, t.x); maxX = max(maxX, t.x);
-        minY = min(minY, t.y); maxY = max(maxY, t.y);
+    targetScale = constrain(targetScale, 0.02, 1.6);
+
+    // Travel around the planet rather than straight through it: when both
+    // the current and target view centres are out near the surface, blend
+    // towards interpolating by angle and radius about the Earth's centre
+    // (a straight line from one side of the Earth to the other would sweep
+    // the view across the planet's interior).
+    let rCur = Math.hypot(cam.x, cam.y);
+    let rTar = Math.hypot(cx, cy);
+    let outer = constrain((Math.min(rCur, rTar) - 400) / 800, 0, 1);
+
+    let nx = lerp(cam.x, cx, posLerp);
+    let ny = lerp(cam.y, cy, posLerp);
+    let dAng = 0;
+
+    if (outer > 0) {
+        let aCur = Math.atan2(cam.y, cam.x);
+        dAng = Math.atan2(cy, cx) - aCur;
+        while (dAng > PI) dAng -= TAU;
+        while (dAng < -PI) dAng += TAU;
+        let aNew = aCur + dAng * posLerp;
+        let rNew = lerp(rCur, rTar, posLerp);
+        nx = lerp(nx, rNew * Math.cos(aNew), outer);
+        ny = lerp(ny, rNew * Math.sin(aNew), outer);
     }
 
-    let cx = (minX + maxX) / 2;
-    let cy = (minY + maxY) / 2;
+    cam.x = nx;
+    cam.y = ny;
 
-    let spread = max(maxX - minX, maxY - minY, 180);
-    let targetScale = min(width, height) * 0.7 / spread;
-    targetScale = constrain(targetScale, 0.05, 1.6);
+    // zoom evenly in log space
+    cam.scale = Math.exp(lerp(Math.log(cam.scale), Math.log(targetScale), scaleLerp));
 
-    cam.x = lerp(cam.x, cx, 0.08);
-    cam.y = lerp(cam.y, cy, 0.08);
-    cam.scale = lerp(cam.scale, targetScale, 0.08);
+    // shortest-path rotation (turning with the direction of travel when the
+    // two ways round are equally short)
+    let d = targetRot - cam.rot;
+    while (d > PI) d -= TAU;
+    while (d < -PI) d += TAU;
+    if (outer > 0.5 && Math.abs(Math.abs(d) - PI) < 0.5 && dAng !== 0) {
+        d = -Math.sign(dAng) * Math.abs(d);
+    }
+    cam.rot += d * rotLerp;
 
 }
 
 function slingWorldToScreen(x, y) {
+    let dx = (x - cam.x) * cam.scale;
+    let dy = (y - cam.y) * cam.scale;
+    let c = Math.cos(cam.rot), s = Math.sin(cam.rot);
     return {
-        x: (x - cam.x) * cam.scale + width / 2,
-        y: (y - cam.y) * cam.scale + height / 2
+        x: dx * c - dy * s + width / 2,
+        y: dx * s + dy * c + height / 2
     };
 }
 
 function slingScreenToWorld(x, y) {
-    return createVector(
-        (x - width / 2) / cam.scale + cam.x,
-        (y - height / 2) / cam.scale + cam.y
-    );
+    let dx = x - width / 2;
+    let dy = y - height / 2;
+    let c = Math.cos(-cam.rot), s = Math.sin(-cam.rot);
+    let rx = dx * c - dy * s;
+    let ry = dx * s + dy * c;
+    return createVector(rx / cam.scale + cam.x, ry / cam.scale + cam.y);
 }
 
 //
@@ -628,17 +946,29 @@ function slingScreenToWorld(x, y) {
 
 function draw() {
 
-    // safety: never leave fast-forward stuck on
     if (fastForward && !mouseIsPressed) {
         fastForward = false;
     }
 
-    if (shotState === 'flying') {
+    if (shotState === 'releasing') {
+        releaseProgress += 1 / RELEASE_FRAMES;
+        if (releaseProgress >= 1) {
+            launchShot(pendingRelease.v);
+            pendingRelease = null;
+        }
+    } else if (shotState === 'flying') {
         updateFlight();
     } else if (shotState === 'done') {
-        doneTimer--;
-        if (doneTimer <= 0) {
-            endShot();
+        // the finished shot stays on screen until the state changes (the
+        // reader scrolls back, or on to the next upgrade); only ghost runs
+        // can be re-grabbed for more free play
+        if (doneTimer > 0) {
+            doneTimer--;
+            if (doneTimer <= 0 && donePhase === 'linger') {
+                // now glide out, slowly, to the whole trajectory
+                donePhase = 'zoomout';
+                doneTimer = 260;
+            }
         }
     }
 
@@ -648,24 +978,49 @@ function draw() {
 
     push();
     translate(width / 2, height / 2);
+    rotate(cam.rot);
     scale(cam.scale);
     translate(-cam.x, -cam.y);
 
-    // earth
-    noStroke();
-    fill(earthColorSling);
-    circle(0, 0, earthR * 2);
-
-    if (ghostMode) {
-        // mark the centre of the earth, the point mass everything orbits
-        fill(0, 60);
-        circle(0, 0, 24 / cam.scale);
+    // stars, batched by size bucket
+    for (let bucket = 0; bucket < 3; bucket++) {
+        stroke(255, 120 + bucket * 60);
+        strokeWeight((bucket + 1) * 1.1 / cam.scale);
+        beginShape(POINTS);
+        for (let st of slingStars) {
+            if (st.size === bucket) vertex(st.x, st.y);
+        }
+        endShape();
     }
 
-    // tower
+    // gravity glow, including the interior of the distributed-mass Earth
+    image(gravityImg,
+        -GRAV_IMG_WORLD_RADIUS, -GRAV_IMG_WORLD_RADIUS,
+        2 * GRAV_IMG_WORLD_RADIUS, 2 * GRAV_IMG_WORLD_RADIUS);
+
+    if (ghostMode) {
+
+        // the surface becomes a dotted line (dashes in fixed world units, so
+        // they don't change with zoom), revealing the gravity beneath
+        noFill();
+        stroke(48, 255, 144);
+        strokeWeight(2 / cam.scale);
+        drawingContext.setLineDash([60, 80]);
+        circle(0, 0, earthR * 2);
+        drawingContext.setLineDash([]);
+
+    } else {
+        noStroke();
+        fill(earthColorSling);
+        circle(0, 0, earthR * 2);
+    }
+
+    // tower up to ball level, with the drop arm on the far side
     stroke("#b98157");
     strokeWeight(10);
     line(towerBase.x, towerBase.y, towerTop.x, towerTop.y);
+    strokeWeight(4);
+    line(towerTop.x, towerTop.y, dropArmEnd.x, dropArmEnd.y);
 
     // ghost trails from previous shots
     noFill();
@@ -693,18 +1048,27 @@ function draw() {
         fill(red(ball.col), green(ball.col), blue(ball.col), ball.alpha);
         circle(ball.pos.x, ball.pos.y, ballRadius * 2);
 
-        // flight timer, frozen once landed
+        // labels stay upright regardless of the camera's rotation
+        push();
+        translate(ball.pos.x, ball.pos.y);
+        rotate(-cam.rot);
         textFont("menlo");
-        textAlign(CENTER, BOTTOM);
         textSize(12 / cam.scale);
-        text(ball.timer, ball.pos.x, ball.pos.y - (ballRadius + 4));
+        textAlign(CENTER, BOTTOM);
+        text(ball.timer, 0, -(ballRadius + 4));
+        if (ball.kind === 'primary') {
+            textAlign(CENTER, TOP);
+            text("alt " + max(0, round(ball.pos.mag() - earthR)), 0, ballRadius + 6);
+        }
+        pop();
     }
 
-    // projected path while aiming in ghost mode: the exact piecewise motion
-    // (Kepler outside the surface, harmonic inside) sampled for one revolution
-    if (ghostMode && draggingSling && pullDist > 4) {
+    // projected path while aiming in ghost mode — but not on the first
+    // surface-removed launch, which should be a surprise
+    aimBounds = null;
+    if (ghostMode && ghostShotsFired > 0 && draggingSling && pullDist > 4) {
 
-        let m = makeBall(slingRelease, launchDir.copy().mult(releaseSpeed()), ballColorSling, 0, 'projection');
+        let m = makeBall(slingRelease, launchDir.copy().mult(releaseSpeed()), dropColorSling, 0, 'projection');
 
         let points = [slingRelease.copy()];
         let swept = 0;
@@ -734,38 +1098,57 @@ function draw() {
         beginShape();
         for (let p of points) {
             vertex(p.x, p.y);
+            if (!aimBounds) {
+                aimBounds = { minX: p.x, maxX: p.x, minY: p.y, maxY: p.y };
+            } else {
+                aimBounds.minX = min(aimBounds.minX, p.x);
+                aimBounds.maxX = max(aimBounds.maxX, p.x);
+                aimBounds.minY = min(aimBounds.minY, p.y);
+                aimBounds.maxY = max(aimBounds.maxY, p.y);
+            }
         }
         endShape();
 
         drawingContext.setLineDash([]);
     }
 
-    // slingshot: fork whose prong tips are level with the resting ball, so
-    // the elastic band pulls back horizontally
-    let forkBase = p5.Vector.sub(slingAnchor, upDir.copy().mult(10));
-    let prongL = p5.Vector.add(slingAnchor, rightDir.copy().mult(-7)).add(upDir.copy().mult(9));
-    let prongR = p5.Vector.add(slingAnchor, rightDir.copy().mult(7)).add(upDir.copy().mult(9));
-
+    // slingshot fork (rotated 90°, attached to the tower)
     stroke("#b98157");
     strokeWeight(4);
-    line(forkBase.x, forkBase.y, slingAnchor.x, slingAnchor.y);
-    line(slingAnchor.x, slingAnchor.y, prongL.x, prongL.y);
-    line(slingAnchor.x, slingAnchor.y, prongR.x, prongR.y);
+    line(towerTop.x, towerTop.y, prongBase.x, prongBase.y);
+    line(prongBase.x, prongBase.y, prongUp.x, prongUp.y);
+    line(prongBase.x, prongBase.y, prongDn.x, prongDn.y);
 
-    if (shotState === 'ready') {
+    if (shotState === 'ready' || shotState === 'releasing') {
+
+        let ballPos = slingBallPos;
+        if (shotState === 'releasing') {
+            // a few frames of the sling snapping back before the launch
+            let eased = releaseProgress * releaseProgress;
+            ballPos = p5.Vector.lerp(pendingRelease.pulledPos, slingRelease, eased);
+        }
 
         stroke("#ffffff");
         strokeWeight(2);
-        line(prongL.x, prongL.y, slingBallPos.x, slingBallPos.y);
-        line(prongR.x, prongR.y, slingBallPos.x, slingBallPos.y);
+        line(prongUp.x, prongUp.y, ballPos.x, ballPos.y);
+        line(prongDn.x, prongDn.y, ballPos.x, ballPos.y);
 
-        // resting balls
         noStroke();
-        fill(ballColorSling);
-        circle(slingBallPos.x, slingBallPos.y, ballRadius * 2);
+        fill(stageColors[stage]);
+        circle(ballPos.x, ballPos.y, ballRadius * 2);
         fill(dropColorSling);
-        circle(dropAnchor.x, dropAnchor.y, ballRadius * 2);
+        circle(dropArmEnd.x, dropArmEnd.y, ballRadius * 2);
 
+    }
+
+    if (canRegrab()) {
+        stroke("#ffffff");
+        strokeWeight(2);
+        line(prongUp.x, prongUp.y, slingRelease.x, slingRelease.y);
+        line(prongDn.x, prongDn.y, slingRelease.x, slingRelease.y);
+        noStroke();
+        fill(stageColors[stage]);
+        circle(slingRelease.x, slingRelease.y, ballRadius * 2);
     }
 
     pop();
@@ -792,7 +1175,7 @@ function drawHud() {
         (stage + 1) + "/" + powerLevels.length +
         " (v = " + nf(currentMaxSpeed(), 1, 2) + ")";
     if (ghostMode) {
-        power += "  —  MAX + ghost balls";
+        power += "  —  ghost balls";
     }
 
     text(power + "\nShots fired: " + shotCount, 14, 14);
@@ -803,7 +1186,7 @@ function drawHud() {
         let hint;
         if (ghostMode) {
             hint = "Balls now fall through the Earth.\nDrag the slingshot ball left and release.";
-        } else if (stage >= unlockedStage) {
+        } else if (wideReady) {
             hint = "Drag the slingshot ball left and release.\nKeep reading to upgrade the slingshot.";
         } else {
             hint = "Drag the slingshot ball left and release.";
@@ -818,7 +1201,6 @@ function drawHud() {
         text(upgradeMessage, width / 2, 44);
     }
 
-    // hold-to-fast-forward button
     let b = getFFButton();
     stroke(255, fastForward ? 220 : 90);
     strokeWeight(2);
@@ -847,6 +1229,12 @@ function pointerOnFFButton() {
         mouseY >= b.y && mouseY <= b.y + b.h;
 }
 
+// surface-removed runs are free play: once a run has finished its camera
+// move, the sling can be grabbed again
+function canRegrab() {
+    return shotState === 'done' && ghostMode && donePhase === 'zoomout' && doneTimer <= 0;
+}
+
 function mousePressed() {
 
     if (pointerOnFFButton()) {
@@ -854,10 +1242,19 @@ function mousePressed() {
         return false;
     }
 
-    if (shotState !== 'ready') return false;
-
     let w = pointerWorld();
     let grabRadius = max(30, 30 / cam.scale);
+
+    if (canRegrab()) {
+        if (p5.Vector.dist(w, slingRelease) < grabRadius) {
+            finalizeShot();
+            draggingSling = true;
+        }
+        return false;
+    }
+
+    if (shotState !== 'ready') return false;
+
     if (p5.Vector.dist(w, slingBallPos) < grabRadius) {
         draggingSling = true;
     }
@@ -875,7 +1272,7 @@ function mouseDragged() {
 
     // clamp: the sling only pulls back left, orthogonal to 'down'
     let offset = p5.Vector.sub(w, slingRelease);
-    pullDist = constrain(-offset.dot(rightDir), 0, maxPull);
+    pullDist = constrain(-offset.dot(rightDir), 0, currentMaxPull());
 
     slingBallPos = p5.Vector.sub(slingRelease, rightDir.copy().mult(pullDist));
 
@@ -890,10 +1287,12 @@ function mouseReleased() {
     draggingSling = false;
 
     if (pullDist > 8) {
-        // the sling snaps the ball back to the release point and lets go
-        // there, due right; past balls and the dropped ball go at the same
-        // moment
-        launchShot();
+        // the sling snaps the ball back to the release point over a few
+        // frames, then lets go due right; past balls and the dropped ball go
+        // at the same moment
+        pendingRelease = { pulledPos: slingBallPos.copy(), v: releaseSpeed() };
+        releaseProgress = 0;
+        shotState = 'releasing';
     } else {
         slingBallPos = slingRelease.copy();
         pullDist = 0;

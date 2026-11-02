@@ -200,7 +200,32 @@ function buildStaticWorldBuffer() {
 
 }
 
-let instantaneousMode = false;
+// Impulse Mode: time pauses, the reader aims a burn (direction and, unless
+// the sketch fixes it, length) while the projection previews it, then locks
+// it in. The burn then plays out with time still paused, and only then does
+// the simulation resume.
+// burn length scales with how far the aim is pushed out, with no upper limit:
+// IMPULSE_FRAMES_PER_REACH frames at the reference reach (desktop: the cursor's
+// distance from the ship; touch: the circle's radius, which can be dragged past)
+const IMPULSE_FRAMES_PER_REACH = 40;
+const IMPULSE_FULL_REACH = 200;
+
+let impulse = {
+    available: false, // Impulse Mode can be entered
+    exclusive: false, // ...and replaces holding to thrust (and, on touch, the joystick)
+    fixedFrames: null, // burn length when the reader only picks the direction
+    phase: 'off', // 'off' | 'aiming' | 'burning'
+    snapshot: null, // the ship's real future, kept while a hypothetical one is shown
+    wasPaused: false,
+    dir: null, // chosen burn direction (unit vector), once there is one
+    frames: 0, // chosen burn length
+    pointer: null, // touch: control point, relative to the circle's centre
+    dragging: false,
+    enteredByPress: false, // the touch that entered the mode doesn't also aim
+    waitForRelease: false, // a burn was locked in by a press that is still held
+    burnStep: 0
+};
+
 
 let framerateHistory = [];
 let dt;
@@ -216,6 +241,10 @@ let showArrows = false;
 // when false the moon exists as a massless, invisible body so shared code
 // paths still work, but nothing moon-related is drawn
 let moonEnabled = true;
+
+// how far ahead trajectories are projected, in frames; 0 means one moon orbit
+// (sketches without the moon can afford a longer window for high orbits)
+let maxProjectionFrames = 0;
 
 // frames of burn available; sketches may set a finite budget in setup()
 let maxFuel = Infinity;
@@ -603,11 +632,14 @@ class Ship {
 
     }
 
-    drawTrajectory() {
+    // path: positions by frame (this ship's own by default); alpha scales
+    // the whole line (Impulse Mode draws the hypothetical path fainter)
+    drawTrajectory(path = this.posHistory, orbitingMoon = this.shipOrbitingMoon,
+        orbitingMoonEnd = this.shipOrbitingMoonEndOfFirstOrbit, alpha = 255) {
 
         let lineColor = color("#ff57fcd6");
         let frameSkip = 5;
-        let len = this.posHistory.length;
+        let len = path.length;
 
         // only visit the frames that are actually drawn: multiples of
         // frameSkip after T, plus a final partial segment to the end
@@ -620,28 +652,27 @@ class Ship {
                 break;
             }
 
-            let posRelativeToMoon = p5.Vector.sub(this.posHistory[PT], moonOrbit[PT % moonOrbit.length]);
+            let posRelativeToMoon = p5.Vector.sub(path[PT], moonOrbit[PT % moonOrbit.length]);
             let drawInHillSphere = posRelativeToMoon.mag() < moonHillSphereRadius ||
-                (this.shipOrbitingMoon && PT < this.shipOrbitingMoonEndOfFirstOrbit);
+                (orbitingMoon && PT < orbitingMoonEnd);
 
             strokeWeight(3);
-            lineColor.setAlpha(255);
+            lineColor.setAlpha(alpha);
             stroke(lineColor);
 
             if (drawInHillSphere) {
 
-                let nextPosRelativeToMoon = p5.Vector.sub(this.posHistory[next], moonOrbit[next % moonOrbit.length]);
+                let nextPosRelativeToMoon = p5.Vector.sub(path[next], moonOrbit[next % moonOrbit.length]);
 
                 line(bodies[1].pos.x + posRelativeToMoon.x, bodies[1].pos.y + posRelativeToMoon.y,
                     bodies[1].pos.x + nextPosRelativeToMoon.x, bodies[1].pos.y + nextPosRelativeToMoon.y);
 
-                lineColor.setAlpha(50);
+                lineColor.setAlpha(alpha * 50 / 255);
                 stroke(lineColor);
 
             }
 
-            line(this.posHistory[PT].x, this.posHistory[PT].y,
-                this.posHistory[next].x, this.posHistory[next].y);
+            line(path[PT].x, path[PT].y, path[next].x, path[next].y);
 
         }
     }
@@ -829,10 +860,21 @@ class Ship {
 
         let pos = this.posHistory[T];
 
-        camera.minY = pos.x;
-        camera.maxY = pos.y;
+        if (impulse.phase === 'aiming' && impulse.snapshot) {
 
-        if (showTrajectory) {
+            // the real projection stays as it is; what the burn would do
+            // is drawn over it, fainter
+            let real = impulse.snapshot;
+            if (showTrajectory) {
+                this.drawTrajectory(real.pos, real.shipOrbitingMoon,
+                    real.shipOrbitingMoonEndOfFirstOrbit);
+            }
+            if (impulse.dir && impulse.frames > 0) {
+                this.drawTrajectory(this.posHistory, this.shipOrbitingMoon,
+                    this.shipOrbitingMoonEndOfFirstOrbit, showTrajectory ? 110 : 255);
+            }
+
+        } else if (showTrajectory) {
             this.drawTrajectory();
         }
 
@@ -998,7 +1040,7 @@ class Ship {
         // start is correct, but it is skipping over the end too
 
         outer:
-        for (let i = this.posHistory.length; (i - T < moonOrbit.length) && !(this.trajectoryType == 'Collision Course'); i++) {
+        for (let i = this.posHistory.length; (i - T < (maxProjectionFrames || moonOrbit.length)) && !(this.trajectoryType == 'Collision Course'); i++) {
 
             this.posHistory.push(this.posHistory[i - 1].copy());
             this.velHistory.push(this.velHistory[i - 1].copy());
@@ -1196,23 +1238,84 @@ class Ship {
 
     }
 
-    instantaneousModeUpdate() {
+    // everything projected from T on (and the state at T that a burn changes)
+    snapshotFuture() {
 
-        let cursorPos = camera.screenToWorld(mouseX, mouseY);
+        let snap = {
+            pos: this.posHistory.slice(),
+            vel: this.velHistory.slice(),
+            acc: this.accHistory.slice(),
+            boosting: this.boostingHistory.slice(),
+            orientation: this.orientationHistory.slice(),
+            trajectoryType: this.trajectoryType,
+            periapsis: this.periapsis.copy(),
+            periapsisAlt: this.periapsisAlt,
+            apoapsis: this.apoapsis.copy(),
+            apoapsisAlt: this.apoapsisAlt,
+            shipOrbitingMoon: this.shipOrbitingMoon,
+            shipOrbitingMoonEndOfFirstOrbit: this.shipOrbitingMoonEndOfFirstOrbit
+        };
 
-        cursorPos.sub(this.posHistory[T]);
+        // T is edited in place by a burn; later frames are rebuilt
+        for (let key of ['pos', 'vel', 'acc', 'orientation']) {
+            snap[key][T] = snap[key][T].copy();
+        }
 
-        this.orientationHistory[T] = cursorPos.copy().normalize();
-
-        let magDenominator = 3; // smaller means more sensitive
-
-        let boostThrottle = cursorPos.copy().mag() / magDenominator;
-        // console.log(boostThrottle);
-
-        this.projectTrajectory(this.getFuelRemaining() > 0, 0, boostThrottle);
+        return snap;
 
     }
 
+    restoreFuture(snap) {
+
+        this.posHistory = snap.pos.slice();
+        this.velHistory = snap.vel.slice();
+        this.accHistory = snap.acc.slice();
+        this.boostingHistory = snap.boosting.slice();
+        this.orientationHistory = snap.orientation.slice();
+
+        this.posHistory[T] = snap.pos[T].copy();
+        this.velHistory[T] = snap.vel[T].copy();
+        this.accHistory[T] = snap.acc[T].copy();
+        this.orientationHistory[T] = snap.orientation[T].copy();
+
+        this.trajectoryType = snap.trajectoryType;
+        this.periapsis = snap.periapsis.copy();
+        this.periapsisAlt = snap.periapsisAlt;
+        this.apoapsis = snap.apoapsis.copy();
+        this.apoapsisAlt = snap.apoapsisAlt;
+        this.shipOrbitingMoon = snap.shipOrbitingMoon;
+        this.shipOrbitingMoonEndOfFirstOrbit = snap.shipOrbitingMoonEndOfFirstOrbit;
+
+    }
+
+    // Re-plan the burn at T: the whole burn compressed into the step into T
+    // (burnFrames of thrust at once), re-projected. Safe to repeat as the
+    // aim changes, since the step is always redone from the previous frame.
+    applyImpulse(dir, burnFrames) {
+
+        this.orientationHistory[T] = dir.copy();
+        this.projectTrajectory(this.getFuelRemaining() > 0, 0, burnFrames);
+
+    }
+
+}
+
+// rocket thrust sound: procedural brown noise, faded in while burning
+// (requires p5.sound; pages without the library are silently skipped)
+let thrustNoise = null;
+
+function updateThrustSound(active) {
+
+    if (typeof p5.Noise === 'undefined') return;
+
+    if (!thrustNoise) {
+        if (!active) return;
+        thrustNoise = new p5.Noise('brown');
+        thrustNoise.amp(0);
+        thrustNoise.start();
+    }
+
+    thrustNoise.amp(active ? 0.25 : 0, 0.12);
 }
 
 function drawArrow(p1, p2, headLength = 5) {
@@ -1297,80 +1400,61 @@ class Camera {
 
     constructor() {
 
-        let margin = height / 10
-
-
-
-
-        this.cameraBboxMinX = margin;
-        this.cameraBboxMaxX = width - margin;
-
-        this.cameraBboxMinY = margin;
-        this.cameraBboxMaxY = height - margin;
-
         this.centredObject = bodies[0];
-
-        this.minX = ship.posHistory[T].x;
-        this.maxX = ship.posHistory[T].x;
-
-        this.minY = ship.posHistory[T].y;
-        this.maxY = ship.posHistory[T].y;
-
         this.scaleFactor = 1;
 
     }
 
-    drawBbox() {
+    // the visible area excludes the timeline strip at the bottom
+    visibleBottom() {
+        return timelineEnabled ? getTimelineTop() : height;
+    }
 
-        rectMode(CORNERS);
-        noFill();
-        stroke("#b3b3b3ff");
-        strokeWeight(1);
-        rect(this.cameraBboxMinX, this.cameraBboxMinY, this.cameraBboxMaxX, this.cameraBboxMaxY);
+    visibleCenterY() {
+        return this.visibleBottom() / 2;
+    }
 
+    // Centred on the Earth, zoomed out just far enough that the ship sits
+    // inside the visible area inset by a uniform margin. When the moon is in
+    // the simulation its whole orbit must also fit within the visible area
+    // itself, which fixes a zoom limit that doesn't depend on where the moon
+    // currently is (so its motion never changes the zoom).
+    updateScaleFactor() {
 
-        rectMode(CORNER);
+        let margin = height / 10;
+        let centre = this.centredObject.pos;
+        let scaleFactor = 1;
+
+        let halfW = width / 2 - margin;
+        let halfH = this.visibleCenterY() - margin;
+        let shipPos = ship.posHistory[T];
+        let dx = abs(shipPos.x - centre.x) + ship.length / 2;
+        let dy = abs(shipPos.y - centre.y) + ship.length / 2;
+        scaleFactor = min(scaleFactor, halfW / dx, halfH / dy);
+
+        if (moonEnabled) {
+            let reach = this.moonOrbitReach() + 4;
+            scaleFactor = min(scaleFactor,
+                (width / 2) / reach, this.visibleCenterY() / reach);
+        }
+
+        this.scaleFactor = scaleFactor;
 
     }
 
-    updateScaleFactor() {
+    // furthest the moon's disc gets from the centre over its whole orbit
+    moonOrbitReach() {
 
-        let scaleFactors = [];
-
-        for (let [bound, box] of [[this.minX, this.cameraBboxMinX], [this.maxX, this.cameraBboxMaxX]]) {
-
-            let distToBound = abs(this.centredObject.pos.x - bound);
-            let maxDist = abs(width / 2 - box);
-
-
-            if (distToBound > maxDist) {
-
-                scaleFactors.push(maxDist / distToBound);
-
-            } else {
-                scaleFactors.push(1);
+        if (this.moonReach === undefined || this.moonReachFor !== moonOrbit.length) {
+            let far = 0;
+            for (let pos of moonOrbit) {
+                far = max(far, p5.Vector.dist(pos, this.centredObject.pos));
             }
-
+            this.moonReach = far + bodies[1].radius;
+            this.moonReachFor = moonOrbit.length;
         }
 
-        for (let [bound, box] of [[this.minY, this.cameraBboxMinY], [this.maxY, this.cameraBboxMaxY]]) {
-
-            let distToBound = abs(this.centredObject.pos.y - bound);
-            let maxDist = abs(height / 2 - box);
-
-
-            if (distToBound > maxDist) {
-
-                scaleFactors.push(maxDist / distToBound);
-
-            } else {
-                scaleFactors.push(1);
-            }
-
-        }
-
-        this.scaleFactor = min(scaleFactors);
-
+        return this.moonReach;
 
     }
 
@@ -1379,7 +1463,7 @@ class Camera {
         this.updateScaleFactor();
 
         push();
-        translate(width / 2, height / 2);
+        translate(width / 2, this.visibleCenterY());
 
         scale(this.scaleFactor);
 
@@ -1390,7 +1474,7 @@ class Camera {
     worldToScreen(x, y) {
 
         x = (x - this.centredObject.pos.x) * this.scaleFactor + width / 2;
-        y = (y - this.centredObject.pos.y) * this.scaleFactor + height / 2;
+        y = (y - this.centredObject.pos.y) * this.scaleFactor + this.visibleCenterY();
 
         return { x: x, y: y };
 
@@ -1399,7 +1483,7 @@ class Camera {
     screenToWorld(x, y) {
 
         x = (x - width / 2) / this.scaleFactor + this.centredObject.pos.x;
-        y = (y - height / 2) / this.scaleFactor + this.centredObject.pos.y;
+        y = (y - this.visibleCenterY()) / this.scaleFactor + this.centredObject.pos.y;
 
         return createVector(x, y);
 
@@ -1460,7 +1544,9 @@ class Particle {
 
 function mouseWheel(event) {
 
-    instantaneousMode = false;
+    if (impulse.phase === 'burning') return false;
+    cancelImpulse();
+
     if (event.delta > 0 && launched && !crashedOut) {
         framesToSkip = event.delta;
     }
@@ -1515,7 +1601,7 @@ function getJoystickGeometry() {
 
 // pointer input that should drive the rocket (never timeline presses)
 function rocketPointerActive() {
-    if (timelineScrub.active) {
+    if (timelineScrub.active || impulse.waitForRelease) {
         return false;
     }
 
@@ -1527,7 +1613,233 @@ function rocketPointerActive() {
 }
 
 function boostInputActive() {
+    if (impulseReplacesThrust()) {
+        return false;
+    }
     return keyIsDown(UP_ARROW) || rocketPointerActive();
+}
+
+//
+// Impulse Mode
+//
+
+// in flight and clear of the ground (lift-off still needs held thrust)
+function impulseInFlight() {
+
+    if (!launched || crashedOut) return false;
+
+    let body = bodies[0];
+    return p5.Vector.dist(ship.posHistory[T], body.pos) - body.radius > ship.length * 2;
+
+}
+
+function impulseCanStart() {
+    return impulse.available && impulse.phase === 'off' && impulseInFlight();
+}
+
+// once upgraded, Impulse Mode is the way to burn
+function impulseReplacesThrust() {
+    return impulse.available && impulse.exclusive && impulseInFlight();
+}
+
+function enterImpulse() {
+
+    if (!impulseCanStart()) return false;
+
+    impulse.wasPaused = paused;
+    paused = true;
+    framesToSkip = 0; // the frame already queued would move T past the snapshot
+    impulse.snapshot = ship.snapshotFuture();
+    impulse.phase = 'aiming';
+    impulse.dir = null;
+    impulse.frames = 0;
+    impulse.pointer = null;
+    impulse.dragging = false;
+    return true;
+
+}
+
+// abandon the aimed burn, putting the real projection back (resume: also
+// hand time back, as when the reader exits; scrubbing keeps it paused)
+function cancelImpulse(resume = false) {
+
+    if (impulse.phase !== 'aiming') return;
+
+    if (impulse.snapshot) {
+        ship.restoreFuture(impulse.snapshot);
+    }
+    impulse.snapshot = null;
+    impulse.phase = 'off';
+    impulse.dir = null;
+    impulse.frames = 0;
+    impulse.pointer = null;
+    impulse.dragging = false;
+
+    if (resume) {
+        paused = impulse.wasPaused;
+    }
+
+}
+
+function lockImpulse() {
+
+    if (impulse.phase !== 'aiming' || !impulse.dir || impulse.frames < 1) return false;
+
+    let dir = impulse.dir.copy();
+    let frames = impulse.frames;
+
+    // the burn plays from the real projection
+    ship.restoreFuture(impulse.snapshot);
+    impulse.snapshot = null;
+
+    impulse.dir = dir;
+    impulse.frames = frames;
+    impulse.burnStep = 0;
+    impulse.phase = 'burning';
+    impulse.dragging = false;
+    impulse.waitForRelease = mouseIsPressed;
+    return true;
+
+}
+
+// burn length from how far the aim is pushed out (1 = the reference reach)
+function impulseFramesFor(fraction) {
+    if (impulse.fixedFrames) return impulse.fixedFrames;
+    return round(max(fraction, 0) * IMPULSE_FRAMES_PER_REACH);
+}
+
+// desktop: the cursor, relative to the ship, sets direction and length
+function aimImpulseFromMouse() {
+
+    let shipScreen = camera.worldToScreen(ship.posHistory[T].x, ship.posHistory[T].y);
+    let offset = createVector(mouseX - shipScreen.x, mouseY - shipScreen.y);
+    let reach = offset.mag();
+
+    if (reach < 4) {
+        impulse.dir = null;
+        impulse.frames = 0;
+        return;
+    }
+
+    impulse.dir = offset.copy().normalize();
+    impulse.frames = impulseFramesFor(reach / IMPULSE_FULL_REACH);
+
+}
+
+// touch: the control point within the circle, relative to its centre
+function aimImpulseFromPointer() {
+
+    let j = getJoystickGeometry();
+    let offset = impulse.pointer;
+
+    if (!offset || offset.mag() < 6) {
+        impulse.dir = null;
+        impulse.frames = 0;
+        return;
+    }
+
+    impulse.dir = offset.copy().normalize();
+    impulse.frames = impulseFramesFor(offset.mag() / j.r);
+
+}
+
+function setImpulsePointerFromTouch() {
+
+    let j = getJoystickGeometry();
+    // not limited to the circle: dragging past its edge keeps lengthening the burn
+    impulse.pointer = createVector(mouseX - j.x, mouseY - j.y);
+
+}
+
+// once per paused frame: preview the aim, or play the locked burn
+function updateImpulseMode() {
+
+    if (impulse.phase === 'aiming') {
+
+        if (isTouchDevice()) {
+            aimImpulseFromPointer();
+        } else {
+            aimImpulseFromMouse();
+        }
+
+        if (impulse.dir && impulse.frames > 0) {
+            ship.applyImpulse(impulse.dir, impulse.frames);
+        } else {
+            ship.restoreFuture(impulse.snapshot);
+        }
+        // the hypothetical burn isn't happening yet: no flame, no thrust sound
+        ship.boostingHistory[T] = false;
+
+    } else if (impulse.phase === 'burning') {
+
+        impulse.burnStep++;
+        ship.applyImpulse(impulse.dir, impulse.frames * impulse.burnStep / impulse.frames);
+
+        if (typeof window.onImpulseBurnFrame === 'function') {
+            window.onImpulseBurnFrame();
+        }
+
+        if (impulse.burnStep >= impulse.frames) {
+            impulse.phase = 'off';
+            paused = false;
+            if (typeof window.onImpulseBurnEnd === 'function') {
+                window.onImpulseBurnEnd();
+            }
+            T++;
+        }
+
+    }
+
+}
+
+function getImpulseButtons() {
+
+    let j = getJoystickGeometry();
+    let bw = min(130, width * 0.4);
+    let bh = 40;
+    let gap = 10;
+    let y = max(4, j.y - j.r - 12 - bh);
+
+    return {
+        cancel: { x: j.x - gap / 2 - bw, y: y, w: bw, h: bh },
+        burn: { x: j.x + gap / 2, y: y, w: bw, h: bh }
+    };
+
+}
+
+function pointInRect(x, y, r) {
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+}
+
+// presses while aiming; true if the press was used
+function handleImpulsePress() {
+
+    if (isTouchDevice()) {
+
+        let b = getImpulseButtons();
+        if (pointInRect(mouseX, mouseY, b.cancel)) {
+            cancelImpulse(true);
+            return true;
+        }
+        if (pointInRect(mouseX, mouseY, b.burn)) {
+            lockImpulse();
+            return true;
+        }
+
+        let j = getJoystickGeometry();
+        if (dist(mouseX, mouseY, j.x, j.y) <= j.r) {
+            impulse.dragging = true;
+            setImpulsePointerFromTouch();
+            return true;
+        }
+
+        return false;
+    }
+
+    // desktop: a click burns, wherever the cursor is aimed
+    lockImpulse();
+    return true;
+
 }
 
 function timelineScrubActive() {
@@ -1561,18 +1873,34 @@ function resetSimulation() {
     launched = false;
     crashedOut = false;
     paused = false;
-    instantaneousMode = false;
+    impulse.phase = 'off';
+    impulse.snapshot = null;
+    impulse.dir = null;
+    impulse.waitForRelease = false;
     ship.reset();
 }
 
 function mousePressed() {
+
+    // browsers require a user gesture before audio can start
+    if (typeof userStartAudio === 'function') {
+        userStartAudio();
+    }
 
     if (pointerOverTimeline()) {
         timelineScrub.active = true;
         timelineScrub.lastX = mouseX;
         timelineScrub.accum = 0;
         timelineScrub.moved = 0;
-        instantaneousMode = false;
+        cancelImpulse();
+        return false;
+    }
+
+    if (impulse.phase === 'burning') {
+        return false;
+    }
+
+    if (impulse.phase === 'aiming' && handleImpulsePress()) {
         return false;
     }
 
@@ -1592,8 +1920,13 @@ function mousePressed() {
         }
 
         if (dCenter <= j.r) {
-            joystickActive = true;
-            controlMode = TOUCH;
+            if (impulseReplacesThrust() && enterImpulse()) {
+                // the first press only pauses; a second one aims
+                impulse.enteredByPress = true;
+            } else if (!impulseReplacesThrust()) {
+                joystickActive = true;
+                controlMode = TOUCH;
+            }
         }
         return false;
     }
@@ -1616,6 +1949,11 @@ function mouseDragged() {
         return false;
     }
 
+    if (impulse.phase === 'aiming' && impulse.dragging && !impulse.enteredByPress) {
+        setImpulsePointerFromTouch();
+        return false;
+    }
+
 }
 
 function mouseReleased() {
@@ -1629,6 +1967,9 @@ function mouseReleased() {
     joystickHandleDrag = false;
     timelineScrub.active = false;
     timelineScrub.accum = 0;
+    impulse.dragging = false;
+    impulse.enteredByPress = false;
+    impulse.waitForRelease = false;
 
 }
 
@@ -1667,16 +2008,23 @@ function keyPressed(event) {
         fullscreen(true);
     }
 
-    if (key == 'i') {
-        paused = true;
-        instantaneousMode = true;
+    if (key == 'i' || key == 'I') {
+        if (impulse.phase === 'aiming') {
+            cancelImpulse(true);
+        } else {
+            enterImpulse();
+        }
+    }
+
+    if (keyCode == ESCAPE) {
+        cancelImpulse(true);
     }
 
     if (key == 'r') {
         resetSimulation();
     }
 
-    if (key == 'p' & !crashedOut) {
+    if (key == 'p' & !crashedOut && impulse.phase === 'off') {
         paused = !paused; // toggles
     }
 
@@ -1689,6 +2037,9 @@ function keyPressed(event) {
 function drawFrame() {
 
     background(0);
+
+    updateThrustSound((!paused || impulse.phase === 'burning') && !crashedOut && launched &&
+        !timelineScrub.active && ship.boostingHistory[T] === true);
 
     // Camera
 
@@ -1762,6 +2113,8 @@ function drawFrame() {
         drawVirtualJoystick();
     }
 
+    drawImpulseHUD();
+
 }
 
 function drawVirtualJoystick() {
@@ -1797,6 +2150,17 @@ function drawVirtualJoystick() {
         noStroke();
         fill(255, 80);
         circle(j.x + d.x, j.y + d.y, j.r / 3);
+    }
+
+    // Impulse Mode: the control point stays where it was left
+    if (impulse.phase === 'aiming' && impulse.pointer) {
+        stroke(255, 90);
+        strokeWeight(2);
+        let shown = impulse.pointer.copy().limit(j.r);
+        line(j.x, j.y, j.x + shown.x, j.y + shown.y);
+        noStroke();
+        fill(255, 150);
+        circle(j.x + shown.x, j.y + shown.y, j.r / 3);
     }
 
     let s = j.cornerSize;
@@ -1838,6 +2202,81 @@ function drawVirtualJoystick() {
     let hl = s * 0.18;
     line(ax, ay, ax + cos(back - 0.5) * hl, ay + sin(back - 0.5) * hl);
     line(ax, ay, ax + cos(back + 0.5) * hl, ay + sin(back + 0.5) * hl);
+
+    if (impulse.phase === 'aiming') {
+        drawImpulseButtons();
+    }
+
+    pop();
+
+}
+
+function drawImpulseButtons() {
+
+    let b = getImpulseButtons();
+    let ready = impulse.dir && impulse.frames > 0;
+
+    textAlign(CENTER, CENTER);
+    textSize(16);
+
+    stroke(255, 120);
+    strokeWeight(2);
+    fill(255, 20);
+    rect(b.cancel.x, b.cancel.y, b.cancel.w, b.cancel.h, 8);
+    noStroke();
+    fill(255, 200);
+    text("Cancel", b.cancel.x + b.cancel.w / 2, b.cancel.y + b.cancel.h / 2);
+
+    stroke(255, ready ? 200 : 60);
+    strokeWeight(2);
+    fill(255, ready ? 60 : 8);
+    rect(b.burn.x, b.burn.y, b.burn.w, b.burn.h, 8);
+    noStroke();
+    fill(255, ready ? 255 : 90);
+    text("Burn", b.burn.x + b.burn.w / 2, b.burn.y + b.burn.h / 2);
+
+}
+
+// hints and the state of the burn being set up
+function drawImpulseHUD() {
+
+    if (!impulse.available || (!impulseInFlight() && impulse.phase === 'off')) return;
+
+    push();
+    noStroke();
+    textAlign(CENTER, TOP);
+    textSize(16);
+
+    let x = width / 2;
+    let y = 12;
+    let touch = isTouchDevice();
+
+    if (impulse.phase === 'aiming') {
+
+        fill(255, 230);
+        let fixed = impulse.fixedFrames ? ", fixed length" : "";
+        if (impulse.dir && impulse.frames > 0) {
+            text("IMPULSE: burn of " + impulse.frames + " frames" + fixed, x, y);
+        } else {
+            text(touch ? "IMPULSE: press inside the circle to aim" :
+                "IMPULSE: move the cursor to aim, click to burn", x, y);
+        }
+        if (!touch) {
+            fill(255, 140);
+            text("I or Esc to cancel", x, y + 22);
+        }
+
+    } else if (impulse.phase === 'burning') {
+
+        fill(255, 230);
+        text("BURNING", x, y);
+
+    } else if (impulse.phase === 'off' && impulse.exclusive) {
+
+        fill(255, 120);
+        text(touch ? "Tap the circle to set up a burn" : "Press I to set up a burn", x, y);
+
+    }
 
     pop();
 
@@ -1945,8 +2384,8 @@ function drawTimeline() {
     if (paused) {
         tString += " (PAUSED)";
     }
-    if (instantaneousMode) {
-        tString += " (INSTANTANEOUS MODE)";
+    if (impulse.phase !== 'off') {
+        tString += " (IMPULSE MODE)";
     }
     textAlign(LEFT, TOP);
     text(tString, x, height - h);
@@ -1974,6 +2413,8 @@ function disableMobileGestureConflicts() {
         joystickHandleDrag = false;
         timelineScrub.active = false;
         timelineScrub.accum = 0;
+        impulse.dragging = false;
+        impulse.enteredByPress = false;
     };
     window.addEventListener('touchcancel', releaseHeldInputs);
 

@@ -231,15 +231,7 @@ function draw() {
             framesToSkip = 1;
         }
     } else {
-        if (instantaneousMode) {
-            ship.instantaneousModeUpdate();
-
-            if (rocketPointerActive()) {
-                instantaneousMode = false;
-                paused = false;
-                T++;
-            }
-        }
+        updateImpulseMode();
         drawFrame();
     }
 

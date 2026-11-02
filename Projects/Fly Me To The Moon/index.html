@@ -78,6 +78,15 @@
         opacity: 1;
     }
 
+    /* debugging aid: show each text unit's numerical code */
+    .essay-line::before {
+        content: "[" attr(data-unit) "] ";
+        font-family: "Menlo", monospace;
+        font-size: 10px;
+        color: #999;
+        vertical-align: super;
+    }
+
     #essayContent ul {
         margin-left: 13px;
     }
@@ -171,13 +180,16 @@
         opacity: 1;
     }
 
-    .message {
-        opacity: 0;
-        transition: opacity 2s ease;
+    /* revealed paragraphs fade in, then follow the same dimming as every
+       other unit (a plain opacity rule here would override .essay-line) */
+    .message:not([hidden]) {
+        animation: messageFadeIn 2s ease;
     }
 
-    .message:not([hidden]) {
-        opacity: 1;
+    @keyframes messageFadeIn {
+        from {
+            opacity: 0;
+        }
     }
 
     #settingsGear {
@@ -576,10 +588,12 @@
                     </p>
 
                     <p class="message" data-event="moonCrash" hidden>
-                        Well... you did certainly *reach* the Moon, at least! Maybe not in one piece, but still, that's
+                        Well... you did certainly <em>reach</em> the Moon, at least! Maybe not in one piece, but still,
+                        that's
                         gotta
                         count for
-                        something right? In any case, you have now learned that safely *landing* on the moon is not
+                        something right? In any case, you have now learned that safely <em>landing</em> on the moon is
+                        not
                         quite as
                         easy as
                         getting there. Feel free to have another go first if you like, but if you want to learn the
@@ -602,7 +616,7 @@
             </section>
 
             <!-- Section 2: Falling in Style -->
-            <section data-sketch="1">
+            <section data-sketch="0">
                 <h2>Falling in Style</h2>
 
                 <p>I'll admit, flying to the moon is maybe a slightly ambitious goal to begin with. Lets start with a
@@ -616,47 +630,89 @@
                     think we just need to get far enough away from the earth that we no longer feel its gravity.
                     However,
                     although
-                    that is possible*, its not going to work for getting to the Moon, because the Earth's gravity is
+                    that is possible,* its not going to work for getting to the Moon, because the Earth's gravity is
                     still strong there—that's why the Moon orbits the Earth, after all.</p>
 
-                <p>To make this clearer, let's make gravity itself visible. In this visualisation, Earth gravity is blue
+                <p data-state="gravity">To make this clearer, let's make gravity itself visible. In this visualisation,
+                    Earth gravity is blue
                     and Moon gravity is yellow. Where they overlap, we see a mixed green colour. The brighter the color,
-                    the stronger the pull--the weaker, the darker. The black area shows where the Earth's and Moon's
+                    the stronger the pull—the weaker, the darker. The black area shows where the Earth's and Moon's
                     gravity, pulling in opposite directions with equal force, exactly cancel each other out!</p>
+
+            </section>
+
+            <!-- the same rocket, minus the moon -->
+            <section data-sketch="3">
 
                 <p>For now though, we'll get rid of the moon to keep things nice and simple. Don't worry, we'll bring it
                     back later</p>
             </section>
 
             <!-- Section 2b: the slingshot / Newton's cannonball -->
-            <section data-sketch="2">
+            <section data-sketch="1">
 
-                <p>Let's perform an experiment. If we drop a ball off of this tower, and launch another ball sideways
+                <!-- data-state ties a unit to a slingshot state: ready:N is the
+                     launch-ready slingshot at power N, landed:N the aftermath of
+                     that launch. Units without one keep the previous state. -->
+
+                <p id="sling-start" data-state="ready:0">Let's perform an experiment. If we drop a ball off of this
+                    tower, and launch another ball sideways
                     from the tower with a slingshot, how long will it take each of them to land?
                     Have a guess, and pull back on the slingshot to launch.</p>
 
-                <p>They hit the ground at the same time. This is because
+                <p class="message" data-event="slingSameTime" data-state="landed:0" hidden>They hit the ground at the
+                    same time. This is
+                    because
                     they
                     <em>fall</em> at
                     the same rate, and nothing has been done to slow the fall of either.
                     We've neglected air resistance, of course, but this would slow the fall of both by the same amount.
                 </p>
 
-                <p id="sling-up-1">However, what happens when the Earth's surface starts to curve? Try launching again with this
+                <p id="sling-up-1" data-state="ready:1">However, what happens when the Earth's surface starts to curve?
+                    Try launching again
+                    with this
                     upgraded slingshot.</p>
 
-                <p id="sling-up-2">It stayed airborne for longer! Let's try an even faster launch.</p>
+                <p class="message" data-event="slingLonger" data-state="landed:1" hidden>It stayed airborne for longer!
+                </p>
 
-                <p>We can see that gravity is still curving the trajectory, but the rate of altitude loss is decreasing
+                <p id="sling-up-2" data-state="ready:2">Let's try an even faster launch.</p>
+
+                <p class="message" data-event="slingCurving" data-state="landed:2" hidden>We can see that gravity is
+                    still curving the
+                    trajectory, but the rate of altitude loss is decreasing
                     as we move faster, because we are getting to take advantage of more and more curvature per second
                     whilst being subject to the same amount of gravity per second. The ground is curving away beneath
                     the ball at closer and closer rate to that which the ball is falling.</p>
 
-                <p id="sling-up-match">Let's keep upgrading the slingshot and see if we can get curvature of our freefall trajectory to
+                <p id="sling-up-3" data-state="ready:3">Let's keep upgrading the slingshot and see if we can get the
+                    curvature of our
+                    freefall trajectory to
                     match the curvature of the Earth.</p>
-                <p id="sling-up-ecc">Ta-da! We've just achieved orbit. Specifically, a circular orbit. But what happens if we add MORE
-                    POWER?</p>
-                <p>Another orbit! This time, though, we actually gained altitude—so much altitude we went to space, in
+
+                <p class="message" data-event="slingFurther" data-state="landed:3" hidden>Further still! The ground is
+                    really starting to fall
+                    away beneath the ball now.</p>
+
+                <p id="sling-up-4" data-state="ready:4">Another upgrade. How far can it get?</p>
+
+                <p class="message" data-event="slingFarSide" data-state="landed:4" hidden>The ball made it all the way
+                    around to the far side
+                    of the planet before touching down!</p>
+
+                <p id="sling-up-5" data-state="ready:5">One more upgrade, then: let's match the curvature of our
+                    freefall to the curvature of
+                    the Earth exactly.</p>
+
+                <p class="message" data-event="slingCircular" data-state="landed:5" hidden>Ta-da! We've just achieved
+                    orbit. Specifically, a circular orbit.</p>
+
+                <p id="sling-up-ecc" data-state="ready:6">But what happens if we add MORE POWER?</p>
+
+                <p class="message" data-event="slingEccentric" data-state="landed:6" hidden>Another orbit! This time,
+                    though, we actually
+                    gained altitude—so much altitude we went to space, in
                     fact—resulting in this egg
                     shaped trajectory. Note that the principle of 'What goes up must come down' is still true!
                     After it
@@ -668,11 +724,15 @@
                 <p>If we were to launch the ball faster still, we would raise the apogee further.</p>
 
 
-                <p id="sling-ghost">Of course, the only thing separating our beautiful never-ending orbits from our previous short-lived
+                <p id="sling-ghost" data-state="ghost-ready">Of course, the only thing separating our beautiful
+                    never-ending orbits from our
+                    previous short-lived
                     trajectories is that they
                     eventually hit the ground. What would happen if the balls could pass through the ground like ghosts?
                 </p>
-                <p>We see that the dropped ball doesn't stop upon reaching the centre of the earth, but continues until
+                <p class="message" data-event="slingGhost" data-state="ghost-landed" hidden>We see that the dropped ball
+                    doesn't stop upon
+                    reaching the centre of the earth, but continues until
                     it reaches its initial altitude but on the other side of the Earth—what goes down must come up, it
                     would seem. This forms a
                     a
@@ -691,10 +751,13 @@
             </section>
 
             <!-- Section 3: Reaching orbit (earth-only rocket) -->
-            <section data-sketch="3">
+            <!-- data-state names the rocket sim's display state for each unit; the
+                 sim moves between them as the reader flies (and posts the
+                 matching event) or as the reader scrolls -->
+            <section data-sketch="2">
 
 
-                <p>
+                <p data-state="start">
                     Step 1 of getting to the Moon is reaching orbit around <em>Earth</em>.
                     In the real-world, a stable orbit can only be achieved in space, since within the atmosphere air
                     resistance slows us down causing us to lose altitude and eventually crash. In our simplified
@@ -704,47 +767,71 @@
                     we have reached an altitude where we can safely point the rocketship 'forward' in the direction we'd
                     like to orbit—this direction is called 'prograde'.
                 </p>
-                <p class="message" data-event="altitudeReached" hidden>
+                <p class="message" data-event="altitudeReached" data-state="climbed" hidden>
                     Then, we can perform a prograde burn just like how we launched the balls. We need to keep firing
                     prograde until our collision trajectory becomes a proper orbit. To help you
                     out, we're going to add a projection of your trajectory so you can see how it changes
                     live.
                 </p>
-                <p class="message" data-event="orbitAchieved" hidden>Congratulations, your rocketship has achieved orbit! Remember, you are still in freefall—the only
+
+                <p class="message" data-event="orbitAchieved" data-state="orbit" hidden>Congratulations, your rocketship
+                    has achieved
+                    orbit! Remember, you are still in freefall—the only
                     reason you aren't crashing is because of your rocketship is moving so fast towards the horizon—
                     <em>there is therefore no way to stay still in space, you must always be in an orbit</em> (well
                     there is one way, but we'll get to that).
                     From now on, then, we're not so much moving the
                     rocketship
-                    directly as we are <em>changing our orbit</em>. Spoiler alert, but we need to move to a higher
-                    altitude orbit if we're going to reach the moon. Have a go at trying to achieve such an orbit. What
-                    direction should we fire
-                    the
-                    rocket?
+                    directly as we are <em>changing our orbit</em>.
                 </p>
 
-                <p class="message" data-event="firedUp" hidden>It is intuitive to fire 'up', since we want to gain altitude. But remember, we didn't achieve orbit
+                <h2>Impulse Control</h2>
+                <p>Like most rocketships, ours does not have the ability to adjust its thrust—it's either on or off,
+                    there's no equivalent to lightly pressing the accelerator pedal. Instead, you've been controlling
+                    impulse—change in velocity—by timing the duration of your burns. This is indeed how most rocketships
+                    work.</p>
+                <p data-state="impulse">However, since our simulation is effectively sped up by hundreds of times, this
+                    becomes very sensitive—especially when we're further away from the Earth and only need to perform
+                    low-impulse maneouvres. So we're going to upgrade your controls to adjust the exact timing of burns
+                    in advance—and to pause time so the rocketship remains in the same place for the duration of the
+                    burn, approximating real burns. In effect, you'll
+                    recieve the full impulse of the burn in one instanteous kick—just like the slingshot from before.
+                </p>
+                <p>Spoiler alert, but we'll need to move to a higher
+                    altitude orbit if we're gonna to reach the moon.
+                    What direction should we fire
+                    the rocket to achieve this?</p>
+
+                <p class="message" data-event="firedUp" data-state="firedUp" hidden>It is intuitive to fire 'up', since
+                    we want to gain
+                    altitude. But remember, we didn't achieve orbit
                     in
                     the first
                     place by firing up, because what goes up must come down. Indeed, you'll see that you gain altitude
                     initially
                     from this manouvre, but you fall right back down.</p>
 
-                <p class="message" data-event="apoapsisRaised" hidden>Well done! Your logic is correct; if firing prograde is what got us into orbit, then surely we'd fire
+                <p class="message" data-event="apoapsisRaised" data-state="apoRaised" hidden>Well done! Your logic is
+                    correct; if firing
+                    prograde is what got us into orbit, then surely we'd fire
                     prograde to
-                    increase our altitude. The issue is, as you can see, whilst this has increased the peak altitude or
+                    increase our altitude. The issue is, as you can see, whilst this will increase the peak altitude or
                     apoapsis,
-                    one half orbit ahead of where we fired, it hasn't lifted the whole orbit. The minimum altitude, or
+                    one half orbit ahead of where we fired, it won't lift the whole orbit. The minimum altitude, or
                     peripasis,
-                    remains the same. Don't fret though; it turns out you can't achieve the desired higher altitude
+                    will remain the same. Don't fret though; it turns out you can't achieve the desired higher altitude
                     circular
                     orbit
-                    with just one firing of the rocket (one 'burn'), but this burn was the necessary first step. What do
+                    with just one firing of the rocket (one 'burn'), but this burn is the necessary first step. Lock it
+                    in.
+                <p>What do
                     you
                     think
                     is the second step?</p>
 
-                <p class="message" data-event="circularisedHigher" hidden>Ding ding ding! Your logic is correct again. If firing raises the altitude a half orbit ahead of
+                <p class="message" data-event="circularisedHigher" data-state="circHigher" hidden>Ding ding ding! Your
+                    logic is correct again.
+                    If firing raises the altitude a half orbit ahead of
                     where we
                     are,
                     then if we want to raise the periapsis to 'circularise' the orbit, we must do another prograde burn
@@ -756,50 +843,51 @@
                     the altitude? You should be able to figure this one out; what's the opposite of what we did before?
                 </p>
 
-                <p class="message" data-event="orbitLowered" hidden>Bingo! That's called a 'retro-grade' burn. One more a half orbit ahead and you'll circularise the
-                    orbit
-                    at the
-                    new lower altitude. Now, you have the power to orbit at any altitude you like! Lets test your
-                    skills.
+                <p class="message" data-event="orbitLowered" data-state="lowered" hidden>Bingo! That's called a
+                    'retro-grade' burn. Periapsis lowered, now just need to bring in the apoapsis.
                 </p>
-            </section>
 
-            <!-- Section 6: Impulse Control -->
-            <section>
-                <h2>Impulse Control</h2>
-                <p>So far, you've been controlling the rocket by turning it on and off again. There hasn't been any way
-                    to
-                    control
-                    the throttle, so getting the right amount of force is a matter of timing the burn. This is actually
-                    realistic
-                    for how most rockets work! Only some special rockets have the ability to change the exhaust
-                    velocity.
-                    That's
-                    okay for normal missions though, because the amount of time spent burning is very, very small
-                    compared
-                    to the
-                    the rocketship effectively remains more or less in the same
-                    place for
-                    the duration of the burn.</p>
+                <p class="message" data-event="apoapsisLowered" data-state="uncapped" hidden>Perfect. Now, you have the
+                    power to orbit at any altitude you like! Lets test your
+                    skills. See if you can get your orbit within the green band.
+                </p>
+
+                <p class="message" data-event="targetBand1" data-state="band1done" hidden>Nicely flown — your orbit fit
+                    right inside the target
+                    band.
+                </p>
+
+                <p data-state="band2">Let's go further out.</p>
+
+                <p class="message" data-event="targetBand2" data-state="band2done" hidden>Excellent.</p>
+                <p data-state="band3">Now bring it all the
+                    way back down to a
+                    low, tight orbit.</p>
+
+                <p class="message" data-event="targetBand3" data-state="done" hidden>Perfect. High orbits, low orbits —
+                    you can now put
+                    your rocketship wherever you like.</p>
             </section>
 
             <!-- Section 7: Lunar Orbit -->
-            <section>
-                <p>Ok, clearly you've got the hang of orbital manouvreing. Its time to bring back the Moon. Before we
+            <section data-sketch="4">
+                <p data-state="start">Ok, clearly you've got the hang of orbital manouvreing. Its time to bring back the Moon. Before we
                     can
                     land on
                     the moon, we first need to get into orbit around it. This can be achieved with what you already
                     know, we
                     just
-                    need to put our apoapsis in the close vicinity of the moon, so that when we reach it we are
+                    need to put our apoapsis in the close vicinity of the moon—in both time and space—so that when we
+                    reach it we are
                     'captured'
                     by its
                     gravity. Have a go.</p>
 
-                <p>Incredible! You're in lunar orbit. Now all we need to do is land. This, admittedly, is a bit more
+                <p class="message" data-event="lunarOrbit" data-state="orbit" hidden>Incredible! You're in lunar orbit. Now all we need to do is land. This, admittedly, is a bit more
                     complex
                     than
-                    just lowering your orbit. You essentially have to *launch* in reverse. That means firing retrograde
+                    just lowering your orbit. You essentially have to <em>launch</em> in reverse. That means firing
+                    retrograde
                     until you
                     have a collision trajectory, then firing 'up' in short bursts in order to slow your fall so that
                     your
@@ -807,7 +895,7 @@
                     velocity is almost zero.
                 </p>
 
-                <p>Absolutely brilliant, you've done it! Just for fun, I'll let you hop out and do a moon walk. When
+                <p class="message" data-event="lunarLanding" data-state="landed" hidden>Absolutely brilliant, you've done it! Just for fun, I'll let you hop out and do a moon walk. When
                     you're
                     ready,
                     hop back in the rocketship and see if you can use the same principles to get back home.</p>
@@ -817,10 +905,11 @@
     </div>
 
     <div id="simPane">
-        <iframe class="sim" src="slide1-sketch.html?v=20261101e"></iframe>
-        <iframe class="sim hiddenSim" src="slide2-sketch.html?v=20261101e"></iframe>
-        <iframe class="sim hiddenSim" src="slingshot-sketch.html?v=20261101e"></iframe>
-        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261101e"></iframe>
+        <iframe class="sim" src="slide1-sketch.html?v=20261102l"></iframe>
+        <iframe class="sim hiddenSim" src="slingshot-sketch.html?v=20261102l"></iframe>
+        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261102l"></iframe>
+        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261102l&mode=free"></iframe>
+        <iframe class="sim hiddenSim" src="slide4-sketch.html?v=20261102l"></iframe>
     </div>
 
     <div id="essayScroller" aria-hidden="true">
@@ -830,6 +919,7 @@
     </div>
 
     <button id="fullscreenBtn" onclick="toggleFullscreen()">⛶</button>
+
 
     <script>
         //
@@ -848,7 +938,10 @@
         function collectLines() {
             lines = Array.from(essayContent.querySelectorAll('h1, h2, p, li'))
                 .filter(el => !el.hidden && el.textContent.trim().length > 0);
-            lines.forEach(el => el.classList.add('essay-line'));
+            lines.forEach((el, i) => {
+                el.classList.add('essay-line');
+                el.dataset.unit = i; // numerical code shown as a debugging aid
+            });
         }
 
         function focalY() {
@@ -856,7 +949,14 @@
             return r.top + r.height * 0.4;
         }
 
+        // while a programmatic reveal-scroll is animating, don't let scroll
+        // events re-evaluate the active line out from under it
+        let activeLineLockUntil = 0;
+
         function updateActiveLine() {
+
+            if (Date.now() < activeLineLockUntil) return;
+
             const fy = focalY();
             let best = null;
             let bestDist = Infinity;
@@ -891,6 +991,7 @@
             const section = el.closest('section');
             const sectionIndex = sections.indexOf(section);
             switchSim(sectionIndex);
+            saveBookmark();
 
             // tell the active simulation which line is active so it can react;
             // passedIds lets sims unlock capabilities by scroll progress
@@ -902,8 +1003,18 @@
                 for (let i = 0; i <= lineIndex; i++) {
                     if (lines[i].id) passedIds.push(lines[i].id);
                 }
+                // the state of the nearest unit at or before this one in its section
+                let state = null;
+                for (let i = lineIndex; i >= 0 && lines[i].closest('section') === section; i--) {
+                    if (lines[i].dataset.state) {
+                        state = lines[i].dataset.state;
+                        break;
+                    }
+                }
+
                 frame.contentWindow.postMessage({
                     type: 'essayLineActive',
+                    state: state,
                     section: sectionIndex,
                     line: lineIndex,
                     lineInSection: sectionLines.indexOf(el),
@@ -938,10 +1049,13 @@
 
         function scrollLineToFocus(el) {
             const r = el.getBoundingClientRect();
-            essayPane.scrollTo({
-                top: essayPane.scrollTop + (r.top + r.height / 2 - focalY()),
-                behavior: 'smooth'
-            });
+            const top = essayPane.scrollTop + (r.top + r.height / 2 - focalY());
+            if ('scrollBehavior' in document.documentElement.style) {
+                essayPane.scrollTo({ top: top, behavior: 'smooth' });
+            } else {
+                // older browsers silently ignore the options form
+                essayPane.scrollTop = top;
+            }
         }
 
         // click/tap a line to make it active
@@ -1012,9 +1126,18 @@
         });
 
         function revealNext(type, source = null) {
-            const msg = document.querySelector(
+
+            let msg = document.querySelector(
                 `.message[data-event="${type}"]:not([data-shown])`
             );
+            let alreadyShown = false;
+
+            // already revealed (e.g. restored from the bookmark, or a repeat
+            // outcome): still shift the essay to it
+            if (!msg) {
+                msg = document.querySelector(`.message[data-event="${type}"][data-shown]`);
+                alreadyShown = true;
+            }
             if (!msg) return;
 
             // only reveal when the event came from the simulation that owns the
@@ -1026,11 +1149,58 @@
                 if (ownerFrame && source !== ownerFrame.contentWindow) return;
             }
 
-            msg.hidden = false;
-            msg.dataset.shown = 'true';
+            if (!alreadyShown) {
+                msg.hidden = false;
+                msg.dataset.shown = 'true';
+                collectLines();
+            }
+
+            // activate the revealed unit directly — don't depend on the scroll
+            // animation and its events to get there
+            scrollLineToFocus(msg);
+            setActiveLine(msg);
+            activeLineLockUntil = Date.now() + 700;
+        }
+
+        //
+        // Bookmark: remember the reading position and revealed paragraphs so a
+        // reload drops you back where you were (append ?reset to start over)
+        //
+
+        const BOOKMARK_KEY = 'fmttm-bookmark';
+
+        function saveBookmark() {
+            const revealed = Array.from(document.querySelectorAll('.message[data-shown]'))
+                .map(m => m.dataset.event);
+            try {
+                localStorage.setItem(BOOKMARK_KEY, JSON.stringify({
+                    line: lines.indexOf(activeLine),
+                    revealed: revealed
+                }));
+            } catch (e) { /* storage unavailable */ }
+        }
+
+        function restoreBookmark() {
+            let bm = null;
+            try {
+                bm = JSON.parse(localStorage.getItem(BOOKMARK_KEY) || 'null');
+            } catch (e) { /* ignore */ }
+            if (!bm) return;
+
+            for (const ev of bm.revealed || []) {
+                const msg = document.querySelector(`.message[data-event="${ev}"]:not([data-shown])`);
+                if (msg) {
+                    msg.hidden = false;
+                    msg.dataset.shown = 'true';
+                }
+            }
             collectLines();
-            msg.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            updateActiveLine();
+
+            const el = lines[Math.min(Math.max(bm.line || 0, 0), lines.length - 1)];
+            if (el) {
+                const r = el.getBoundingClientRect();
+                essayPane.scrollTop += r.top + r.height / 2 - focalY();
+            }
         }
 
         //
@@ -1256,8 +1426,20 @@
         updateColorButtons();
 
         // Initialize
+        if (new URLSearchParams(location.search).has('reset')) {
+            // iframes share the same origin, so this clears their saved state too
+            try { localStorage.clear(); } catch (e) { /* ignore */ }
+        }
+
         collectLines();
+        restoreBookmark();
         updateActiveLine();
+
+        // when a sim finishes loading, re-send the current line so late-loading
+        // iframes receive their scroll-derived state (e.g. after a reload)
+        simFrames.forEach(f => f.addEventListener('load', () => {
+            if (activeLine) setActiveLine(activeLine);
+        }));
     </script>
 </body>
 

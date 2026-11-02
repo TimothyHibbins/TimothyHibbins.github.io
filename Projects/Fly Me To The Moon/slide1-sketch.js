@@ -1,3 +1,8 @@
+// the gravity light switches on only for the essay unit that explains it
+window.onEssayLineActive = function (data) {
+    gravLights = !!data && data.state === 'gravity';
+};
+
 function setup() {
 
     pixelDensity(1);
@@ -222,15 +227,7 @@ function draw() {
             framesToSkip = 1;
         }
     } else {
-        if (instantaneousMode) {
-            ship.instantaneousModeUpdate();
-
-            if (rocketPointerActive()) {
-                instantaneousMode = false;
-                paused = false;
-                T++;
-            }
-        }
+        updateImpulseMode();
         drawFrame();
     }
 

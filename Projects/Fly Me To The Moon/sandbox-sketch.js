@@ -1,5 +1,7 @@
 function setup() {
 
+    impulse.available = true; // press I
+
     pixelDensity(1);
     createCanvas(windowWidth, windowHeight);
     disableMobileGestureConflicts();
@@ -227,15 +229,7 @@ function draw() {
             framesToSkip = 1;
         }
     } else {
-        if (instantaneousMode) {
-            ship.instantaneousModeUpdate();
-
-            if (rocketPointerActive()) {
-                instantaneousMode = false;
-                paused = false;
-                T++;
-            }
-        }
+        updateImpulseMode();
         drawFrame();
     }
 
