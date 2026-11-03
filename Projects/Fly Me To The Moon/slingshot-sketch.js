@@ -313,7 +313,7 @@ function setup() {
         vCircular * 1.18 // eccentric orbit
     ];
 
-    earthColorSling = color("#a3ffffff");
+    earthColorSling = color(PALETTE.earthLight);
 
     // rocket hue throughout: the resting/launched ball gains saturation and
     // brightness with each upgrade; the stationary drop ball stays pale

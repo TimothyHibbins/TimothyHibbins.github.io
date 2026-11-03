@@ -13,12 +13,10 @@ function setup() {
     maxFuel = 300;
     orientationLocked = true;
 
-    rocketColor = color("#ff00b3ff");
-    earthColor = color("#00ffffff");
-    moonColor = color("#ffff00ff");
+    initPalette();
 
-    bodies.push(new Body(createVector(0, 0), 100, 1, color("#a3ffffff"))); // Earth
-    bodies.push(new Body(createVector(0, -25 * 17), 25, 0.1, color("#ffff90ff"))); // Moon
+    bodies.push(new Body(createVector(0, 0), 100, 1, 'earth'));
+    bodies.push(new Body(createVector(0, -25 * 17), 25, 0.1, 'moon'));
 
     let l = 30;
     ship = new Ship(createVector(bodies[0].pos.x, bodies[0].pos.y - bodies[0].radius - l / 2), l);

@@ -277,12 +277,10 @@ function setup() {
     // high orbits (the outer target band) can complete and be recognised
     maxProjectionFrames = 14000;
 
-    rocketColor = color("#ff00b3ff");
-    earthColor = color("#00ffffff");
-    moonColor = color("#ffff00ff");
+    initPalette();
 
-    bodies.push(new Body(createVector(0, 0), 100, 1, color("#a3ffffff"))); // Earth
-    bodies.push(new Body(createVector(0, -25 * 17), 0.0001, 0, color("#ffff9000"))); // massless, invisible stand-in moon
+    bodies.push(new Body(createVector(0, 0), 100, 1, 'earth'));
+    bodies.push(new Body(createVector(0, -25 * 17), 0.0001, 0, 'hiddenBody')); // massless, invisible stand-in moon
 
     let l = 30;
     ship = new Ship(createVector(bodies[0].pos.x, bodies[0].pos.y - bodies[0].radius - l / 2), l);

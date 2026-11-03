@@ -130,10 +130,43 @@ let gravitationalFieldHistory = [];
 let gridSize;
 
 
+// Every colour the simulations share lives here. Bodies are drawn in their
+// lighter shade whenever gravity lighting is on (the glow behind them is
+// already their saturated colour).
+const PALETTE = {
+    rocket: '#ff00b3ff',
+    earth: '#00ffffff',
+    moon: '#ffff00ff',
+    earthLight: '#a3ffffff',
+    moonLight: '#ffff90ff',
+    hiddenBody: '#ffff9000',
+    fire: '#ff7fd2b2',
+    window: '#e5a3d0ff',
+    trajectory: '#ff57fcd6',
+    thrust: '#ff9f1cff',
+    white: '#ffffffff'
+};
+
 let rocketColor;
 let earthColor;
 let moonColor;
+let paletteColors = {};
 
+// call once p5 is ready (in setup)
+function initPalette() {
+    for (let name in PALETTE) {
+        paletteColors[name] = color(PALETTE[name]);
+    }
+    rocketColor = paletteColors.rocket;
+    earthColor = paletteColors.earth;
+    moonColor = paletteColors.moon;
+}
+
+// the fill for a body kind ('earth', 'moon' or 'hiddenBody')
+function bodyColor(kind) {
+    if (kind === 'hiddenBody') return paletteColors.hiddenBody;
+    return gravLights ? paletteColors[kind + 'Light'] : paletteColors[kind];
+}
 let gap = 100;
 
 let exhaustPlumeLengthRandomCycle = [];
@@ -294,12 +327,24 @@ function impulseReach() {
 function zoomImpulseMap(factor) {
     impulse.zoom = constrain(impulse.zoom * factor, IMPULSE_ZOOM_MIN, IMPULSE_ZOOM_MAX);
 }
-// The map is refined in stages (cells per side): the first is always ready
-// the same frame, so dragging stays responsive; the finer ones are computed in
-// slices of IMPULSE_MAP_BUDGET_MS per frame while the map holds still.
-const IMPULSE_MAP_STAGES = [8, 20, 40, 80];
+// The map is a lattice of impulses: point (ix, iy) stands for the impulse
+// (ix, iy) * spacing, n of them across the circle. Outcomes are cached per
+// point, so dragging only computes newly exposed points. Points are filled
+// coarse-to-fine, and a block of the lattice whose four corners share an
+// outcome (same kind and contour level) isn't refined: its interior is
+// interpolated, so the work follows the boundaries and contours, not the area.
+// The paused map has IMPULSE_MAP_CELLS across; the live one (under the control
+// while time runs) IMPULSE_LIVE_CELLS, rebuilt in the background.
+const IMPULSE_MAP_CELLS = 80;
+const IMPULSE_LIVE_CELLS = 40;
 const IMPULSE_MAP_BUDGET_MS = 10;
+const IMPULSE_LIVE_BUDGET_MS = 5;
 const IMPULSE_MAP_HORIZON = 4000;
+
+// Apoapsis contours step by 40% of the distance (in body radii); everything
+// beyond ~40 Earth radii shares one level, bound orbits and escapes are separated
+const APO_LEVEL_STEP = Math.log(1.4);
+const APO_LEVEL_CAP = Math.floor(Math.log(40) / APO_LEVEL_STEP);
 
 // impact speed (relative to the body) up to which a landing is safe
 const LANDING_SPEED = 0.5;
@@ -307,10 +352,12 @@ const LANDING_SPEED = 0.5;
 const OUTCOME_PLAIN = 0;
 const OUTCOME_EARTH_ORBIT = 1;
 const OUTCOME_MOON_ORBIT = 2;
+const OUTCOME_ESCAPE = 3;
 
 let impulse = {
     available: false, // Impulse Mode can be entered (by pausing)
-    exclusive: false, // ...and replaces holding to thrust
+    exclusive: false, // ...and the essay now treats it as the way to burn (hint text only)
+    mapAlways: false, // the impulse map shows in the control from the start, without the ship diagram
     phase: 'off', // 'off' | 'aiming' | 'burning'
     snapshot: null, // the ship's real future, kept while a hypothetical one is shown
     wasPaused: false,
@@ -640,7 +687,7 @@ class Ship {
             let trailLength = l * 2 * exhaustPlumeLengthRandomCycle[T % exhaustPlumeLengthRandomCycle.length];
             let t = trailLength;
 
-            let fireColor = color('#ff7fd2b2');
+            let fireColor = color(PALETTE.fire);
             // fireColor.setAlpha(alphaValue);
             if (ghost) {
                 fireColor.setRed(0)
@@ -721,7 +768,7 @@ class Ship {
 
         endShape();
 
-        let windowColor = color('#e5a3d0ff')
+        let windowColor = color(PALETTE.window)
         // if (ghost) {
         //   windowColor.setRed(0)
         // };
@@ -737,7 +784,7 @@ class Ship {
     drawTrajectory(path = this.posHistory, orbitingMoon = this.shipOrbitingMoon,
         orbitingMoonEnd = this.shipOrbitingMoonEndOfFirstOrbit, alpha = 255) {
 
-        let lineColor = color("#ff57fcd6");
+        let lineColor = color(PALETTE.trajectory);
         let frameSkip = 5;
         let len = path.length;
 
@@ -822,19 +869,42 @@ class Ship {
                 "Impact velocity: " + round(this.impactSpeed * 100, 1) + " px/hectoframe",
                 pos.x + offset, pos.y - offset);
 
-            // } else {
-            //   camera.minX = ship.pos.x;
-            //   camera.maxX = ship.pos.x;
+        } else if (this.trajectoryType == 'Escape') {
 
-            //   camera.minY = ship.pos.y;
-            //   camera.maxY = ship.pos.y;
+            let r = p5.Vector.dist(pos, bodies[0].pos);
+            let escapeSpeed = Math.sqrt(2 * G * bodies[0].mass / r);
+
+            text("Escape Trajectory\n" +
+                "Speed: " + round(this.velHistory[T].mag() * 100, 1) + " px/hectoframe\n" +
+                "Escape velocity here: " + round(escapeSpeed * 100, 1) + " px/hectoframe",
+                pos.x + offset, pos.y - offset);
+
         }
 
-        if (this.shipOrbitingMoon) {
+        if (this.shipOrbitingMoon && this.moonPeri) {
 
-            text("Orbiting Moon\n" +
-                "Period: " + round(this.shipOrbitingMoonEndOfFirstOrbit - T / 100, 1) + " hectoframes",
-                pos.x + offset + 150 / camera.scaleFactor, pos.y - offset);
+            let moonPos = bodies[1].pos;
+            let lunarOnly = this.trajectoryType == 'Lunar Orbit';
+
+            text("Lunar Orbit\n" +
+                "Period: " + round(this.moonOrbitPeriod / 100, 1) + " hectoframes",
+                pos.x + offset + (lunarOnly ? 0 : 150 / camera.scaleFactor), pos.y - offset);
+
+            for (let [label, rel, alt] of [
+                ["Periapsis", this.moonPeri, this.moonPeriAlt],
+                ["Apoapsis", this.moonApo, this.moonApoAlt]]) {
+
+                let point = p5.Vector.add(moonPos, rel);
+                let surface = bodies[1].getSurfaceIntersectForAltitudeLine(point);
+
+                noStroke();
+                text(label + ": " + round(alt) + "px", point.x + offset, point.y + offset);
+
+                strokeWeight(1);
+                stroke(rocketColor);
+                line(surface.x, surface.y, point.x, point.y);
+
+            }
 
         }
     }
@@ -888,13 +958,14 @@ class Ship {
 
             let thrustTip = p5.Vector.add(pos, thrust.copy().mult(accArrowScale));
 
-            drawFatArrow(pos, thrustTip, color(255, 159, 28), 2, 10, 10);
+            drawFatArrow(pos, thrustTip, paletteColors.thrust, 2, 10, 10);
             noStroke();
-            fill(255, 159, 28);
+            fill(paletteColors.thrust);
             text("thrust", thrustTip.x + labelOffset, thrustTip.y);
 
             // faint copies completing the parallelogram at the net point
-            drawFatArrow(gravTip, netPoint, color(255, 159, 28, 90), 2, 10, 10);
+            let faintThrust = color(red(paletteColors.thrust), green(paletteColors.thrust), blue(paletteColors.thrust), 90);
+            drawFatArrow(gravTip, netPoint, faintThrust, 2, 10, 10);
             drawFatArrow(thrustTip, netPoint, color(earthR, earthG, earthB, 90), 2, 10, 10);
 
         }
@@ -1097,6 +1168,10 @@ class Ship {
 
         this.shipOrbitingMoon = false;
         this.shipOrbitingMoonEndOfFirstOrbit = false;
+        this.moonPeriAlt = false;
+        this.moonApoAlt = false;
+        this.moonLapStart = false;
+        this.moonOrbitPeriod = false;
 
         let initialMoonT = false;
         let initialMoonPos = false;
@@ -1122,17 +1197,16 @@ class Ship {
                 // console.log("past " + initialMoonT);
             }
 
-            if (initialMoonT != false && !this.shipOrbitingMoon) {
+            if (initialMoonT != false && !this.shipOrbitingMoon && i > 0) {
                 // If it has passed a certain length of time and we are more or less back where we started, then we have completed an orbit and can end the projection
 
-                cumulativeAngularChangeAroundMoon += p5.Vector.angleBetween(
-                    this.posHistory[i].copy().sub(bodies[1].pos),
-                    this.posHistory[i - 1].copy().sub(bodies[1].pos)
-                );
+                cumulativeAngularChangeAroundMoon += this.angleAboutMoon(i);
+                this.trackMoonApsis(i);
 
                 if (abs(cumulativeAngularChangeAroundMoon) >= TAU) {
                     this.shipOrbitingMoon = true;
                     this.shipOrbitingMoonEndOfFirstOrbit = i;
+                    this.moonOrbitPeriod = i - this.moonLapStart;
 
                 }
             }
@@ -1201,14 +1275,13 @@ class Ship {
             if (initialMoonT != false && !this.shipOrbitingMoon && i - initialMoonT > 25) {
                 // If it has passed a certain length of time and we are more or less back where we started, then we have completed an orbit and can end the projection
 
-                cumulativeAngularChangeAroundMoon += p5.Vector.angleBetween(
-                    this.posHistory[i].copy().sub(bodies[1].pos),
-                    this.posHistory[i - 1].copy().sub(bodies[1].pos)
-                );
+                cumulativeAngularChangeAroundMoon += this.angleAboutMoon(i);
+                this.trackMoonApsis(i);
 
                 if (abs(cumulativeAngularChangeAroundMoon) >= TAU) {
                     this.shipOrbitingMoon = true;
                     this.shipOrbitingMoonEndOfFirstOrbit = i;
+                    this.moonOrbitPeriod = i - this.moonLapStart;
 
                 }
 
@@ -1262,6 +1335,51 @@ class Ship {
 
         }
 
+        if (this.shipOrbitingMoon && (this.trajectoryType === false || this.trajectoryType === 'Orbit')) {
+            this.trajectoryType = 'Lunar Orbit';
+        } else if (this.trajectoryType === false) {
+            // unresolved: still unbound about the Earth where the projection ends
+            let end = this.posHistory.length - 1;
+            let r = p5.Vector.dist(this.posHistory[end], bodies[0].pos);
+            let speed = this.velHistory[end].mag();
+            if (speed * speed / 2 - G * bodies[0].mass / r >= 0) {
+                this.trajectoryType = 'Escape';
+            }
+        }
+
+    }
+
+    // the angle swept about the Moon between frames i - 1 and i (the Moon
+    // having moved, as it does)
+    angleAboutMoon(i) {
+        let len = moonOrbit.length;
+        return p5.Vector.angleBetween(
+            this.posHistory[i].copy().sub(moonOrbit[i % len]),
+            this.posHistory[i - 1].copy().sub(moonOrbit[(i - 1) % len])
+        );
+    }
+
+    // closest and furthest points of the lap about the Moon, relative to it
+    trackMoonApsis(i) {
+
+        let rel = this.posHistory[i].copy().sub(moonOrbit[i % moonOrbit.length]);
+        let alt = rel.mag() - bodies[1].radius;
+
+        if (this.moonLapStart === false) {
+            this.moonLapStart = i;
+            this.moonPeriAlt = this.moonApoAlt = alt;
+            this.moonPeri = this.moonApo = rel;
+            return;
+        }
+
+        if (alt < this.moonPeriAlt) {
+            this.moonPeriAlt = alt;
+            this.moonPeri = rel;
+        } else if (alt > this.moonApoAlt) {
+            this.moonApoAlt = alt;
+            this.moonApo = rel;
+        }
+
     }
 
     update() {
@@ -1277,12 +1395,13 @@ class Ship {
 
             this.trajectoryType = false;
 
-            this.posHistory.push(this.landingPos.copy().add(this.bodyLandedOn.pos));
-
-
+            // the landed ship rides the body: the next frame's position and velocity
+            let next = (T + 1) % moonOrbit.length;
             if (this.bodyLandedOn == bodies[1]) {
-                this.velHistory.push(moonOrbitVelHistory[T % moonOrbitVelHistory.length].copy());
+                this.posHistory.push(this.landingPos.copy().add(moonOrbit[next]));
+                this.velHistory.push(moonOrbitVelHistory[next].copy());
             } else {
+                this.posHistory.push(this.landingPos.copy().add(this.bodyLandedOn.pos));
                 this.velHistory.push(this.velHistory[T].copy());
             }
 
@@ -1354,7 +1473,12 @@ class Ship {
             apoapsis: this.apoapsis.copy(),
             apoapsisAlt: this.apoapsisAlt,
             shipOrbitingMoon: this.shipOrbitingMoon,
-            shipOrbitingMoonEndOfFirstOrbit: this.shipOrbitingMoonEndOfFirstOrbit
+            shipOrbitingMoonEndOfFirstOrbit: this.shipOrbitingMoonEndOfFirstOrbit,
+            moon: {
+                periAlt: this.moonPeriAlt, apoAlt: this.moonApoAlt,
+                peri: this.moonPeri && this.moonPeri.copy(), apo: this.moonApo && this.moonApo.copy(),
+                lapStart: this.moonLapStart, period: this.moonOrbitPeriod
+            }
         };
 
         // T is edited in place by a burn; later frames are rebuilt
@@ -1387,6 +1511,12 @@ class Ship {
         this.apoapsisAlt = snap.apoapsisAlt;
         this.shipOrbitingMoon = snap.shipOrbitingMoon;
         this.shipOrbitingMoonEndOfFirstOrbit = snap.shipOrbitingMoonEndOfFirstOrbit;
+        this.moonPeriAlt = snap.moon.periAlt;
+        this.moonApoAlt = snap.moon.apoAlt;
+        this.moonPeri = snap.moon.peri && snap.moon.peri.copy();
+        this.moonApo = snap.moon.apo && snap.moon.apo.copy();
+        this.moonLapStart = snap.moon.lapStart;
+        this.moonOrbitPeriod = snap.moon.period;
 
     }
 
@@ -1465,10 +1595,10 @@ function drawFatArrow(p1, p2, arrowColor, thickness, headLength, headWidth) {
 
 class Body {
 
-    constructor(pos, radius, mass, bColor) {
+    constructor(pos, radius, mass, kind) {
         this.pos = pos;
         this.radius = radius;
-        this.bColor = bColor;
+        this.kind = kind;
         this.mass = mass;
     }
 
@@ -1490,7 +1620,7 @@ class Body {
 
     draw() {
 
-        fill(this.bColor);
+        fill(bodyColor(this.kind));
         noStroke();
         circle(this.pos.x, this.pos.y, this.radius * 2);
 
@@ -1682,8 +1812,8 @@ function getJoystickGeometry() {
     let x = isTouchDevice() ? width / 2 : width - r * 1.4 - 12;
     let y = bottomLimit - r - 12;
 
-    // the reset and pause buttons are triangles fitted to the bottom corners of
-    // the ring's bounding box, sized so they don't overlap the ring (max leg
+    // the reset button is a triangle fitted to the bottom-left corner of
+    // the ring's bounding box, sized so it doesn't overlap the ring (max leg
     // length is r * (2 - sqrt(2)))
     let cornerSize = r * 0.55;
 
@@ -1694,9 +1824,7 @@ function getJoystickGeometry() {
         inner: controlIsDonut() ? r * 0.6 : 0, // the hole holding the ship diagram
         cornerSize: cornerSize,
         resetX: x - r,
-        resetY: y + r,
-        pauseX: x + r,
-        pauseY: y + r
+        resetY: y + r
     };
 }
 
@@ -1724,9 +1852,6 @@ function rocketPointerActive() {
 }
 
 function boostInputActive() {
-    if (impulseReplacesThrust()) {
-        return false;
-    }
     return keyIsDown(UP_ARROW) || rocketPointerActive();
 }
 
@@ -1734,10 +1859,17 @@ function boostInputActive() {
 // Impulse Mode
 //
 
-// in flight and clear of the ground (lift-off still needs held thrust)
+// in flight and clear of the ground (lift-off still needs held thrust), or
+// resting on the Moon, where the only way off is an impulse
 function impulseInFlight() {
 
-    if (!launched || crashedOut) return false;
+    if (crashedOut) return false;
+
+    if (!launched) {
+        if (!moonEnabled || ship.bodyLandedOn !== bodies[1]) return false;
+        let moon = bodies[1];
+        return p5.Vector.dist(ship.posHistory[T], moon.pos) - moon.radius < ship.length;
+    }
 
     let body = bodies[0];
     return p5.Vector.dist(ship.posHistory[T], body.pos) - body.radius > ship.length * 2;
@@ -1746,11 +1878,6 @@ function impulseInFlight() {
 
 function impulseCanStart() {
     return impulse.available && impulse.phase === 'off' && impulseInFlight();
-}
-
-// once upgraded, Impulse Mode is the way to burn
-function impulseReplacesThrust() {
-    return impulse.available && impulse.exclusive && impulseInFlight();
 }
 
 function enterImpulse() {
@@ -1829,6 +1956,7 @@ function lockImpulse() {
     impulse.phase = 'burning';
     impulse.dragging = false;
     impulse.waitForRelease = mouseIsPressed;
+    launched = true; // a burn from the Moon's surface is the lift-off
     return true;
 
 }
@@ -1869,39 +1997,73 @@ function startDraggingImpulseMap() {
     impulse.lastY = mouseY;
 }
 
-function impactOutcome(color, speed) {
-    let shade = speed <= LANDING_SPEED ? 1 : 0.28;
-    return [color[0] * shade, color[1] * shade, color[2] * shade, OUTCOME_PLAIN, 0];
+// Outcome cells are [r, g, b, kind, ln(Moon apoapsis / Moon radius) when about
+// the Moon, ln(Earth apoapsis / Earth radius) or null for "work it out from
+// the orbit", plain class]. The plain class tells safe landings from impacts,
+// on the Earth from the Moon. Contour levels are derived from the logs.
+function impactOutcome(color, speed, onMoon) {
+    let safe = speed <= LANDING_SPEED;
+    let shade = safe ? 1 : 0.28;
+    return [color[0] * shade, color[1] * shade, color[2] * shade, OUTCOME_PLAIN, 0, null,
+        (onMoon ? 2 : 0) + (safe ? 1 : 0)];
 }
 
 // Orbits are a flat fill (the ship's hue about the Earth, tinted towards the
-// Moon's about the Moon). The contour level steps every 15% of apoapsis
-// distance (escapes share one outermost level) and the map draws a line
-// wherever it changes.
+// Moon's about the Moon); an unbound path about the Earth is an escape. About
+// the Moon the level is the Moon apoapsis contour; about the Earth, apo is the
+// apoapsis actually flown (null: use the osculating one, as the orbit was
+// never completed).
 function orbitOutcome(palette, aboutMoon, apo, bodyRadius) {
 
-    let level = apo === Infinity ? 9999 :
-        floor(Math.log(max(apo, bodyRadius) / bodyRadius) / Math.log(1.15));
     let s = palette.ship, m = palette.moon;
 
     if (aboutMoon) {
+        let log = Math.log(max(apo, bodyRadius) / bodyRadius);
         return [s[0] * 0.25 + m[0] * 0.2, s[1] * 0.25 + m[1] * 0.2, s[2] * 0.25 + m[2] * 0.2,
-            OUTCOME_MOON_ORBIT, level];
+            OUTCOME_MOON_ORBIT, log, null, 0];
     }
-    return [s[0] * 0.4, s[1] * 0.4, s[2] * 0.4, OUTCOME_EARTH_ORBIT, level];
+    if (apo === Infinity) {
+        return [14, 14, 40, OUTCOME_ESCAPE, 0, Infinity, 0];
+    }
+    let log = apo === null ? null : Math.log(max(apo, bodyRadius) / bodyRadius);
+    return [s[0] * 0.4, s[1] * 0.4, s[2] * 0.4, OUTCOME_EARTH_ORBIT, 0, log, 0];
 
 }
 
-// Where would the ship be headed after an impulse, as an outcome
-// [r, g, b, kind, contour level] for the impulse map:
+// ln(apoapsis / Earth radius) of the orbit the ship would be on about the
+// Earth alone after the impulse (Infinity if unbound), clamped to the surface
+function earthApoapsisLog(pos, vel, dv) {
+
+    let earth = bodies[0];
+    let mu = G * earth.mass;
+    let rx = pos.x - earth.pos.x, ry = pos.y - earth.pos.y;
+    let wx = vel.x + dv.x, wy = vel.y + dv.y;
+    let r = Math.hypot(rx, ry);
+    let energy = (wx * wx + wy * wy) / 2 - mu / r;
+    if (energy >= 0) return Infinity;
+
+    let h = rx * wy - ry * wx;
+    let a = -mu / (2 * energy);
+    let ecc = Math.sqrt(max(0, 1 + 2 * energy * h * h / (mu * mu)));
+    return Math.log(max(a * (1 + ecc), earth.radius) / earth.radius);
+
+}
+
+// Where would the ship be headed after an impulse, as an outcome cell:
 //   safe landing      the body's colour
 //   impact            a darker version of the body's colour
-//   orbit             about the Earth or about the Moon, with apoapsis contours
+//   orbit             about the Earth or about the Moon
+//   escape            unbound from the Earth
 // Without the Moon this is a two-body estimate about the Earth; with it, the
-// burn is flown through the same Earth + Moon dynamics as the projection.
+// burn is flown through the same Earth + Moon dynamics as the projection, and
+// the Earth apoapsis is the one reached on that flight (for an orbit lap).
+// Paths that don't complete an orbit (impacts, wide orbits) use the osculating
+// apoapsis about the Earth.
 function impulseOutcome(pos, vel, dv, palette) {
-    return moonEnabled ? impulseTrajectoryOutcome(pos, vel, dv, palette) :
+    let out = moonEnabled ? impulseTrajectoryOutcome(pos, vel, dv, palette) :
         impulseKeplerOutcome(pos, vel, dv, palette);
+    if (out[5] === null) out[5] = earthApoapsisLog(pos, vel, dv);
+    return out;
 }
 
 function impulseKeplerOutcome(pos, vel, dv, palette) {
@@ -2010,7 +2172,7 @@ function impulseTrajectoryOutcome(pos, vel, dv, palette) {
         d2 = mx * mx + my * my;
         if (d2 < moonHit) {
             let mv = moonOrbitVelHistory[i % len];
-            return impactOutcome(palette.moon, Math.hypot(vx - mv.x, vy - mv.y));
+            return impactOutcome(palette.moon, Math.hypot(vx - mv.x, vy - mv.y), true);
         }
 
         rx = x - ex; ry = y - ey;
@@ -2050,127 +2212,278 @@ function impulseTrajectoryOutcome(pos, vel, dv, palette) {
         }
     }
 
-    return orbitOutcome(palette, false, Infinity, earth.radius);
+    // unresolved: unbound from the Earth, or a wide orbit still on its first lap
+    let energy = (vx * vx + vy * vy) / 2 - muE / Math.hypot(x - ex, y - ey);
+    return orbitOutcome(palette, false, energy >= 0 ? Infinity : null, earth.radius);
 
 }
 
-// the map of impulses around the selected one, one cell per impulse. It is
-// rebuilt only when the selection, zoom or moment changes: a coarse version
-// immediately, then finer ones a slice per frame until it is complete
-function updateImpulseMap() {
+// A new map of impulses for the ship's state at T: pos and vel are its
+// position and velocity, n the lattice points across the circle, and reach the
+// impulse (in frames of burn) from the circle's centre to its edge.
+function makeImpulseMap(pos, vel, n, reach) {
 
-    let key = impulse.center.x.toFixed(2) + ',' + impulse.center.y.toFixed(2) + ',' + impulse.zoom.toFixed(3) + ',' + T;
+    let colour = c => [red(c), green(c), blue(c)];
 
-    if (!impulse.map) {
-        impulse.map = { key: '', canvas: null, job: null };
-    }
-    let map = impulse.map;
-    if (map.key === key && !map.job) return;
-
-    if (!map.job || map.job.key !== key) {
-        let snap = impulse.snapshot;
-        map.job = {
-            key: key,
-            stage: 0,
-            row: 0,
-            cells: null,
-            pos: snap.pos[T],
-            vel: snap.vel[T],
-            cx: impulse.center.x,
-            cy: impulse.center.y,
-            reach: impulseReach(),
-            palette: {
-                ship: [red(rocketColor), green(rocketColor), blue(rocketColor)],
-                earth: [red(earthColor), green(earthColor), blue(earthColor)],
-                moon: [red(moonColor), green(moonColor), blue(moonColor)]
-            }
-        };
-    }
-
-    let deadline = performance.now() + IMPULSE_MAP_BUDGET_MS;
-    let dv = { x: 0, y: 0 };
-
-    while (map.job) {
-
-        let job = map.job;
-        let n = IMPULSE_MAP_STAGES[job.stage];
-
-        if (!job.cells) {
-            job.cells = new Array(n * n);
-            job.row = 0;
-        }
-
-        // the first stage always finishes, so the map always matches the selection
-        while (job.row < n && (job.stage === 0 || performance.now() < deadline)) {
-
-            let v = (job.row + 0.5) / n * 2 - 1;
-
-            for (let i = 0; i < n; i++) {
-
-                let u = (i + 0.5) / n * 2 - 1;
-                if (u * u + v * v > 1.05) continue;
-
-                dv.x = (job.cx + u * job.reach) * ship.rocketAcc;
-                dv.y = (job.cy + v * job.reach) * ship.rocketAcc;
-                job.cells[job.row * n + i] = impulseOutcome(job.pos, job.vel, dv, job.palette);
-            }
-            job.row++;
-        }
-
-        if (job.row < n) return;
-
-        map.canvas = renderImpulseCells(job.cells, n, job.palette);
-        map.key = job.key;
-
-        job.stage++;
-        job.cells = null;
-        if (job.stage >= IMPULSE_MAP_STAGES.length) {
-            map.job = null;
-        } else if (performance.now() >= deadline) {
-            return;
-        }
-    }
-
-}
-
-// outcomes to pixels, with the contour lines and the Earth/Moon orbit boundary
-function renderImpulseCells(cells, n, palette) {
-
-    let canvas = document.createElement('canvas');
-    canvas.width = canvas.height = n;
-    let ctx = canvas.getContext('2d');
-    let image = ctx.createImageData(n, n);
-
-    // contour lines sit where the apoapsis level changes between neighbouring
-    // cells orbiting the same body; a brighter line marks where the orbit
-    // switches between the Earth and the Moon
-    let line = palette.ship.map(c => 140 + c * 0.45);
-    let at = (i, j) => i < n && j < n ? cells[j * n + i] : null;
-    let neighbourDiffers = (c, other) => {
-        if (!other || other[3] === OUTCOME_PLAIN) return 0;
-        if (other[3] !== c[3]) return 2;
-        return other[4] !== c[4] ? 1 : 0;
+    return {
+        n: n,
+        coarse: max(2, n / 20), // the lattice step of the first pass
+        spacing: 2 * reach / n,
+        cells: new Map(),
+        pos: pos.copy(),
+        vel: vel.copy(),
+        palette: {
+            ship: colour(rocketColor),
+            earth: colour(color(bodyColor('earth'))),
+            moon: colour(color(bodyColor('moon')))
+        },
+        curLog: earthApoapsisLog(pos, vel, { x: 0, y: 0 }),
+        canvas: document.createElement('canvas'),
+        window: null,
+        doneFor: ''
     };
 
-    for (let j = 0; j < n; j++) {
-        for (let i = 0; i < n; i++) {
+}
 
-            let c = cells[j * n + i];
-            if (!c) continue;
+function latticeKey(ix, iy) {
+    return (ix + 32768) * 65536 + (iy + 32768);
+}
 
-            let o = (j * n + i) * 4;
-            let rgb = c;
+// two outcomes that need no refining between them: the same kind of outcome
+// (contours are found by interpolating the apoapsis between the points)
+function sameOutcome(a, b) {
+    return a[3] === b[3] && (a[3] !== OUTCOME_PLAIN || a[6] === b[6]);
+}
 
-            if (c[3] !== OUTCOME_PLAIN) {
-                let edge = max(neighbourDiffers(c, at(i + 1, j)), neighbourDiffers(c, at(i, j + 1)));
-                if (edge === 2) rgb = [235, 235, 235];
-                else if (edge === 1) rgb = line;
+// Computes, within budgetMs, the points of the map that are missing around the
+// impulse at the (frames-of-burn) centre; true once nothing is left to do.
+function fillImpulseMap(map, centre, budgetMs) {
+
+    let spacing = map.spacing;
+    let cx = centre.x / spacing, cy = centre.y / spacing;
+    let half = map.n / 2;
+    let size = map.n + 3;
+    let ix0 = Math.floor(cx - half) - 1, iy0 = Math.floor(cy - half) - 1;
+    map.window = { ix0: ix0, iy0: iy0, nx: size, ny: size, spacing: spacing };
+
+    let windowKey = ix0 + ',' + iy0;
+    if (map.doneFor === windowKey) return true;
+
+    let deadline = performance.now() + budgetMs;
+    let dv = { x: 0, y: 0 };
+    let cells = map.cells;
+    let out = false;
+
+    let compute = (ix, iy) => {
+        let k = latticeKey(ix, iy);
+        if (!cells.has(k)) {
+            dv.x = ix * spacing * ship.rocketAcc;
+            dv.y = iy * spacing * ship.rocketAcc;
+            cells.set(k, impulseOutcome(map.pos, map.vel, dv, map.palette));
+        }
+    };
+
+    // first pass: a coarse lattice reaching past the circle, so that every
+    // block touching it has its corners
+    let step = map.coarse;
+    let reachSq = sq(half + step * 2);
+    for (let iy = Math.floor(iy0 / step) * step; iy < iy0 + size + step; iy += step) {
+        for (let ix = Math.floor(ix0 / step) * step; ix < ix0 + size + step; ix += step) {
+            if (sq(ix - cx) + sq(iy - cy) > reachSq || cells.has(latticeKey(ix, iy))) continue;
+            if (performance.now() > deadline) return false;
+            compute(ix, iy);
+        }
+    }
+
+    // then halve the blocks that aren't uniform, down to single points
+    for (let s = step / 2; s >= 1; s /= 2) {
+
+        let S = s * 2;
+        let blockSq = sq(half + S);
+
+        for (let by = Math.floor(iy0 / S) * S; by < iy0 + size; by += S) {
+            for (let bx = Math.floor(ix0 / S) * S; bx < ix0 + size; bx += S) {
+
+                if (sq(bx + s - cx) + sq(by + s - cy) > blockSq) continue;
+
+                let a = cells.get(latticeKey(bx, by)), b = cells.get(latticeKey(bx + S, by));
+                let c = cells.get(latticeKey(bx, by + S)), d = cells.get(latticeKey(bx + S, by + S));
+                if (!a || !b || !c || !d) continue; // inside a block already found uniform
+
+                if (sameOutcome(a, b) && sameOutcome(a, c) && sameOutcome(a, d)) continue;
+
+                for (let [ix, iy] of [[bx + s, by], [bx, by + s], [bx + S, by + s], [bx + s, by + S], [bx + s, by + s]]) {
+                    if (cells.has(latticeKey(ix, iy))) continue;
+                    if (performance.now() > deadline) return false;
+                    compute(ix, iy);
+                }
+            }
+        }
+    }
+
+    map.doneFor = windowKey;
+    map.version = (map.version || 0) + 1;
+    return true;
+
+}
+
+// the paused map, around the selected impulse
+function updateImpulseMap() {
+
+    let key = impulse.zoom.toFixed(4) + ',' + T;
+    let map = impulse.map;
+
+    if (!map || map.key !== key) {
+        let snap = impulse.snapshot;
+        map = impulse.map = makeImpulseMap(snap.pos[T], snap.vel[T], IMPULSE_MAP_CELLS, impulseReach());
+        map.key = key;
+    }
+
+    fillImpulseMap(map, impulse.center, IMPULSE_MAP_BUDGET_MS);
+    return map;
+
+}
+
+// Where Impulse Mode can be entered, a live map sits beneath the control, for
+// the impulses available now. It is rebuilt in the background a slice per frame
+// and swapped in when complete, so it trails the ship by a few frames.
+function liveImpulseVisible() {
+    return impulse.available && impulse.phase === 'off' && (impulse.mapAlways || impulseInFlight());
+}
+
+function updateLiveImpulseMap() {
+
+    let live = impulse.live;
+    if (!live) live = impulse.live = { shown: null, build: null };
+
+    let zoomKey = impulse.zoom.toFixed(4);
+
+    if (!live.build) {
+        // a still ship (paused) needs no new map
+        if (live.shown && live.shown.key === zoomKey + ',' + T) return live.shown;
+        live.build = makeImpulseMap(ship.posHistory[T], ship.velHistory[T], IMPULSE_LIVE_CELLS, impulseReach());
+        live.build.key = zoomKey + ',' + T;
+    }
+
+    if (fillImpulseMap(live.build, { x: 0, y: 0 }, IMPULSE_LIVE_BUDGET_MS)) {
+        live.shown = live.build;
+        live.build = null;
+    }
+    return live.shown;
+
+}
+
+// the cell at a lattice point; where none was computed, one made from the
+// corners of the smallest computed block around it (the nearest corner's
+// outcome, with the apoapsis interpolated)
+function latticeCell(map, ix, iy) {
+
+    let c = map.cells.get(latticeKey(ix, iy));
+    if (c) return c;
+
+    for (let step = 2; step <= map.coarse; step *= 2) {
+
+        let x0 = Math.floor(ix / step) * step, y0 = Math.floor(iy / step) * step;
+        let a = map.cells.get(latticeKey(x0, y0)), b = map.cells.get(latticeKey(x0 + step, y0));
+        let d = map.cells.get(latticeKey(x0, y0 + step)), e = map.cells.get(latticeKey(x0 + step, y0 + step));
+        if (!a || !b || !d || !e) continue;
+
+        let fx = (ix - x0) / step, fy = (iy - y0) / step;
+        let near = fy < 0.5 ? (fx < 0.5 ? a : b) : (fx < 0.5 ? d : e);
+        let apo = near[5], moonApo = near[4];
+        if (isFinite(a[5] + b[5] + d[5] + e[5])) {
+            apo = (a[5] * (1 - fx) + b[5] * fx) * (1 - fy) + (d[5] * (1 - fx) + e[5] * fx) * fy;
+        }
+        if (a[3] === OUTCOME_MOON_ORBIT && b[3] === a[3] && d[3] === a[3] && e[3] === a[3]) {
+            moonApo = (a[4] * (1 - fx) + b[4] * fx) * (1 - fy) + (d[4] * (1 - fx) + e[4] * fx) * fy;
+        }
+        return [near[0], near[1], near[2], near[3], moonApo, apo, near[6]];
+
+    }
+    return null;
+
+}
+
+function earthApoapsisLevel(c) {
+    return c[5] === Infinity ? 9999 : min(floor(c[5] / APO_LEVEL_STEP), APO_LEVEL_CAP);
+}
+
+function moonApoapsisLevel(c) {
+    return floor(c[4] / APO_LEVEL_STEP);
+}
+
+// The window of cells to pixels, with contours:
+//   white      Earth apoapsis, everywhere but where orbiting the Moon
+//   pale gold  Moon apoapsis, where orbiting the Moon
+//   pink       the boundary between orbiting the Earth and the Moon
+//   green and orange: the apoapsis of the current (no impulse) and selected
+//              impulse, wherever that value is crossed
+function renderImpulseMap(map, win, curLog, selLog) {
+
+    let canvas = map.canvas;
+    if (canvas.width !== win.nx || canvas.height !== win.ny) {
+        canvas.width = win.nx;
+        canvas.height = win.ny;
+    }
+    let ctx = canvas.getContext('2d');
+    let image = ctx.createImageData(win.nx, win.ny);
+    let data = image.data;
+
+    let grid = new Array(win.nx * win.ny);
+    for (let j = 0; j < win.ny; j++) {
+        for (let i = 0; i < win.nx; i++) {
+            grid[j * win.nx + i] = latticeCell(map, win.ix0 + i, win.iy0 + j);
+        }
+    }
+
+    let crosses = (a, b, t) => isFinite(t) && (a - t) * (b - t) < 0;
+
+    // the colour of the boundary line between a cell and one neighbour, or null
+    let edge = (c, o) => {
+        if (!o) return null;
+        let moonC = c[3] === OUTCOME_MOON_ORBIT, moonO = o[3] === OUTCOME_MOON_ORBIT;
+        if (moonC !== moonO && (c[3] === OUTCOME_EARTH_ORBIT || o[3] === OUTCOME_EARTH_ORBIT)) {
+            return [255, 90, 200, 1];
+        }
+        if (crosses(c[5], o[5], selLog) && !moonC && !moonO) return [255, 160, 40, 1];
+        if (crosses(c[5], o[5], curLog) && !moonC && !moonO) return [90, 255, 120, 1];
+        if (moonC && moonO) {
+            return moonApoapsisLevel(c) !== moonApoapsisLevel(o) ? [255, 240, 170, 0.6] : null;
+        }
+        if (!moonC && !moonO && earthApoapsisLevel(c) !== earthApoapsisLevel(o)) {
+            return [255, 255, 255, 0.55];
+        }
+        return null;
+    };
+
+    for (let j = 0; j < win.ny; j++) {
+        for (let i = 0; i < win.nx; i++) {
+
+            let c = grid[j * win.nx + i];
+            let p = (j * win.nx + i) * 4;
+            if (!c) {
+                data[p] = data[p + 1] = data[p + 2] = 10;
+                data[p + 3] = 255;
+                continue;
             }
 
-            image.data[o] = rgb[0];
-            image.data[o + 1] = rgb[1];
-            image.data[o + 2] = rgb[2];
-            image.data[o + 3] = 255;
+            let r = c[0], g = c[1], b = c[2];
+
+            let line = edge(c, i + 1 < win.nx ? grid[j * win.nx + i + 1] : null);
+            let down = edge(c, j + 1 < win.ny ? grid[(j + 1) * win.nx + i] : null);
+            if (down && (!line || down[3] === 1)) line = down;
+
+            if (line) {
+                let a = line[3];
+                r = r * (1 - a) + line[0] * a;
+                g = g * (1 - a) + line[1] * a;
+                b = b * (1 - a) + line[2] * a;
+            }
+
+            data[p] = r;
+            data[p + 1] = g;
+            data[p + 2] = b;
+            data[p + 3] = 255;
         }
     }
 
@@ -2294,6 +2607,7 @@ function resetSimulation() {
     impulse.center = null;
     impulse.dragging = false;
     impulse.waitForRelease = false;
+    impulse.live = null;
     ship.reset();
 }
 
@@ -2325,10 +2639,6 @@ function mousePressed() {
             resetSimulation();
             return false;
         }
-        if (dist(mouseX, mouseY, j.pauseX, j.pauseY) <= j.cornerSize) {
-            togglePause();
-            return false;
-        }
     }
 
     if (impulse.phase === 'aiming') {
@@ -2336,18 +2646,22 @@ function mousePressed() {
         return false;
     }
 
-    // presses anywhere else on the screen do nothing
-    if (pointInControl(mouseX, mouseY)) {
-        if (impulseReplacesThrust()) {
-            // pressing the control pauses into Impulse Mode, and the same
-            // press can already start sliding the map
-            if (enterImpulse()) {
-                startDraggingImpulseMap();
-            }
-        } else {
-            joystickActive = true;
-            controlMode = TOUCH;
+    // the hole in the ring is the pause control: where Impulse Mode is
+    // available, pausing enters it, and the same press can already start
+    // sliding the map
+    if (dCenter < j.inner) {
+        let wasPaused = paused;
+        togglePause();
+        if (impulse.phase === 'aiming' && !wasPaused) {
+            startDraggingImpulseMap();
         }
+        return false;
+    }
+
+    // presses on the ring boost; anywhere else on the screen does nothing
+    if (pointInControl(mouseX, mouseY)) {
+        joystickActive = true;
+        controlMode = TOUCH;
     }
 
     return false;
@@ -2566,31 +2880,57 @@ function drawVirtualJoystick() {
     ctx.restore();
 
     let aiming = impulse.phase === 'aiming' && impulse.center;
+    let live = !aiming && liveImpulseVisible();
 
-    if (aiming) {
+    // the map of impulses, clipped to the circle: each cell is the outcome of
+    // the impulse it stands for. While aiming it fills the circle; otherwise it
+    // shows beneath the ring and the ship's diagram.
+    if (aiming || live) {
 
-        // the map of impulses, clipped to the circle: each cell is the
-        // outcome of the impulse it stands for
-        updateImpulseMap();
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(j.x, j.y, j.r, 0, TAU);
-        ctx.clip();
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(impulse.map.canvas, j.x - j.r, j.y - j.r, j.r * 2, j.r * 2);
-        ctx.restore();
+        let map = aiming ? updateImpulseMap() : updateLiveImpulseMap();
+        let centre = aiming ? impulse.center : { x: 0, y: 0 };
+        let state = aiming ? { pos: impulse.snapshot.pos[T], vel: impulse.snapshot.vel[T] } :
+            { pos: ship.posHistory[T], vel: ship.velHistory[T] };
 
-    } else {
+        if (map && map.window) {
+            drawImpulseMapImage(j, ctx, map, centre, aiming ? state : null);
+        }
+
+        drawImpulseOverlays(j, ctx, centre, state, aiming);
+
+        if (live && !impulse.mapAlways) {
+            // dim the hole, the pause control, behind the ship's diagram
+            ctx.save();
+            ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+            ctx.beginPath();
+            ctx.arc(j.x, j.y, j.inner, 0, TAU);
+            ctx.fill();
+            ctx.restore();
+        }
+
+    }
+
+    if (!aiming) {
 
         // transparent rocket at the center, showing the current orientation
-        drawingContext.save();
-        drawingContext.globalAlpha = joystickActive ? 0.55 : 0.3;
+        if (!(live && impulse.mapAlways)) {
+            drawingContext.save();
+            drawingContext.globalAlpha = joystickActive ? 0.55 : live ? 0.6 : 0.3;
 
-        translate(j.x, j.y);
-        scale(j.r / ship.length);
-        ship.drawShipBody(0, 0, 255);
+            translate(j.x, j.y);
+            scale(j.r / ship.length);
+            ship.drawShipBody(0, 0, 255);
 
-        drawingContext.restore();
+            drawingContext.restore();
+        }
+
+        // a paused ship: a play symbol over its diagram
+        if (paused && impulse.phase === 'off') {
+            let q = j.inner * 0.35;
+            noStroke();
+            fill(255, 200);
+            triangle(j.x - q * 0.7, j.y - q, j.x - q * 0.7, j.y + q, j.x + q, j.y);
+        }
 
         // marker for where the joystick is being pressed
         if (joystickActive) {
@@ -2657,30 +2997,193 @@ function drawVirtualJoystick() {
     line(ax, ay, ax + cos(back - 0.5) * hl, ay + sin(back - 0.5) * hl);
     line(ax, ay, ax + cos(back + 0.5) * hl, ay + sin(back + 0.5) * hl);
 
-    // pause button: the mirror image, at the bottom-right corner (a play
-    // triangle while paused)
-    stroke(255, 70);
-    strokeWeight(2);
-    fill(255, 15);
-    triangle(j.pauseX, j.pauseY,
-        j.pauseX - s, j.pauseY,
-        j.pauseX, j.pauseY - s);
-
-    let px = j.pauseX - s * 0.33;
-    let py = j.pauseY - s * 0.33;
-    noStroke();
-    fill(255, 150);
-    if (paused) {
-        let q = s * 0.16;
-        triangle(px - q * 0.8, py - q * 1.2, px - q * 0.8, py + q * 1.2, px + q * 1.2, py);
-    } else {
-        let q = s * 0.1;
-        rect(px - q * 1.7, py - q * 1.6, q * 1.3, q * 3.2);
-        rect(px + q * 0.4, py - q * 1.6, q * 1.3, q * 3.2);
-    }
-
     if (aiming) {
         drawImpulseButtons();
+    }
+
+    pop();
+
+}
+
+// the map's image, positioned so that the impulse at the circle's centre
+// sits under its middle; the picture is only redrawn when its contents change
+function drawImpulseMapImage(j, ctx, map, centre, state) {
+
+    let win = map.window;
+    let reach = map.spacing * map.n / 2;
+    let k = j.r / reach;
+
+    // the dynamic contour: the apoapsis of the selected impulse
+    let selLog = NaN;
+    if (state) {
+        selLog = earthApoapsisLog(state.pos, state.vel,
+            { x: centre.x * ship.rocketAcc, y: centre.y * ship.rocketAcc });
+    }
+
+    let renderKey = [map.cells.size, win.ix0, win.iy0, isFinite(selLog) ? selLog.toFixed(4) : selLog].join();
+    if (map.renderKey !== renderKey) {
+        renderImpulseMap(map, win, map.curLog, selLog);
+        map.renderKey = renderKey;
+    }
+
+    let cell = win.spacing * k;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(j.x, j.y, j.r, 0, TAU);
+    ctx.clip();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(map.canvas,
+        j.x + ((win.ix0 - 0.5) * win.spacing - centre.x) * k,
+        j.y + ((win.iy0 - 0.5) * win.spacing - centre.y) * k,
+        win.nx * cell, win.ny * cell);
+    ctx.restore();
+
+}
+
+function niceStep(x) {
+    let p = Math.pow(10, Math.floor(Math.log10(x)));
+    let m = x / p;
+    return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p;
+}
+
+// Drawn over the map; none of it needs the simulation, only the geometry of
+// impulse against velocity. The circle is a window onto impulse space; the
+// velocity after an impulse is the current velocity plus the impulse, so
+//   - the new velocity sits under the circle's centre,
+//   - the current velocity sits where no impulse would be,
+//   - zero velocity is the origin of the velocity rings, a fixed offset from
+//     the current velocity.
+// Colours: green is the current state, orange the selected impulse.
+function drawImpulseOverlays(j, ctx, c, state, detail) {
+
+    let vel = state.vel, pos = state.pos;
+    let acc = ship.rocketAcc;
+    let reach = impulseReach();
+    let k = j.r / reach; // pixels per frame of burn
+    let vk = k / acc; // pixels per unit of velocity
+
+    let cur = { x: j.x - c.x * k, y: j.y - c.y * k };
+    let origin = { x: cur.x - vel.x * vk, y: cur.y - vel.y * vk };
+
+    let speed = Math.hypot(vel.x, vel.y);
+    let newSpeed = Math.hypot(vel.x + c.x * acc, vel.y + c.y * acc);
+    let dvSize = Math.hypot(c.x, c.y);
+    let earth = bodies[0];
+    let escape = Math.sqrt(2 * G * earth.mass / Math.hypot(pos.x - earth.pos.x, pos.y - earth.pos.y));
+
+    const GREEN = [90, 255, 120], ORANGE = [255, 160, 40], BLUE = [130, 180, 255], RED = [255, 110, 110];
+
+    let rings = (o, stepPx) => {
+        let d = Math.hypot(o.x - j.x, o.y - j.y);
+        let m0 = max(1, Math.ceil((d - j.r) / stepPx));
+        let m1 = min(Math.floor((d + j.r) / stepPx), m0 + 60);
+        for (let m = m0; m <= m1; m++) circle(o.x, o.y, 2 * m * stepPx);
+    };
+
+    let arrow = (from, to, col) => {
+        stroke(col[0], col[1], col[2], 230);
+        strokeWeight(2);
+        line(from.x, from.y, to.x, to.y);
+        let a = Math.atan2(to.y - from.y, to.x - from.x);
+        let h = 8;
+        line(to.x, to.y, to.x - Math.cos(a - 0.4) * h, to.y - Math.sin(a - 0.4) * h);
+        line(to.x, to.y, to.x - Math.cos(a + 0.4) * h, to.y - Math.sin(a + 0.4) * h);
+    };
+
+    push();
+    noFill();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(j.x, j.y, j.r, 0, TAU);
+    ctx.clip();
+
+    // velocity rings about zero velocity, and Δv rings about the current velocity
+    if (detail) {
+        stroke(BLUE[0], BLUE[1], BLUE[2], 70);
+        strokeWeight(1);
+        rings(origin, niceStep(reach * acc / 2) * vk);
+
+        ctx.setLineDash([4, 4]);
+        stroke(255, 50);
+        rings(cur, niceStep(reach / 4) * k);
+
+        // the dynamic rings: current and new speed, the Δv, and escape speed
+        stroke(RED[0], RED[1], RED[2], 150);
+        circle(origin.x, origin.y, 2 * escape * vk);
+        stroke(ORANGE[0], ORANGE[1], ORANGE[2], 200);
+        circle(cur.x, cur.y, 2 * dvSize * k);
+        ctx.setLineDash([]);
+        stroke(GREEN[0], GREEN[1], GREEN[2], 200);
+        circle(origin.x, origin.y, 2 * speed * vk);
+        stroke(ORANGE[0], ORANGE[1], ORANGE[2], 200);
+        circle(origin.x, origin.y, 2 * newSpeed * vk);
+    }
+
+    // the prograde / retrograde axis: the line of the current velocity
+    let u = speed > 1e-6 ? { x: vel.x / speed, y: vel.y / speed } : null;
+    if (u) {
+        ctx.setLineDash([2, 5]);
+        stroke(255, detail ? 130 : 90);
+        strokeWeight(1.5);
+        line(cur.x - u.x * j.r * 4, cur.y - u.y * j.r * 4, cur.x + u.x * j.r * 4, cur.y + u.y * j.r * 4);
+        ctx.setLineDash([]);
+    }
+
+    if (detail) {
+        arrow(origin, cur, GREEN);
+        arrow(origin, { x: j.x, y: j.y }, ORANGE);
+    }
+
+    ctx.restore();
+
+    // the labels (and the axis labels outside the circle) are for aiming
+    if (!detail) {
+        pop();
+        return;
+    }
+
+    // labels, kept inside the circle and outlined to stay readable
+    textSize(11);
+    textAlign(CENTER, CENTER);
+    let ringLabel = (o, radius, deg, str, col) => {
+        let a = deg * Math.PI / 180;
+        let px = j.x + Math.cos(a) * j.r * 0.62, py = j.y + Math.sin(a) * j.r * 0.62;
+        let vx = px - o.x, vy = py - o.y;
+        let l = Math.hypot(vx, vy);
+        if (l < 1) return;
+        let qx = o.x + vx / l * radius, qy = o.y + vy / l * radius;
+        if (Math.hypot(qx - j.x, qy - j.y) > j.r - 14) return;
+        stroke(0, 190);
+        strokeWeight(3);
+        fill(col[0], col[1], col[2]);
+        text(str, qx, qy);
+    };
+    ringLabel(origin, speed * vk, -135, "speed now", GREEN);
+    ringLabel(origin, newSpeed * vk, -45, "new speed", ORANGE);
+    ringLabel(cur, dvSize * k, 45, "Δv", ORANGE);
+    ringLabel(origin, escape * vk, 135, "escape", RED);
+
+    // axis labels sit outside the circle where the axis leaves it
+    if (u) {
+        let b = (cur.x - j.x) * u.x + (cur.y - j.y) * u.y;
+        let cc = sq(cur.x - j.x) + sq(cur.y - j.y) - j.r * j.r;
+        let disc = b * b - cc;
+        if (disc >= 0) {
+            let root = Math.sqrt(disc);
+            let end = (t, str, sgn) => {
+                let ex = cur.x + u.x * t, ey = cur.y + u.y * t;
+                let w = textWidth(str);
+                let off = 8 + Math.abs(u.x) * w / 2 + Math.abs(u.y) * 7;
+                stroke(0, 190);
+                strokeWeight(3);
+                fill(255, 230);
+                text(str, ex + sgn * u.x * off, ey + sgn * u.y * off);
+            };
+            end(-b + root, "Prograde", 1);
+            end(-b - root, "Retrograde", -1);
+        }
     }
 
     pop();
@@ -2748,7 +3251,7 @@ function drawImpulseHUD() {
     } else if (impulse.phase === 'off' && impulse.exclusive) {
 
         fill(255, 120);
-        text(touch ? "Press the circle (or pause) to set up a burn" : "Click the circle (or press P) to set up a burn", x, y);
+        text(touch ? "Press the centre of the circle to set up an impulse" : "Click the centre of the circle (or press P) to set up an impulse", x, y);
 
     }
 
@@ -2831,7 +3334,7 @@ function drawTimeline() {
         );
 
         pop();
-        stroke(bodies[0].bColor);
+        stroke(bodyColor('earth'));
 
         line(x, height - (h * bodies[0].radius / sliceMaxAlt), x, height);
 

@@ -13,12 +13,10 @@ function setup() {
     createCanvas(windowWidth, windowHeight);
     disableMobileGestureConflicts();
 
-    rocketColor = color("#ff00b3ff");
-    earthColor = color("#00ffffff");
-    moonColor = color("#ffff00ff");
+    initPalette();
 
-    bodies.push(new Body(createVector(0, 0), 100, 1, earthColor)); // Earth
-    bodies.push(new Body(createVector(0, -25 * 17), 25, 0.1, moonColor)); // Moon
+    bodies.push(new Body(createVector(0, 0), 100, 1, 'earth'));
+    bodies.push(new Body(createVector(0, -25 * 17), 25, 0.1, 'moon'));
 
     let l = 30;
     ship = new Ship(createVector(bodies[0].pos.x, bodies[0].pos.y - bodies[0].radius - l / 2), l);
