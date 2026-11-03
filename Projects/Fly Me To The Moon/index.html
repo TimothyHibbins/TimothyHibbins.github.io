@@ -91,6 +91,19 @@
         margin-left: 13px;
     }
 
+    /* units sit flush against one another; only the highlight separates them */
+    #essayContent p,
+    #essayContent ul {
+        margin-top: 0;
+        margin-bottom: 0;
+    }
+
+    #essayContent h1,
+    #essayContent h2 {
+        margin-top: 0.4em;
+        margin-bottom: 0.2em;
+    }
+
     /* Simulation pane: bottom two thirds */
     #simPane {
         position: fixed;
@@ -178,6 +191,26 @@
 
     #fullscreenBtn:hover {
         opacity: 1;
+    }
+
+    /* advances the essay when the next unit isn't triggered by the simulation */
+    #nextBtn {
+        position: fixed;
+        right: 64px;
+        top: calc(var(--essay-height) + 12px);
+        z-index: 6;
+        padding: 8px 16px;
+        font-size: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.5);
+        background-color: #00000099;
+        color: rgba(255, 255, 255, 0.95);
+        border-radius: 5px;
+        cursor: pointer;
+        display: none;
+    }
+
+    #nextBtn.available {
+        display: block;
     }
 
     /* revealed paragraphs fade in, then follow the same dimming as every
@@ -544,11 +577,15 @@
                 <h1>Fly Me To The Moon</h1>
 
                 <p>
-                    Below is an interactive simulation which allows you to pilot a rocket ship to the Moon.
+                    Welcome! In this essay, you will learn how to fly to the Moon. But this isn't just any old slab of
+                    text, it's living, breathing, <em>interactive, and playable</em> essay, which means you
+                    won't just read about it; you'll actually fly your very own rocketship in the simulation below. The
+                    words of
+                    the essay will be up here, but rather than having to scroll, new words will appear by themselves as
+                    you play (or sometimes just by tapping 'next', like now).
                 </p>
-
                 <p>
-                    This simulation is, of course, greatly simplified, in many respects–for example:
+                    Our simulation is, of course, greatly simplified, in many respects–for example:
                 </p>
                 <ul>
                     <li>It is purely 2-dimensional.</li>
@@ -558,23 +595,50 @@
                 </ul>
                 <p>
                     Nevertheless, I promise that it is physically realistic in the key respects that make it so the
-                    basic principles of piloting this simulated rocketship to the moon are identical to piloting a real
+                    essential principles of piloting this simulated rocketship to the moon are identical to piloting a
+                    real
                     one.
 
-                    These simplifications are so that those basic principles will be all that you need to successfully
+                    These simplifications are so that those essential principles will be <em>all</em> that you need to
+                    successfully
                     land on the moon.
                 </p>
                 <p>
-                    So, give it a go. Press up to fire the rocket and use the left and right arrow keys to set your
-                    heading (the direction the nose of the rocketship is pointing).
+                    By the way, you can still scroll backwards and forwards through parts of the essay that have already
+                    appeared,
+                    —and the state of the simulation associated with them will be restored.
                 </p>
+                <p data-platform="desktop">
+                    So, time for liftoff!
+
+                    Move your cursor to point the nose of your rocketship, and click to activate the thrust.
+
+                    Alternatively, you can press the up arrow key to activate thrust and use the left and right arrow
+                    keys to point the nose.
+                </p>
+                <p data-platform="touch">
+                    So, give it a go.
+
+                    Tap on the control circle in the direction you want to fire the rocket (i.e. press at the top if you
+                    want to go up by firing down towards the ground).
+                </p>
+
+                <p>You'll want to takeoff straight up away from the surface of the Earth.</p>
+
+                <p>Now, try your best at landing on the moon. I should note, that whilst this <em>is</em> possible, you
+                    are
+                    of course NOT
+                    expected to be able to do so successfully yet—that's what the rest of the
+                    essay is for! Still, have a go so you can get a feel for the simulation and <em>why</em> its
+                    tricky.</p>
+
 
                 <div id="log">
                     <p class="message" data-event="earthCrash" hidden>
                         Ouch! You crashed. Well, don't feel bad–what I didn't mention is that even in this simplified
                         simulation,
                         its not
-                        quite as simple as just pointing the ship in the direction of the moon and firing the rocket.
+                        quite as simple as pointing the ship in the direction of the moon and firing the rocket.
 
                         You can have another go first, if you like, but the rest of this essay will show you the secrets
                         of
@@ -612,6 +676,10 @@
                         venture
                         much further afield.
                     </p>
+
+                    <p class="message" data-event="overshot" hidden>Looks like you may have overshot! You can try to
+                        recover, reset to have another go, or read on to
+                        learn the secrets of spaceflight that will make your next attempt perfect.</p>
                 </div>
             </section>
 
@@ -730,24 +798,37 @@
                     trajectories is that they
                     eventually hit the ground. What would happen if the balls could pass through the ground like ghosts?
                 </p>
-                <p class="message" data-event="slingGhost" data-state="ghost-landed" hidden>We see that the dropped ball
+                <p data-state="ghost-drop">Let's start by following the dropped ball.</p>
+                <p class="message" data-event="slingGhost" data-state="ghost-dropped" hidden>We see that the dropped ball
                     doesn't stop upon
                     reaching the centre of the earth, but continues until
                     it reaches its initial altitude but on the other side of the Earth—what goes down must come up, it
                     would seem. This forms a
                     a
-                    1-dimensional but still endlessly repeating 'orbit'. Our previous collision trajectories,
-                    are eccentric two dimensional orbits, which, like the dropped ball, have two apogees both at the
-                    initial altitude. As they gain more launch velocity
-                    the less eccentric their orbits become and their 'perigees' inside the Earth rise closer and closer
-                    to the surface. Eventually, given the exact right amount of momentum,
-                    the orbit becomes a perfect circle with constant altitude where apogee and perigee lose all meaning.
-                    Adding more would make it elliptical again but on a perpenduclar axis.</p>
+                    1-dimensional but still endlessly repeating 'orbit'.</p>
+                <p data-state="ghost-failed">What about our previous launches that failed to complete an orbit?</p>
+                <p class="message" data-event="slingGhostAll" data-state="ghost-failed-done" hidden>We see that, like the dropped ball, they have two apogees both at the
+                    initial altitude, but thanks to their initial velocity their orbits are two dimensional (albeit
+                    eccentric, which is to say skinny about one dimension rather than circular).</p>
 
-                <p>Therefore, we do not so much as need to "achieve orbit" as achieve *an* orbit which *doesn't
-                    intersect
-                    the
-                    surface of the planet*.</p>
+                <p>We therefore see that all objects "want" to orbit and would do so were it not for the ground getting
+                    in the way. The parabolic trajectories we associate with thrown objects are in fact orbits cut
+                    short! We do not so much as need to "achieve orbit" as achieve <em>an</em> orbit which
+                    <em>doesn't
+                        intersect
+                        the
+                        surface of the planet</em>.
+                </p>
+                <p>
+                    As they gain more
+                    launch velocity, though, the less eccentric their orbits become and their 'perigees' inside the
+                    Earth rise closer and closer
+                    to the surface, culminating in our perfectly circular orbit with constant altitude where apogee and
+                    perigee lose all meaning.
+                    As we've seen, adding even more initial velocity makes the orbit eccentric again but on a
+                    perpendicular axis.</p>
+
+
             </section>
 
             <!-- Section 3: Reaching orbit (earth-only rocket) -->
@@ -759,11 +840,13 @@
 
                 <p data-state="start">
                     Step 1 of getting to the Moon is reaching orbit around <em>Earth</em>.
-                    In the real-world, a stable orbit can only be achieved in space, since within the atmosphere air
-                    resistance slows us down causing us to lose altitude and eventually crash. In our simplified
-                    simulation, however, there is no atmosphere so we don't need to worry about that. Nevertheless,
-                    since
-                    we don't have a tower or a slingshot for our rocket ship, we will still want to boost upwards until
+                    In the real-world, a stable orbit cannot be achieved at such a low altitude, since within the
+                    atmosphere air
+                    resistance slows us down causing us to lose the little altitude we have and eventually crash. In our
+                    simplified
+                    simulation, however, there is no atmosphere so we don't need to worry about that,
+                    but since
+                    we don't have a tower or a slingshot for our rocketship, we will still want to boost upwards until
                     we have reached an altitude where we can safely point the rocketship 'forward' in the direction we'd
                     like to orbit—this direction is called 'prograde'.
                 </p>
@@ -871,7 +954,8 @@
 
             <!-- Section 7: Lunar Orbit -->
             <section data-sketch="4">
-                <p data-state="start">Ok, clearly you've got the hang of orbital manouvreing. Its time to bring back the Moon. Before we
+                <p data-state="start">Ok, clearly you've got the hang of orbital manouvreing. Its time to bring back the
+                    Moon. Before we
                     can
                     land on
                     the moon, we first need to get into orbit around it. This can be achieved with what you already
@@ -883,7 +967,8 @@
                     by its
                     gravity. Have a go.</p>
 
-                <p class="message" data-event="lunarOrbit" data-state="orbit" hidden>Incredible! You're in lunar orbit. Now all we need to do is land. This, admittedly, is a bit more
+                <p class="message" data-event="lunarOrbit" data-state="orbit" hidden>Incredible! You're in lunar orbit.
+                    Now all we need to do is land. This, admittedly, is a bit more
                     complex
                     than
                     just lowering your orbit. You essentially have to <em>launch</em> in reverse. That means firing
@@ -895,7 +980,8 @@
                     velocity is almost zero.
                 </p>
 
-                <p class="message" data-event="lunarLanding" data-state="landed" hidden>Absolutely brilliant, you've done it! Just for fun, I'll let you hop out and do a moon walk. When
+                <p class="message" data-event="lunarLanding" data-state="landed" hidden>Absolutely brilliant, you've
+                    done it! Just for fun, I'll let you hop out and do a moon walk. When
                     you're
                     ready,
                     hop back in the rocketship and see if you can use the same principles to get back home.</p>
@@ -905,11 +991,11 @@
     </div>
 
     <div id="simPane">
-        <iframe class="sim" src="slide1-sketch.html?v=20261102l"></iframe>
-        <iframe class="sim hiddenSim" src="slingshot-sketch.html?v=20261102l"></iframe>
-        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261102l"></iframe>
-        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261102l&mode=free"></iframe>
-        <iframe class="sim hiddenSim" src="slide4-sketch.html?v=20261102l"></iframe>
+        <iframe class="sim" src="slide1-sketch.html?v=20261102m"></iframe>
+        <iframe class="sim hiddenSim" src="slingshot-sketch.html?v=20261102m"></iframe>
+        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261102m"></iframe>
+        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261102m&mode=free"></iframe>
+        <iframe class="sim hiddenSim" src="slide4-sketch.html?v=20261102m"></iframe>
     </div>
 
     <div id="essayScroller" aria-hidden="true">
@@ -919,6 +1005,7 @@
     </div>
 
     <button id="fullscreenBtn" onclick="toggleFullscreen()">⛶</button>
+    <button id="nextBtn" type="button">Next</button>
 
 
     <script>
@@ -931,6 +1018,13 @@
         const sections = Array.from(essayContent.querySelectorAll('section'));
         const simFrames = Array.from(document.querySelectorAll('#simPane iframe'));
 
+        const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
+        // text written for the other kind of device is dropped entirely
+        essayContent.querySelectorAll('[data-platform]').forEach(el => {
+            if (el.dataset.platform !== (isTouchDevice ? 'touch' : 'desktop')) el.remove();
+        });
+
         let lines = [];
         let activeLine = null;
         let activeFrameIndex = 0;
@@ -942,6 +1036,7 @@
                 el.classList.add('essay-line');
                 el.dataset.unit = i; // numerical code shown as a debugging aid
             });
+            updateNextButton();
         }
 
         function focalY() {
@@ -992,6 +1087,7 @@
             const sectionIndex = sections.indexOf(section);
             switchSim(sectionIndex);
             saveBookmark();
+            updateNextButton();
 
             // tell the active simulation which line is active so it can react;
             // passedIds lets sims unlock capabilities by scroll progress
@@ -1075,6 +1171,45 @@
         document.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowLeft') stepLine(-1);
             if (e.key === 'ArrowRight') stepLine(1);
+            if (e.key === 'Enter' && !e.repeat) {
+                if (advanceToNextUnit()) e.preventDefault();
+            }
+        });
+
+        //
+        // Next: progression for units that aren't triggered by something in
+        // the simulation. If the following unit is a not-yet-revealed outcome
+        // message, the reader has to make it happen in the sim instead.
+        //
+
+        const nextBtn = document.getElementById('nextBtn');
+        nextBtn.textContent = isTouchDevice ? 'Next' : 'Next ↵';
+
+        function nextUnit() {
+            const all = Array.from(essayContent.querySelectorAll('h1, h2, p, li'))
+                .filter(el => el.textContent.trim().length > 0);
+            const i = all.indexOf(activeLine);
+            if (i < 0 || i >= all.length - 1) return null;
+            const next = all[i + 1];
+            return next.hidden ? null : next;
+        }
+
+        function updateNextButton() {
+            nextBtn.classList.toggle('available', !!(activeLine && nextUnit()));
+        }
+
+        function advanceToNextUnit() {
+            const next = nextUnit();
+            if (!next) return false;
+            scrollLineToFocus(next);
+            setActiveLine(next);
+            activeLineLockUntil = Date.now() + 700;
+            return true;
+        }
+
+        nextBtn.addEventListener('click', () => {
+            advanceToNextUnit();
+            nextBtn.blur(); // so Enter doesn't also click the focused button
         });
 
         //
@@ -1082,11 +1217,8 @@
         // independent of the simulations, so sim switches can't disturb it
         //
 
+        // hidden for now on touch devices too: the Next button replaces it
         const essayScroller = document.getElementById('essayScroller');
-        const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-        if (isTouchDevice) {
-            essayScroller.style.display = 'flex';
-        }
 
         let scrollerLastY = null;
 

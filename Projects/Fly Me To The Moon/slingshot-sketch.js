@@ -63,15 +63,31 @@ window.onEssayLineActive = function (data) {
 
 };
 
+// the surface-removed section is a sequence of "play" scenes rather than
+// launches: nothing more is slung, the reader presses play to watch the
+// dropped ball, then every earlier launch, complete its orbit(s)
+const GHOST_PHASES = {
+    'ghost-ready': 0, // the ground becomes a ghost
+    'ghost-drop': 1, // play follows the dropped ball
+    'ghost-dropped': 2, // ...which has completed its orbit
+    'ghost-failed': 3, // play follows every earlier launch (and the drop)
+    'ghost-failed-done': 4 // ...which have all completed their orbits
+};
+
 function parseUnitState(key) {
 
     let last = powerLevels.length - 1;
 
-    if (key === 'ghost-ready') return { kind: 'ready', stage: last, ghost: true };
-    if (key === 'ghost-landed') return { kind: 'landed', stage: last, ghost: true };
+    if (key in GHOST_PHASES) {
+        let phase = GHOST_PHASES[key];
+        return {
+            kind: (phase === 2 || phase === 4) ? 'landed' : 'ready',
+            stage: last, ghost: true, phase: phase
+        };
+    }
 
     let [kind, n] = key.split(':');
-    return { kind: kind, stage: Math.min(parseInt(n, 10) || 0, last), ghost: false };
+    return { kind: kind, stage: Math.min(parseInt(n, 10) || 0, last), ghost: false, phase: -1 };
 
 }
 
@@ -90,22 +106,25 @@ function applyUnitState(key) {
     let forwardStep = from && from.kind === 'landed' && target.kind === 'ready' &&
         !from.ghost && (target.ghost ? target.stage === from.stage : target.stage === from.stage + 1);
 
-    if (forwardStep) {
+    // within the ghost scenes: arming the next play button needs no rebuild
+    let ghostStep = from && from.ghost && target.ghost && (
+        (from.phase <= 1 && target.phase <= 1) ||
+        (from.phase === 2 && target.phase === 3));
+
+    if (forwardStep || ghostStep) {
         if (shotState !== 'ready') finalizeShot();
-        resetShot();
         stage = target.stage;
         ghostMode = target.ghost;
-        ghostShotsFired = 0;
     } else {
         rebuildState(target);
     }
 
-    wideReady = target.kind === 'landed';
+    wideReady = !target.ghost && target.kind === 'landed';
 
     if (!target.ghost && stage !== oldStage) {
         upgradeMessage = stage > oldStage ? "Slingshot upgraded!" : "Slingshot downgraded.";
         upgradeMessageTimer = 160;
-    } else if (target.ghost && target.kind === 'ready' && forwardStep) {
+    } else if (target.phase === 0 && forwardStep) {
         upgradeMessage = "The ground is now a ghost — balls fall straight through!";
         upgradeMessageTimer = 240;
     }
@@ -122,37 +141,56 @@ function rebuildState(target) {
     balls = [];
     ghostTrails = [];
     pastShots = [];
+    orbitMarks = [];
     shotCount = 0;
-    ghostShotsFired = 0;
     lastShotBounds = null;
     donePhase = null;
+    ghostRunMode = null;
 
     let last = powerLevels.length - 1;
-    let plain, ghostShot;
+    let plain;
 
     if (target.ghost) {
-        plain = last + 1; // every plain stage, then the ghost run if landed
-        ghostShot = target.kind === 'landed';
+        plain = last + 1; // every plain stage
     } else {
         plain = target.stage + (target.kind === 'landed' ? 1 : 0);
-        ghostShot = false;
     }
 
     // a landed target leaves its own shot on screen
-    let keepLast = target.kind === 'landed';
+    let keepLast = target.kind === 'landed' && !target.ghost;
 
     ghostMode = false;
     for (let s = 0; s < plain; s++) {
-        replayShot(s, keepLast && !ghostShot && s === plain - 1);
+        replayShot(s, keepLast && s === plain - 1);
     }
 
-    if (ghostShot) {
+    if (target.ghost) {
         ghostMode = true;
-        replayShot(last, true);
+        if (target.phase >= 2) replayGhostRun('drop', target.phase === 2);
+        if (target.phase >= 4) replayGhostRun('all', true);
     }
 
     stage = target.stage;
     ghostMode = target.ghost;
+
+}
+
+function replayGhostRun(mode, keepOnScreen) {
+
+    startGhostRun(mode);
+
+    let guard = 0;
+    while (!stepGhostRunOnce() && guard++ < maxFlightFrames + 10) { }
+
+    if (keepOnScreen) {
+        shotState = 'done';
+        donePhase = 'zoomout';
+        doneTimer = 0;
+        markCompletedOrbits();
+        return;
+    }
+
+    finalizeShot();
 
 }
 
@@ -168,6 +206,7 @@ function replayShot(s, keepOnScreen) {
         shotState = 'done';
         donePhase = 'zoomout';
         doneTimer = 0;
+        markCompletedOrbits();
         return;
     }
 
@@ -206,9 +245,10 @@ let upgradeMessage = "";
 let cam = { x: 0, y: 0, scale: 1, rot: 0 };
 let shotBounds = null; // bbox of the current shot's flight, for the camera
 let lastShotBounds = null; // kept after the shot ends, for the re-armed wide view
-let aimBounds = null; // bbox of the aiming projection, while dragging
 
-let ghostShotsFired = 0; // the first surface-removed run hides the prediction
+let ghostRunMode = null; // 'drop' | 'all' while a surface-removed play scene is on screen
+let ghostFit = null; // bbox of the scene's complete orbits, known in advance
+let orbitMarks = []; // apogee/perigee markers on completed orbits
 
 let slingStars = [];
 
@@ -563,10 +603,6 @@ function launchShot(v) {
 
     pastShots.push({ v: v, col: stageColors[stage] });
 
-    if (ghostMode) {
-        ghostShotsFired++;
-    }
-
     launchStage = stage;
     shotState = 'flying';
     prevHeading = slingRelease.heading();
@@ -677,8 +713,6 @@ function stepsPerFrame() {
 // stage the shot was launched at)
 function shotOutcomeEvent() {
 
-    if (ghostMode) return 'slingGhost';
-
     switch (launchStage) {
         case 0: return 'slingSameTime';
         case 1: return 'slingLonger';
@@ -701,6 +735,7 @@ function finalizeShot() {
     if (shotBounds) {
         lastShotBounds = shotBounds;
     }
+    orbitMarks = [];
     resetShot();
 
 }
@@ -749,12 +784,12 @@ function updateFlight() {
 
         // the shot is complete (for orbits, the moment the orbit closes):
         // the sim is now in this stage's landed state, and the outcome event
-        // moves the essay to the matching landing unit. In ghost mode only
-        // the first run announces itself; later ones are free play.
-        simState = ghostMode ? 'ghost-landed' : 'landed:' + launchStage;
+        // moves the essay to the matching landing unit
+        simState = 'landed:' + launchStage;
+        markCompletedOrbits();
 
         let outcome = shotOutcomeEvent();
-        if (outcome && (!ghostMode || ghostShotsFired === 1)) {
+        if (outcome) {
             window.parent.postMessage({ type: outcome }, "*");
         }
 
@@ -763,9 +798,248 @@ function updateFlight() {
         // zooms back in when the reader scrolls to the next upgrade
         shotState = 'done';
         wideReady = true;
-        donePhase = ghostMode ? 'zoomout' : 'linger';
-        doneTimer = ghostMode ? 100 : 70;
+        donePhase = 'linger';
+        doneTimer = 70;
         return;
+    }
+
+}
+
+//
+// Surface-removed scenes: the dropped ball alone, then every earlier launch
+// together with it, each run to the end of its orbit. Balls freeze (timer
+// and all) when they complete, back at their starting apogee.
+//
+
+function makeGhostRunBalls(mode) {
+
+    let list = [];
+
+    if (mode === 'all') {
+        for (let s = 0; s < powerLevels.length; s++) {
+            let b = makeBall(slingRelease, launchDir.copy().mult(powerLevels[s]), stageColors[s], 255, 'launched');
+            b.stage = s;
+            list.push(b);
+        }
+    }
+
+    list.push(makeBall(dropArmEnd, createVector(0, 0), dropColorSling, 255, 'drop'));
+
+    for (let b of list) {
+        b.swept = 0;
+        b.prevHeading = b.pos.heading();
+        b.apogees = 1; // the drop ball starts at its first apogee
+        b.prevR = b.pos.mag();
+        b.prevPrevR = null;
+    }
+
+    return list;
+
+}
+
+// advance every unfinished ball one step; true once all have completed
+function stepGhostBalls(list) {
+
+    let allDone = true;
+
+    for (let ball of list) {
+
+        if (ball.landed) continue;
+
+        stepBall(ball);
+
+        let r = ball.pos.mag();
+
+        if (ball.kind === 'drop') {
+            // a radial orbit has no sweep: complete on returning to the
+            // starting apogee, the third apogee including that start
+            if (ball.prevPrevR !== null && ball.prevR > ball.prevPrevR && ball.prevR > r) {
+                ball.apogees++;
+            }
+            ball.prevPrevR = ball.prevR;
+            ball.prevR = r;
+            if (ball.apogees >= 3) ball.landed = true;
+        } else {
+            let a = ball.pos.heading();
+            let d = a - ball.prevHeading;
+            if (d > PI) d -= TAU;
+            if (d < -PI) d += TAU;
+            ball.swept += d;
+            ball.prevHeading = a;
+            if (abs(ball.swept) >= TAU) ball.landed = true;
+        }
+
+        if (ball.landed) {
+            ball.trail.push(ball.pos.copy());
+        } else {
+            allDone = false;
+        }
+    }
+
+    return allDone;
+
+}
+
+function startGhostRun(mode) {
+
+    ghostMode = true;
+    ghostRunMode = mode;
+    shotBounds = null;
+
+    // the finished scene is simulated ahead so the camera can glide out
+    // towards a view that holds every complete orbit and the slingshot
+    let ahead = makeGhostRunBalls(mode);
+    let fit = null;
+    let guard = 0;
+    do {
+        for (let b of ahead) {
+            if (b.landed) continue;
+            fit = fit || { minX: b.pos.x, maxX: b.pos.x, minY: b.pos.y, maxY: b.pos.y };
+            fit.minX = min(fit.minX, b.pos.x); fit.maxX = max(fit.maxX, b.pos.x);
+            fit.minY = min(fit.minY, b.pos.y); fit.maxY = max(fit.maxY, b.pos.y);
+        }
+    } while (!stepGhostBalls(ahead) && guard++ < maxFlightFrames);
+    ghostFit = fit;
+
+    balls = makeGhostRunBalls(mode);
+    shotState = 'ghostrun';
+    flightFrames = 0;
+    donePhase = null;
+
+}
+
+// one frame of the scene; true once every orbit has completed
+function stepGhostRunOnce() {
+
+    let done = stepGhostBalls(balls);
+    flightFrames++;
+
+    for (let ball of balls) {
+        expandShotBounds(ball.pos);
+        if (flightFrames % 3 == 0 && !ball.landed) {
+            ball.trail.push(ball.pos.copy());
+        }
+    }
+
+    return done || flightFrames > maxFlightFrames;
+
+}
+
+function updateGhostRun() {
+
+    for (let s = 0; s < stepsPerFrame(); s++) {
+
+        if (!stepGhostRunOnce()) continue;
+
+        let dropOnly = ghostRunMode === 'drop';
+        simState = dropOnly ? 'ghost-dropped' : 'ghost-failed-done';
+        markCompletedOrbits();
+
+        window.parent.postMessage({ type: dropOnly ? 'slingGhost' : 'slingGhostAll' }, "*");
+
+        shotState = 'done';
+        donePhase = 'zoomout';
+        doneTimer = 0;
+        return;
+    }
+
+}
+
+function startGhostRunFromButton() {
+
+    if (shotState !== 'ready' || !ghostMode) return;
+
+    let phase = GHOST_PHASES[simState];
+    if (phase === 1) startGhostRun('drop');
+    if (phase === 3) startGhostRun('all');
+
+}
+
+//
+// Apogee and perigee markers for completed orbits (from the point those
+// terms are introduced on)
+//
+
+// turning points of r along a trail, with hysteresis against noise;
+// launches are tangential, so the start is itself an extreme if r moves off it
+function orbitExtremes(trail) {
+
+    const eps = 6;
+    let apo = [], peri = [];
+    let dir = 0;
+    let candR = trail[0].mag();
+    let candP = trail[0];
+    let startP = trail[0];
+
+    for (let p of trail) {
+
+        let r = p.mag();
+
+        if (dir === 0) {
+            if (r > candR + eps) {
+                peri.push(startP);
+                dir = 1;
+                candR = r; candP = p;
+            } else if (r < candR - eps) {
+                apo.push(startP);
+                dir = -1;
+                candR = r; candP = p;
+            }
+        } else if (dir === 1) {
+            if (r > candR) {
+                candR = r; candP = p;
+            } else if (r < candR - eps) {
+                apo.push(candP);
+                dir = -1;
+                candR = r; candP = p;
+            }
+        } else {
+            if (r < candR) {
+                candR = r; candP = p;
+            } else if (r > candR + eps) {
+                peri.push(candP);
+                dir = 1;
+                candR = r; candP = p;
+            }
+        }
+    }
+
+    if (dir === 1) apo.push(candP);
+    if (dir === -1) peri.push(candP);
+
+    const dedupe = (list) => {
+        let out = [];
+        for (let p of list) {
+            if (!out.some(q => p5.Vector.dist(p, q) < 60)) out.push(p);
+        }
+        return out;
+    };
+
+    return { apo: dedupe(apo), peri: dedupe(peri) };
+
+}
+
+function markCompletedOrbits() {
+
+    orbitMarks = [];
+
+    let list;
+    if (ghostMode && ghostRunMode) {
+        list = balls;
+    } else if (launchStage >= 6) {
+        list = balls.filter(b => b.kind === 'primary');
+    } else {
+        return;
+    }
+
+    // one set of labels is enough: the most eccentric orbit on screen
+    let labelled = list[list.length - 1];
+    let launched = list.filter(b => b.kind === 'launched');
+    if (launched.length > 0) labelled = launched[launched.length - 1];
+
+    for (let b of list) {
+        let ex = orbitExtremes(b.trail);
+        orbitMarks.push({ apo: ex.apo, peri: ex.peri, col: b.col, label: b === labelled });
     }
 
 }
@@ -793,16 +1067,33 @@ function updateCamera() {
         targetScale = min((width - 2 * margin) / spreadX, (height - 2 * margin) / spreadY);
     };
 
-    const fitWide = () => {
-        let minX = -earthR, maxX = earthR, minY = -earthR, maxY = earthR;
-        const include = (b) => {
-            if (!b) return;
-            minX = min(minX, b.minX); maxX = max(maxX, b.maxX);
-            minY = min(minY, b.minY); maxY = max(maxY, b.maxY);
+    // the surface-removed scene: the slingshot plus everything the balls have
+    // covered so far, with the extent of every complete orbit blended in
+    // over time, so the view opens out gradually to hold all of it
+    const fitGhostScene = () => {
+        let base = {
+            minX: min(towerTop.x, towerBase.x, dropArmEnd.x),
+            maxX: max(towerTop.x, towerBase.x, dropArmEnd.x),
+            minY: min(towerTop.y, towerBase.y, dropArmEnd.y),
+            maxY: max(towerTop.y, towerBase.y, dropArmEnd.y)
         };
-        include(shotBounds || lastShotBounds);
-        include(aimBounds);
-        fitBox(minX, maxX, minY, maxY);
+        let box = { ...base };
+        const include = (b) => {
+            box.minX = min(box.minX, b.minX); box.maxX = max(box.maxX, b.maxX);
+            box.minY = min(box.minY, b.minY); box.maxY = max(box.maxY, b.maxY);
+        };
+        if (shotBounds) include(shotBounds);
+        if (ghostFit) {
+            let e = constrain(flightFrames / 1500, 0, 1);
+            e = e * e * (3 - 2 * e);
+            include({
+                minX: lerp(base.minX, min(base.minX, ghostFit.minX), e),
+                maxX: lerp(base.maxX, max(base.maxX, ghostFit.maxX), e),
+                minY: lerp(base.minY, min(base.minY, ghostFit.minY), e),
+                maxY: lerp(base.maxY, max(base.maxY, ghostFit.maxY), e)
+            });
+        }
+        fitBox(box.minX, box.maxX, box.minY, box.maxY);
     };
 
     // just the flown trajectory (plus the tower), not the whole planet
@@ -828,10 +1119,19 @@ function updateCamera() {
     };
 
     let inFlight = (shotState === 'flying' || shotState === 'done');
-    let chase = inFlight && !ghostMode &&
+    let ghostScene = shotState === 'ghostrun' || (shotState === 'done' && ghostRunMode);
+    let chase = inFlight && !ghostScene &&
         (shotState === 'flying' || donePhase === 'linger');
 
-    if (chase) {
+    if (ghostScene) {
+
+        // start on the slingshot and drift out, very slowly at first, to a
+        // view holding the whole of every orbit alongside the slingshot
+        fitGhostScene();
+        posLerp = scaleLerp = 0.05;
+        rotLerp = 0.03;
+
+    } else if (chase) {
 
         // chase cam: the ball's 'down' stays screen-down; keep the ball and
         // the ground beneath it in view, with the ball locked to centre
@@ -853,23 +1153,14 @@ function updateCamera() {
 
     } else if (inFlight) {
 
-        // ghost runs show the whole planet; landed shots relax out to just
-        // the flown trajectory
-        if (ghostMode) {
-            fitWide();
-        } else {
-            fitTrajectory();
-            posLerp = scaleLerp = rotLerp = 0.02;
-        }
+        // landed shots relax out to just the flown trajectory
+        fitTrajectory();
+        posLerp = scaleLerp = rotLerp = 0.02;
 
     } else if (wideReady) {
 
         // re-armed after a shot: hold the post-shot view until the next upgrade
-        if (ghostMode) {
-            fitWide();
-        } else {
-            fitTrajectory();
-        }
+        fitTrajectory();
 
     } else {
 
@@ -919,6 +1210,23 @@ function updateCamera() {
     }
     cam.rot += d * rotLerp;
 
+    // however relaxed the glide, no ball (nor the slingshot) may leave the screen
+    if (ghostScene) {
+        let c = Math.cos(cam.rot), sn = Math.sin(cam.rot);
+        let m = height * 0.06;
+        let needed = Infinity;
+        let pts = balls.filter(b => !b.landed).map(b => b.pos).concat([towerTop]);
+        for (let p of pts) {
+            let dx = p.x - cam.x, dy = p.y - cam.y;
+            let rx = dx * c - dy * sn;
+            let ry = dx * sn + dy * c;
+            needed = min(needed,
+                (width / 2 - m) / max(abs(rx), 1),
+                (height / 2 - m) / max(abs(ry), 1));
+        }
+        cam.scale = min(cam.scale, needed);
+    }
+
 }
 
 function slingWorldToScreen(x, y) {
@@ -958,6 +1266,8 @@ function draw() {
         }
     } else if (shotState === 'flying') {
         updateFlight();
+    } else if (shotState === 'ghostrun') {
+        updateGhostRun();
     } else if (shotState === 'done') {
         // the finished shot stays on screen until the state changes (the
         // reader scrolls back, or on to the next upgrade); only ghost runs
@@ -1055,7 +1365,9 @@ function draw() {
         textFont("menlo");
         textSize(12 / cam.scale);
         textAlign(CENTER, BOTTOM);
-        text(ball.timer, 0, -(ballRadius + 4));
+        if (!ghostRunMode || ball.kind === 'drop') {
+            text(ball.timer, 0, -(ballRadius + 4));
+        }
         if (ball.kind === 'primary') {
             textAlign(CENTER, TOP);
             text("alt " + max(0, round(ball.pos.mag() - earthR)), 0, ballRadius + 6);
@@ -1063,54 +1375,15 @@ function draw() {
         pop();
     }
 
-    // projected path while aiming in ghost mode — but not on the first
-    // surface-removed launch, which should be a surprise
-    aimBounds = null;
-    if (ghostMode && ghostShotsFired > 0 && draggingSling && pullDist > 4) {
-
-        let m = makeBall(slingRelease, launchDir.copy().mult(releaseSpeed()), dropColorSling, 0, 'projection');
-
-        let points = [slingRelease.copy()];
-        let swept = 0;
-        let prevAngle = slingRelease.heading();
-
-        for (let i = 0; i < 7000 && abs(swept) < TAU * 0.999; i++) {
-
-            stepBall(m);
-
-            let a = m.pos.heading();
-            let d = a - prevAngle;
-            if (d > PI) d -= TAU;
-            if (d < -PI) d += TAU;
-            swept += d;
-            prevAngle = a;
-
-            if (i % 12 == 0) {
-                points.push(m.pos.copy());
-            }
+    if (shotState === 'flying' || shotState === 'ghostrun') {
+        let labelled = balls.find(b => b.kind === 'primary') ||
+            balls.filter(b => b.kind === 'launched').pop() || dropBallOf();
+        for (let ball of balls) {
+            if (!ball.landed) drawBallArrows(ball, ball === labelled);
         }
-
-        stroke(255, 110);
-        strokeWeight(1.5 / cam.scale);
-        drawingContext.setLineDash([4 / cam.scale, 10 / cam.scale]);
-        noFill();
-
-        beginShape();
-        for (let p of points) {
-            vertex(p.x, p.y);
-            if (!aimBounds) {
-                aimBounds = { minX: p.x, maxX: p.x, minY: p.y, maxY: p.y };
-            } else {
-                aimBounds.minX = min(aimBounds.minX, p.x);
-                aimBounds.maxX = max(aimBounds.maxX, p.x);
-                aimBounds.minY = min(aimBounds.minY, p.y);
-                aimBounds.maxY = max(aimBounds.maxY, p.y);
-            }
-        }
-        endShape();
-
-        drawingContext.setLineDash([]);
     }
+
+    drawOrbitMarks();
 
     // slingshot fork (rotated 90°, attached to the tower)
     stroke("#b98157");
@@ -1141,26 +1414,120 @@ function draw() {
 
     }
 
-    if (canRegrab()) {
-        stroke("#ffffff");
-        strokeWeight(2);
-        line(prongUp.x, prongUp.y, slingRelease.x, slingRelease.y);
-        line(prongDn.x, prongDn.y, slingRelease.x, slingRelease.y);
-        noStroke();
-        fill(stageColors[stage]);
-        circle(slingRelease.x, slingRelease.y, ballRadius * 2);
-    }
-
     pop();
 
     drawHud();
 
 }
 
+const ARROW_GRAV_PX = 70; // screen length of a surface-gravity arrow
+const ARROW_VEL_PX = 90; // screen length of a circular-orbit-speed arrow
+
+// gravity, velocity and the net force (here, just gravity) for a flying ball,
+// in the rocket sketch's tip-to-tip style; lengths are in screen pixels, in
+// proportion to the real quantities, so they stay readable at any zoom
+function drawBallArrows(ball, labelled) {
+
+    let k = 1 / cam.scale;
+    let fade = ball.alpha / 255;
+    let pos = ball.pos;
+    let r = max(pos.mag(), 1);
+
+    let g = r >= earthR ? mu / (r * r) : mu * r / (earthR * earthR * earthR);
+    let gravity = pos.copy().mult(-1 / r).mult(g / surfaceG * ARROW_GRAV_PX * k);
+
+    let h = 0.05;
+    let vel = p5.Vector.sub(segmentPositionAt(ball.seg, ball.t + h), segmentPositionAt(ball.seg, ball.t)).div(h);
+    vel.mult(ARROW_VEL_PX / vCircular * k);
+
+    let gravCol = color(163, 255, 255, 255 * fade);
+    let velCol = color(255, 51, 171, 255 * fade);
+    let netCol = color(255, 255, 255, 255 * fade);
+
+    let gravTip = p5.Vector.add(pos, gravity);
+    let velTip = p5.Vector.add(pos, vel);
+    let netTip = p5.Vector.add(velTip, gravity);
+
+    drawFatArrow(pos, gravTip, gravCol, 2 * k, 9 * k, 9 * k);
+    drawFatArrow(pos, velTip, velCol, 2 * k, 9 * k, 9 * k);
+    drawFatArrow(velTip, netTip, netCol, 3 * k, 11 * k, 11 * k);
+
+    drawingContext.setLineDash([3 * k, 8 * k]);
+    stroke(255, 120 * fade);
+    strokeWeight(2 * k);
+    line(gravTip.x, gravTip.y, netTip.x, netTip.y);
+    drawingContext.setLineDash([]);
+
+    if (labelled) {
+        let labels = [["gravity", gravTip, gravCol], ["velocity", velTip, velCol], ["net force", netTip, netCol]];
+        textFont("menlo");
+        textSize(12 * k);
+        textAlign(LEFT, CENTER);
+        noStroke();
+        for (let [label, tip, col] of labels) {
+            push();
+            translate(tip.x, tip.y);
+            rotate(-cam.rot);
+            fill(col);
+            text(label, 10 * k, 0);
+            pop();
+        }
+    }
+
+}
+
+function drawOrbitMarks() {
+
+    let k = 1 / cam.scale;
+
+    for (let m of orbitMarks) {
+
+        let kinds = [["apogee", m.apo], ["perigee", m.peri]];
+
+        for (let [label, points] of kinds) {
+            for (let p of points) {
+                noFill();
+                stroke(255, 230);
+                strokeWeight(1.5 * k);
+                circle(p.x, p.y, 14 * k);
+
+                if (m.label) {
+                    push();
+                    translate(p.x, p.y);
+                    rotate(-cam.rot);
+                    noStroke();
+                    fill(255);
+                    textFont("menlo");
+                    textSize(12 * k);
+                    textAlign(LEFT, CENTER);
+                    text(label, 12 * k, 0);
+                    pop();
+                }
+            }
+        }
+    }
+
+}
+
 function getFFButton() {
-    let w = min(230, width * 0.45);
-    let h = 44;
-    return { x: width - w - 12, y: height - h - 12, w: w, h: h };
+    let w = 96;
+    let h = 64;
+    return { x: width - w - 14, y: height - h - 14, w: w, h: h };
+}
+
+// the play button for the surface-removed scenes: bottom centre, only
+// while a scene is waiting to be played
+function playButtonLabel() {
+    if (shotState !== 'ready' || !ghostMode) return null;
+    let phase = GHOST_PHASES[simState];
+    if (phase === 1) return "Follow the dropped ball";
+    if (phase === 3) return "Follow every launch";
+    return null;
+}
+
+function getPlayButton() {
+    let r = 34;
+    return { x: width / 2, y: height - r - 22, r: r };
 }
 
 function drawHud() {
@@ -1185,13 +1552,13 @@ function drawHud() {
         fill(255, 200);
         let hint;
         if (ghostMode) {
-            hint = "Balls now fall through the Earth.\nDrag the slingshot ball left and release.";
+            hint = null;
         } else if (wideReady) {
             hint = "Drag the slingshot ball left and release.\nKeep reading to upgrade the slingshot.";
         } else {
             hint = "Drag the slingshot ball left and release.";
         }
-        text(hint, width / 2, 14);
+        if (hint) text(hint, width / 2, 14);
     }
 
     if (upgradeMessageTimer > 0) {
@@ -1201,17 +1568,36 @@ function drawHud() {
         text(upgradeMessage, width / 2, 44);
     }
 
+    // fast-forward: a double triangle, held down
     let b = getFFButton();
     stroke(255, fastForward ? 220 : 90);
     strokeWeight(2);
     fill(255, fastForward ? 60 : 15);
-    rect(b.x, b.y, b.w, b.h, 10);
+    rect(b.x, b.y, b.w, b.h, 12);
 
     noStroke();
-    fill(255, fastForward ? 255 : 170);
-    textAlign(CENTER, CENTER);
-    textSize(14);
-    text("≫ hold: fast-forward", b.x + b.w / 2, b.y + b.h / 2);
+    fill(255, fastForward ? 255 : 190);
+    let cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    let th = 26, tw = 22;
+    triangle(cx - tw, cy - th / 2, cx - tw, cy + th / 2, cx, cy);
+    triangle(cx, cy - th / 2, cx, cy + th / 2, cx + tw, cy);
+
+    let playLabel = playButtonLabel();
+    if (playLabel) {
+        let pb = getPlayButton();
+        stroke(255, 200);
+        strokeWeight(2);
+        fill(255, 40);
+        circle(pb.x, pb.y, pb.r * 2);
+        noStroke();
+        fill(255);
+        triangle(pb.x - pb.r * 0.28, pb.y - pb.r * 0.42,
+            pb.x - pb.r * 0.28, pb.y + pb.r * 0.42,
+            pb.x + pb.r * 0.5, pb.y);
+        textAlign(CENTER, BOTTOM);
+        textSize(13);
+        text(playLabel, pb.x, pb.y - pb.r - 8);
+    }
 
 }
 
@@ -1229,10 +1615,10 @@ function pointerOnFFButton() {
         mouseY >= b.y && mouseY <= b.y + b.h;
 }
 
-// surface-removed runs are free play: once a run has finished its camera
-// move, the sling can be grabbed again
-function canRegrab() {
-    return shotState === 'done' && ghostMode && donePhase === 'zoomout' && doneTimer <= 0;
+function pointerOnPlayButton() {
+    if (!playButtonLabel()) return false;
+    let pb = getPlayButton();
+    return dist(mouseX, mouseY, pb.x, pb.y) <= pb.r + 6;
 }
 
 function mousePressed() {
@@ -1242,16 +1628,16 @@ function mousePressed() {
         return false;
     }
 
-    let w = pointerWorld();
-    let grabRadius = max(30, 30 / cam.scale);
-
-    if (canRegrab()) {
-        if (p5.Vector.dist(w, slingRelease) < grabRadius) {
-            finalizeShot();
-            draggingSling = true;
-        }
+    if (pointerOnPlayButton()) {
+        startGhostRunFromButton();
         return false;
     }
+
+    // surface-removed scenes are played, not launched
+    if (ghostMode) return false;
+
+    let w = pointerWorld();
+    let grabRadius = max(30, 30 / cam.scale);
 
     if (shotState !== 'ready') return false;
 

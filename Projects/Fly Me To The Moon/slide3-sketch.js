@@ -272,6 +272,7 @@ function setup() {
     gravLights = true;
     showTrajectory = false; // switched on by the essay state
     showTrajectoryDescription = true;
+    showArrows = true;
 
     moonEnabled = false;
 

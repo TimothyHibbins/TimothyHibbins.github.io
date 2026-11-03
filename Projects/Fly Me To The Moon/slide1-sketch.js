@@ -1,7 +1,11 @@
 // the gravity light switches on only for the essay unit that explains it
+// and the force arrows appear from "Falling in Style" onwards
 window.onEssayLineActive = function (data) {
     gravLights = !!data && data.state === 'gravity';
+    showArrows = !!data && data.section >= 1;
 };
+
+let overshotPosted = false;
 
 function setup() {
 
@@ -95,6 +99,16 @@ function draw() {
             bodies[1].pos = moonOrbit[T % moonOrbit.length].copy();
 
             ship.update();
+
+            if (T < 2) overshotPosted = false;
+
+            // flying past the far edge of the Moon's hill sphere: overshot
+            if (launched && !overshotPosted &&
+                p5.Vector.dist(ship.posHistory[T], bodies[0].pos) >
+                p5.Vector.dist(bodies[1].pos, bodies[0].pos) + moonHillSphereRadius) {
+                overshotPosted = true;
+                window.parent.postMessage({ type: "overshot" }, "*");
+            }
 
             if (launched) {
 

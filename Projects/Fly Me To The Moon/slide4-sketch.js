@@ -78,6 +78,7 @@ function setup() {
     gravLights = true;
     showTrajectory = true;
     showTrajectoryDescription = true;
+    showArrows = true;
 
     impulse.available = true;
     impulse.exclusive = true;

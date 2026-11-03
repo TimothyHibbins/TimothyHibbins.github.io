@@ -87,6 +87,9 @@ window.addEventListener('message', (event) => {
 // timeline scrubbing (click/drag or touch over the timeline strip)
 // only interactive in sketches that actually call drawTimeline()
 let timelineEnabled = false;
+// the timeline is hidden everywhere for now; with it off, nothing reserves
+// the strip at the bottom of the screen (camera, joystick, scrubbing)
+const TIMELINE_VISIBLE = false;
 let timelineScrub = {
     active: false,
     lastX: 0,
@@ -880,7 +883,9 @@ class Ship {
 
         let offset = this.length / 2;
 
-        if (showTrajectoryDescription) {
+        // the trajectory type only means something once the projected
+        // trajectory itself is on screen
+        if (showTrajectoryDescription && showTrajectory) {
             this.drawTrajectoryDescription(pos, offset);
         }
 
@@ -2309,6 +2314,8 @@ function drawPlayBack() {
 }
 
 function drawTimeline() {
+
+    if (!TIMELINE_VISIBLE) return;
 
     timelineEnabled = true;
 
