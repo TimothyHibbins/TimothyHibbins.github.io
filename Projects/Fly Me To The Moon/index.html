@@ -10,8 +10,8 @@
 </head>
 <style>
     :root {
-        --essay-height: 33.33vh;
-        --essay-height: 33.33dvh;
+        --essay-height: 25vh;
+        --essay-height: 25dvh;
         --accent: #ff00b3;
     }
 
@@ -36,7 +36,7 @@
         inset: 0;
     }
 
-    /* Essay pane: top third, continuously scrollable */
+    /* Essay pane: top quarter, continuously scrollable */
     #essayPane {
         position: fixed;
         top: 0;
@@ -91,6 +91,11 @@
         margin-left: 13px;
     }
 
+    /* first-time reading: nothing beyond the furthest unit reached */
+    #essayContent .locked {
+        display: none !important;
+    }
+
     /* units sit flush against one another; only the highlight separates them */
     #essayContent p,
     #essayContent ul {
@@ -104,7 +109,7 @@
         margin-bottom: 0.2em;
     }
 
-    /* Simulation pane: bottom two thirds */
+    /* Simulation pane: the rest, below the essay */
     #simPane {
         position: fixed;
         top: var(--essay-height);
@@ -135,44 +140,6 @@
         pointer-events: none;
     }
 
-    /* floating essay scroll control over the sim pane (touch devices only);
-       lives in the parent DOM so sim switches never affect it */
-    #essayScroller {
-        position: fixed;
-        right: 10px;
-        bottom: 20px;
-        width: 56px;
-        height: min(40vh, 420px);
-        z-index: 7;
-        display: none;
-        flex-direction: column;
-        justify-content: space-between;
-        align-items: center;
-        padding: 14px 0;
-        box-sizing: border-box;
-        touch-action: none;
-        -webkit-user-select: none;
-        user-select: none;
-        border: 2px solid rgba(255, 255, 255, 0.3);
-        background: rgba(255, 255, 255, 0.07);
-        border-radius: 28px;
-        color: rgba(255, 255, 255, 0.5);
-        font-size: 20px;
-        line-height: 1;
-        transition: background-color 0.15s, border-color 0.15s;
-    }
-
-    #essayScroller.dragging {
-        border-color: rgba(255, 255, 255, 0.75);
-        background: rgba(255, 255, 255, 0.18);
-        color: rgba(255, 255, 255, 0.9);
-    }
-
-    #essayScroller .grip {
-        letter-spacing: 0;
-        font-size: 16px;
-    }
-
     #fullscreenBtn {
         position: fixed;
         right: 12px;
@@ -193,24 +160,49 @@
         opacity: 1;
     }
 
-    /* advances the essay when the next unit isn't triggered by the simulation */
+    /* round control at the corner of the simulation's control ring: tap to
+       advance to the next unit (when there is one), or drag anywhere to
+       scroll the essay; positioned from the ring's geometry in script */
     #nextBtn {
         position: fixed;
-        right: 64px;
-        top: calc(var(--essay-height) + 12px);
         z-index: 6;
-        padding: 8px 16px;
-        font-size: 14px;
-        border: 1px solid rgba(255, 255, 255, 0.5);
-        background-color: #00000099;
-        color: rgba(255, 255, 255, 0.95);
-        border-radius: 5px;
-        cursor: pointer;
-        display: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        background-color: rgba(255, 255, 255, 0.07);
+        color: rgba(255, 255, 255, 0.5);
+        border-radius: 50%;
+        font-family: "Menlo", monospace;
+        cursor: grab;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        transition: background-color 0.15s, border-color 0.15s, color 0.15s;
     }
 
     #nextBtn.available {
-        display: block;
+        border-color: rgba(255, 255, 255, 0.7);
+        background-color: rgba(255, 255, 255, 0.16);
+        color: rgba(255, 255, 255, 0.95);
+    }
+
+    #nextBtn.dragging {
+        cursor: grabbing;
+        border-color: rgba(255, 255, 255, 0.9);
+    }
+
+    #nextBtn .nextLabel {
+        display: none;
+    }
+
+    #nextBtn.available .nextLabel {
+        display: inline;
+    }
+
+    #nextBtn.available .nextGlyph {
+        display: none;
     }
 
     /* revealed paragraphs fade in, then follow the same dimming as every
@@ -471,6 +463,13 @@
         color: white;
     }
 
+    /* desktop: the text takes half the screen width */
+    @media (min-width: 701px) {
+        #essayContent {
+            max-width: 50vw;
+        }
+    }
+
     /* mobile: use the full width and scale typography down */
     @media (max-width: 700px) {
         #essayContent {
@@ -567,6 +566,23 @@
             <span class="color-btn-label">Light mode background color: Financial Times</span>
             <div class="color-swatch" style="background-color: #FFF1E5;"></div>
         </button>
+        <div class="menu-separator"></div>
+        <button class="theme-btn" id="unlockEssayBtn" onclick="unlockEssay()" title="Unlock the whole essay">
+            <span class="theme-btn-label">Unlock the whole essay</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-svg">
+                <rect x="4" y="11" width="16" height="10" rx="2"></rect>
+                <path d="M8 11V7a4 4 0 0 1 7.5-2"></path>
+            </svg>
+        </button>
+        <button class="theme-btn" id="resetEssayBtn"
+            onclick="if (confirm('Forget your progress and start the essay again?')) resetEssayProgress()"
+            title="Reset the essay's memory">
+            <span class="theme-btn-label">Reset essay progress</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-svg">
+                <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                <polyline points="3 4 3 9 8 9"></polyline>
+            </svg>
+        </button>
     </div>
 
     <div id="essayPane">
@@ -634,7 +650,7 @@
 
 
                 <div id="log">
-                    <p class="message" data-event="earthCrash" hidden>
+                    <p class="message" data-optional data-event="earthCrash" hidden>
                         Ouch! You crashed. Well, don't feel bad–what I didn't mention is that even in this simplified
                         simulation,
                         its not
@@ -651,7 +667,7 @@
                         this first time trying.
                     </p>
 
-                    <p class="message" data-event="moonCrash" hidden>
+                    <p class="message" data-optional data-event="moonCrash" hidden>
                         Well... you did certainly <em>reach</em> the Moon, at least! Maybe not in one piece, but still,
                         that's
                         gotta
@@ -666,7 +682,7 @@
                         (survivable) spaceflight, read on.
                     </p>
 
-                    <p class="message" data-event="moonLanding" hidden>Woah, well done! Either you're really smart,
+                    <p class="message" data-optional data-event="moonLanding" hidden>Woah, well done! Either you're really smart,
                         really
                         lucky, or you've done this before. Regardless,
                         read
@@ -677,7 +693,7 @@
                         much further afield.
                     </p>
 
-                    <p class="message" data-event="overshot" hidden>Looks like you may have overshot! You can try to
+                    <p class="message" data-optional data-event="overshot" hidden>Looks like you may have overshot! You can try to
                         recover, reset to have another go, or read on to
                         learn the secrets of spaceflight that will make your next attempt perfect.</p>
                 </div>
@@ -885,7 +901,7 @@
                     What direction should we fire
                     the rocket to achieve this?</p>
 
-                <p class="message" data-event="firedUp" data-state="firedUp" hidden>It is intuitive to fire 'up', since
+                <p class="message" data-optional data-event="firedUp" data-state="firedUp" hidden>It is intuitive to fire 'up', since
                     we want to gain
                     altitude. But remember, we didn't achieve orbit
                     in
@@ -991,21 +1007,18 @@
     </div>
 
     <div id="simPane">
-        <iframe class="sim" src="slide1-sketch.html?v=20261102m"></iframe>
-        <iframe class="sim hiddenSim" src="slingshot-sketch.html?v=20261102m"></iframe>
-        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261102m"></iframe>
-        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261102m&mode=free"></iframe>
-        <iframe class="sim hiddenSim" src="slide4-sketch.html?v=20261102m"></iframe>
-    </div>
-
-    <div id="essayScroller" aria-hidden="true">
-        <span>∧</span>
-        <span class="grip">⋮</span>
-        <span>∨</span>
+        <iframe class="sim" src="slide1-sketch.html?v=20261103f"></iframe>
+        <iframe class="sim hiddenSim" src="slingshot-sketch.html?v=20261103f"></iframe>
+        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261103f"></iframe>
+        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261103f&mode=free"></iframe>
+        <iframe class="sim hiddenSim" src="slide4-sketch.html?v=20261103f"></iframe>
     </div>
 
     <button id="fullscreenBtn" onclick="toggleFullscreen()">⛶</button>
-    <button id="nextBtn" type="button">Next</button>
+    <div id="nextBtn" role="button" aria-label="Next" tabindex="-1">
+        <span class="nextLabel">Next</span>
+        <span class="nextGlyph">⇅</span>
+    </div>
 
 
     <script>
@@ -1029,9 +1042,40 @@
         let activeLine = null;
         let activeFrameIndex = 0;
 
+        // every text unit in document order, including unrevealed and locked ones
+        function allUnits() {
+            return Array.from(essayContent.querySelectorAll('h1, h2, p, li'))
+                .filter(el => el.textContent.trim().length > 0);
+        }
+
+        // Reading progress. First time through, only units up to the furthest
+        // one reached exist; once unlocked, the whole essay is there.
+        let frontier = 0;
+        let unlocked = false;
+
+        function applyLocks() {
+            allUnits().forEach((el, i) => {
+                el.classList.toggle('locked', !unlocked && i > frontier);
+            });
+        }
+
+        // make everything up to and including this unit readable
+        // make everything up to and including this unit readable; a heading
+        // brings the unit beneath it along
+        function reachUnit(el) {
+            const all = allUnits();
+            let i = all.indexOf(el);
+            if (i < 0) return;
+            while (/^H[12]$/.test(all[i].tagName) && i + 1 < all.length && !all[i + 1].hidden) i++;
+            if (i > frontier) {
+                frontier = i;
+                applyLocks();
+            }
+        }
+
         function collectLines() {
-            lines = Array.from(essayContent.querySelectorAll('h1, h2, p, li'))
-                .filter(el => !el.hidden && el.textContent.trim().length > 0);
+            applyLocks();
+            lines = allUnits().filter(el => !el.hidden && !el.classList.contains('locked'));
             lines.forEach((el, i) => {
                 el.classList.add('essay-line');
                 el.dataset.unit = i; // numerical code shown as a debugging aid
@@ -1183,15 +1227,23 @@
         //
 
         const nextBtn = document.getElementById('nextBtn');
-        nextBtn.textContent = isTouchDevice ? 'Next' : 'Next ↵';
+        if (!isTouchDevice) nextBtn.title = 'Next (Enter)';
 
         function nextUnit() {
-            const all = Array.from(essayContent.querySelectorAll('h1, h2, p, li'))
-                .filter(el => el.textContent.trim().length > 0);
+            const all = allUnits();
             const i = all.indexOf(activeLine);
-            if (i < 0 || i >= all.length - 1) return null;
+            if (i < 0) return null;
+
+            if (unlocked) {
+                // everything is there to read: skip outcomes that never happened
+                for (let j = i + 1; j < all.length; j++) {
+                    if (!all[j].hidden) return all[j];
+                }
+                return null;
+            }
+
             const next = all[i + 1];
-            return next.hidden ? null : next;
+            return next && !next.hidden ? next : null;
         }
 
         function updateNextButton() {
@@ -1201,50 +1253,66 @@
         function advanceToNextUnit() {
             const next = nextUnit();
             if (!next) return false;
+            reachUnit(next);
+            collectLines();
             scrollLineToFocus(next);
             setActiveLine(next);
             activeLineLockUntil = Date.now() + 700;
             return true;
         }
 
-        nextBtn.addEventListener('click', () => {
-            advanceToNextUnit();
-            nextBtn.blur(); // so Enter doesn't also click the focused button
-        });
+        // The control sits at the top-right corner of the simulation's control
+        // ring, whose geometry (radius, centred horizontally, 12px off the
+        // bottom) is defined by getJoystickGeometry() in shared.js.
+        function positionNextBtn() {
+            const pane = document.getElementById('simPane').getBoundingClientRect();
+            const ringR = Math.min(pane.width, pane.height) / 5.5;
+            const size = ringR * 0.64;
+            const ringX = isTouchDevice ? pane.left + pane.width / 2 : pane.left + pane.width - ringR * 1.4 - 12;
+            const cx = ringX + ringR;
+            const cy = pane.bottom - 12 - 2 * ringR;
+            nextBtn.style.width = nextBtn.style.height = size + 'px';
+            nextBtn.style.left = (cx - size / 2) + 'px';
+            nextBtn.style.top = (cy - size / 2) + 'px';
+            nextBtn.style.fontSize = Math.max(10, size * 0.28) + 'px';
+        }
 
-        //
-        // Floating essay scroll control (touch devices): a parent-DOM overlay,
-        // independent of the simulations, so sim switches can't disturb it
-        //
+        positionNextBtn();
+        window.addEventListener('resize', positionNextBtn);
+        document.addEventListener('fullscreenchange', positionNextBtn);
 
-        // hidden for now on touch devices too: the Next button replaces it
-        const essayScroller = document.getElementById('essayScroller');
+        // Tap to advance; drag (the pointer is captured, so it needn't stay
+        // over the button) to scroll the essay.
+        let nextDrag = null;
 
-        let scrollerLastY = null;
-
-        essayScroller.addEventListener('pointerdown', (e) => {
-            scrollerLastY = e.clientY;
+        nextBtn.addEventListener('pointerdown', (e) => {
+            nextDrag = { lastY: e.clientY, moved: 0 };
             try {
-                essayScroller.setPointerCapture(e.pointerId);
+                nextBtn.setPointerCapture(e.pointerId);
             } catch (err) { /* keep working even if capture isn't available */ }
-            essayScroller.classList.add('dragging');
+            nextBtn.classList.add('dragging');
             e.preventDefault();
         });
 
-        essayScroller.addEventListener('pointermove', (e) => {
-            if (scrollerLastY === null) return;
-            const dy = e.clientY - scrollerLastY;
-            scrollerLastY = e.clientY;
+        nextBtn.addEventListener('pointermove', (e) => {
+            if (!nextDrag) return;
+            const dy = e.clientY - nextDrag.lastY;
+            nextDrag.lastY = e.clientY;
+            nextDrag.moved += Math.abs(dy);
             // natural touch-scroll direction with some leverage
             essayPane.scrollTop -= dy * 2.5;
         });
 
-        for (const t of ['pointerup', 'pointercancel']) {
-            essayScroller.addEventListener(t, () => {
-                scrollerLastY = null;
-                essayScroller.classList.remove('dragging');
-            });
-        }
+        nextBtn.addEventListener('pointerup', () => {
+            if (nextDrag && nextDrag.moved < 6) advanceToNextUnit();
+            nextDrag = null;
+            nextBtn.classList.remove('dragging');
+        });
+
+        nextBtn.addEventListener('pointercancel', () => {
+            nextDrag = null;
+            nextBtn.classList.remove('dragging');
+        });
 
         //
         // Messages from the simulations
@@ -1284,8 +1352,9 @@
             if (!alreadyShown) {
                 msg.hidden = false;
                 msg.dataset.shown = 'true';
-                collectLines();
             }
+            reachUnit(msg);
+            collectLines();
 
             // activate the revealed unit directly — don't depend on the scroll
             // animation and its events to get there
@@ -1307,9 +1376,16 @@
             try {
                 localStorage.setItem(BOOKMARK_KEY, JSON.stringify({
                     line: lines.indexOf(activeLine),
-                    revealed: revealed
+                    revealed: revealed,
+                    frontier: frontier,
+                    unlocked: unlocked
                 }));
             } catch (e) { /* storage unavailable */ }
+        }
+
+        function revealMessage(msg) {
+            msg.hidden = false;
+            msg.dataset.shown = 'true';
         }
 
         function restoreBookmark() {
@@ -1321,18 +1397,46 @@
 
             for (const ev of bm.revealed || []) {
                 const msg = document.querySelector(`.message[data-event="${ev}"]:not([data-shown])`);
-                if (msg) {
-                    msg.hidden = false;
-                    msg.dataset.shown = 'true';
-                }
+                if (msg) revealMessage(msg);
             }
+
+            unlocked = !!bm.unlocked;
+            frontier = Math.max(frontier, Number.isInteger(bm.frontier) ? bm.frontier : 0);
+            // a bookmark from before progress was tracked: everything is open
+            if (!Number.isInteger(bm.frontier)) unlocked = true;
             collectLines();
 
             const el = lines[Math.min(Math.max(bm.line || 0, 0), lines.length - 1)];
             if (el) {
+                reachUnit(el);
                 const r = el.getBoundingClientRect();
                 essayPane.scrollTop += r.top + r.height / 2 - focalY();
             }
+        }
+
+        // Settings: forget all progress (the essay returns to first-time
+        // reading, with the simulations reset), or open the whole essay up as
+        // if it had been completed. Outcomes that are only alternatives to
+        // the main path (data-optional) stay out until they actually happen.
+        function resetEssayProgress() {
+            try { localStorage.removeItem(BOOKMARK_KEY); } catch (e) { /* ignore */ }
+            location.reload();
+        }
+
+        function unlockEssay() {
+            if (unlocked) return;
+            unlocked = true;
+
+            const anchor = activeLine;
+            const before = anchor ? anchor.getBoundingClientRect().top : 0;
+
+            document.querySelectorAll('.message:not([data-optional])').forEach(revealMessage);
+            collectLines();
+
+            if (anchor) {
+                essayPane.scrollTop += anchor.getBoundingClientRect().top - before;
+            }
+            saveBookmark();
         }
 
         //
@@ -1563,6 +1667,7 @@
             try { localStorage.clear(); } catch (e) { /* ignore */ }
         }
 
+        reachUnit(allUnits()[0]);
         collectLines();
         restoreBookmark();
         updateActiveLine();

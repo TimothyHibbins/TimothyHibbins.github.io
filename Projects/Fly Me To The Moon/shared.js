@@ -55,20 +55,13 @@ Finished features:
 */
 
 const KEYS = 'keys';
-const MOUSE = 'mouse'
-const TOUCH = 'touch';
+const TOUCH = 'touch'; // the on-screen control ring (pressed with a finger or the mouse)
 let controlMode = KEYS;
 
 const TIMELINE_FRAMES_PER_PIXEL = 5;
 
-// true while a press that started inside the virtual joystick is held
+// true while a press that started inside the control ring is held
 let joystickActive = false;
-
-// user-chosen joystick position (null = default: center of the screen)
-let joystickPos = null;
-
-// offset vector while the reposition handle is being dragged, false otherwise
-let joystickHandleDrag = false;
 
 // info about the essay's currently active line, sent by the parent essay page;
 // sketches can define window.onEssayLineActive(data) to react to changes
@@ -164,6 +157,42 @@ let polarImg;
 
 let stars = [];
 
+// The one sky shared by every sketch, so stars sit at the same scale relative
+// to the Earth everywhere. Positions and sizes are generated in Earth radii
+// (a seeded generator keeps it identical each time) and scaled to the sketch's
+// own Earth radius. Sizes match the rocket sketches' 0.3–3.5 units at R = 100.
+const STAR_FIELD_HALF_EXTENT = 12; // in Earth radii
+const STAR_FIELD_DENSITY = 13; // stars per square Earth radius
+
+function generateStarField(earthRadius) {
+
+    let seed = 20240607;
+    const rand = () => {
+        seed = (seed + 0x6D2B79F5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+
+    let n = round(STAR_FIELD_DENSITY * sq(2 * STAR_FIELD_HALF_EXTENT));
+    let unit = earthRadius / 100;
+    let field = [];
+    for (let i = 0; i < n; i++) {
+        field.push({
+            x: (rand() * 2 - 1) * STAR_FIELD_HALF_EXTENT * earthRadius,
+            y: (rand() * 2 - 1) * STAR_FIELD_HALF_EXTENT * earthRadius,
+            brightness: 100 + rand() * 155,
+            size: (0.3 + rand() * 3.2) * unit
+        });
+    }
+    return field;
+}
+
+function generateRocketStars() {
+    return generateStarField(100).map(s =>
+        new Star(createVector(s.x, s.y), s.brightness, s.size));
+}
+
 // prerendered buffer holding the stars and moon-orbit dots, which are
 // static in world space (rebuilding them every frame is slow on mobile)
 let staticWorldBuffer = false;
@@ -171,7 +200,7 @@ let staticWorldBufferHalf = 0;
 
 function buildStaticWorldBuffer() {
 
-    let half = gridSize / 2;
+    let half = STAR_FIELD_HALF_EXTENT * 100;
     for (let p of moonOrbit) {
         half = max(half, abs(p.x) + 2, abs(p.y) + 2);
     }
@@ -203,28 +232,96 @@ function buildStaticWorldBuffer() {
 
 }
 
-// Impulse Mode: time pauses, the reader aims a burn (direction and, unless
-// the sketch fixes it, length) while the projection previews it, then locks
-// it in. The burn then plays out with time still paused, and only then does
-// the simulation resume.
-// burn length scales with how far the aim is pushed out, with no upper limit:
-// IMPULSE_FRAMES_PER_REACH frames at the reference reach (desktop: the cursor's
-// distance from the ship; touch: the circle's radius, which can be dragged past)
+// only the part of the buffer on screen is drawn, which keeps this cheap on mobile
+function drawStaticWorldBuffer() {
+
+    let half = staticWorldBufferHalf;
+    let s = camera.scaleFactor;
+    let c = camera.centredObject.pos;
+
+    let x0 = constrain(c.x - width / 2 / s - 2, -half, half);
+    let x1 = constrain(c.x + width / 2 / s + 2, -half, half);
+    let y0 = constrain(c.y - camera.visibleCenterY() / s - 2, -half, half);
+    let y1 = constrain(c.y + (height - camera.visibleCenterY()) / s + 2, -half, half);
+
+    if (x1 <= x0 || y1 <= y0) return;
+
+    image(staticWorldBuffer, x0, y0, x1 - x0, y1 - y0,
+        x0 + half, y0 + half, x1 - x0, y1 - y0);
+
+}
+
+// smoothed framerate readout, shown on touch devices to chase performance
+let fpsSmoothed = 0;
+
+function drawFpsIndicator() {
+
+    if (!isTouchDevice()) return;
+
+    let current = frameRate();
+    fpsSmoothed = fpsSmoothed ? lerp(fpsSmoothed, current, 0.05) : current;
+
+    push();
+    noStroke();
+    fill(255, 160);
+    textFont('menlo');
+    textSize(12);
+    textAlign(LEFT, BOTTOM);
+    text(round(fpsSmoothed) + " fps", 10, height - 10);
+    pop();
+
+}
+
+// Impulse Mode is what pausing becomes once it is available: time stops, the
+// reader aims a burn (direction and length) while the projection previews it,
+// then locks it in. The burn then plays out with time still paused, and only
+// then does the simulation resume.
+//
+// The control circle is a map of impulses: each point of it stands for an
+// impulse (a burn direction and length in frames), and dragging slides the map
+// so the impulse under the circle's centre is the one selected. The edge of
+// the circle is IMPULSE_FRAMES_PER_REACH frames from the centre at zoom 1
+// (pinch or scroll to zoom), and the map can be dragged without limit.
 const IMPULSE_FRAMES_PER_REACH = 40;
-const IMPULSE_FULL_REACH = 200;
+const IMPULSE_ZOOM_MIN = 0.2;
+const IMPULSE_ZOOM_MAX = 20;
+
+// frames from the centre to the edge of the circle at the current zoom
+function impulseReach() {
+    return IMPULSE_FRAMES_PER_REACH / impulse.zoom;
+}
+
+function zoomImpulseMap(factor) {
+    impulse.zoom = constrain(impulse.zoom * factor, IMPULSE_ZOOM_MIN, IMPULSE_ZOOM_MAX);
+}
+// The map is refined in stages (cells per side): the first is always ready
+// the same frame, so dragging stays responsive; the finer ones are computed in
+// slices of IMPULSE_MAP_BUDGET_MS per frame while the map holds still.
+const IMPULSE_MAP_STAGES = [8, 20, 40, 80];
+const IMPULSE_MAP_BUDGET_MS = 10;
+const IMPULSE_MAP_HORIZON = 4000;
+
+// impact speed (relative to the body) up to which a landing is safe
+const LANDING_SPEED = 0.5;
+
+const OUTCOME_PLAIN = 0;
+const OUTCOME_EARTH_ORBIT = 1;
+const OUTCOME_MOON_ORBIT = 2;
 
 let impulse = {
-    available: false, // Impulse Mode can be entered
-    exclusive: false, // ...and replaces holding to thrust (and, on touch, the joystick)
-    fixedFrames: null, // burn length when the reader only picks the direction
+    available: false, // Impulse Mode can be entered (by pausing)
+    exclusive: false, // ...and replaces holding to thrust
     phase: 'off', // 'off' | 'aiming' | 'burning'
     snapshot: null, // the ship's real future, kept while a hypothetical one is shown
     wasPaused: false,
     dir: null, // chosen burn direction (unit vector), once there is one
     frames: 0, // chosen burn length
-    pointer: null, // touch: control point, relative to the circle's centre
+    center: null, // the impulse (in frames, world axes) under the circle's centre
     dragging: false,
-    enteredByPress: false, // the touch that entered the mode doesn't also aim
+    zoom: 1, // pinch / scroll scale of the map
+    pinch: null, // distance between two fingers, while pinching
+    lastX: 0,
+    lastY: 0,
     waitForRelease: false, // a burn was locked in by a press that is still held
     burnStep: 0
 };
@@ -715,11 +812,14 @@ class Ship {
             stroke(rocketColor);
             line(surfaceIntersect.x, surfaceIntersect.y, this.apoapsis.x, this.apoapsis.y);
 
-        } else if (this.trajectoryType == 'Collision Course') {
+        } else if (this.trajectoryType == 'Safe Landing' || this.trajectoryType == 'Impact') {
 
-            text("Collision Course\n" +
-                "Time to impact: : " + round(projectionDuration / 100, 1) + " hectoframes\n" +
-                "Impact velocity: " + round(this.velHistory[T].mag() * 100, 1) + " px/hectoframe",
+            let title = this.trajectoryType == 'Safe Landing' ?
+                "Safe Landing Trajectory" : "Impact Trajectory (Too Fast To Land)";
+
+            text(title + "\n" +
+                "Time to impact: " + round(projectionDuration / 100, 1) + " hectoframes\n" +
+                "Impact velocity: " + round(this.impactSpeed * 100, 1) + " px/hectoframe",
                 pos.x + offset, pos.y - offset);
 
             // } else {
@@ -734,7 +834,7 @@ class Ship {
 
             text("Orbiting Moon\n" +
                 "Period: " + round(this.shipOrbitingMoonEndOfFirstOrbit - T / 100, 1) + " hectoframes",
-                pos.x + offset + 150, pos.y - offset);
+                pos.x + offset + 150 / camera.scaleFactor, pos.y - offset);
 
         }
     }
@@ -909,7 +1009,7 @@ class Ship {
             fuelString = round(100 * this.getFuelRemaining() / maxFuel) + "%";
         }
         fill(rocketColor);
-        text("Fuel: " + fuelString, pos.x + offset, pos.y + offset + 18);
+        text("Fuel: " + fuelString, pos.x + offset, pos.y + offset + 18 / camera.scaleFactor);
 
         // fill("#00ff22ff");
 
@@ -1045,7 +1145,7 @@ class Ship {
         // start is correct, but it is skipping over the end too
 
         outer:
-        for (let i = this.posHistory.length; (i - T < (maxProjectionFrames || moonOrbit.length)) && !(this.trajectoryType == 'Collision Course'); i++) {
+        for (let i = this.posHistory.length; (i - T < (maxProjectionFrames || moonOrbit.length)) && !this.projectionEndsInCollision(); i++) {
 
             this.posHistory.push(this.posHistory[i - 1].copy());
             this.velHistory.push(this.velHistory[i - 1].copy());
@@ -1135,7 +1235,13 @@ class Ship {
                 }
 
                 if (alt < this.length / 2) {
-                    this.trajectoryType = 'Collision Course';
+
+                    let impact = this.velHistory[i].copy();
+                    if (b == 1) {
+                        impact.sub(moonOrbitVelHistory[i % moonOrbitVelHistory.length]);
+                    }
+                    this.impactSpeed = impact.mag();
+                    this.trajectoryType = this.impactSpeed <= LANDING_SPEED ? 'Safe Landing' : 'Impact';
 
                     break outer;
                 }
@@ -1209,21 +1315,6 @@ class Ship {
                 }
             }
 
-        } else if (controlMode == MOUSE && !timelineScrub.active) {
-            let cursorPos = camera.screenToWorld(mouseX, mouseY);
-
-            cursorPos.sub(this.posHistory[T]);
-
-            // line(this.pos.x, this.pos.y, this.pos.x+(this.orientation.x*10), this.pos.y+(this.orientation.y*10))
-            // console.log(this.orientation.heading());
-
-            let angle = p5.Vector.angleBetween(this.orientationHistory[T], cursorPos);
-
-            if (angle > 0) {
-                amt = min(abs(angle), turnVel);
-            } else if (angle < 0) {
-                amt = -min(abs(angle), turnVel);
-            }
         } else if (controlMode == KEYS) {
 
             if (keyIsDown(LEFT_ARROW)) {
@@ -1243,6 +1334,10 @@ class Ship {
 
     }
 
+    projectionEndsInCollision() {
+        return this.trajectoryType == 'Safe Landing' || this.trajectoryType == 'Impact';
+    }
+
     // everything projected from T on (and the state at T that a burn changes)
     snapshotFuture() {
 
@@ -1253,6 +1348,7 @@ class Ship {
             boosting: this.boostingHistory.slice(),
             orientation: this.orientationHistory.slice(),
             trajectoryType: this.trajectoryType,
+            impactSpeed: this.impactSpeed,
             periapsis: this.periapsis.copy(),
             periapsisAlt: this.periapsisAlt,
             apoapsis: this.apoapsis.copy(),
@@ -1284,6 +1380,7 @@ class Ship {
         this.orientationHistory[T] = snap.orientation[T].copy();
 
         this.trajectoryType = snap.trajectoryType;
+        this.impactSpeed = snap.impactSpeed;
         this.periapsis = snap.periapsis.copy();
         this.periapsisAlt = snap.periapsisAlt;
         this.apoapsis = snap.apoapsis.copy();
@@ -1547,20 +1644,16 @@ class Particle {
     }
 }
 
+// The wheel no longer scrubs time; inside the impulse circle it zooms the map
 function mouseWheel(event) {
 
-    if (impulse.phase === 'burning') return false;
-    cancelImpulse();
-
-    if (event.delta > 0 && launched && !crashedOut) {
-        framesToSkip = event.delta;
+    if (impulse.phase === 'aiming') {
+        let j = getJoystickGeometry();
+        if (dist(mouseX, mouseY, j.x, j.y) <= j.r) {
+            zoomImpulseMap(exp(-event.delta * 0.002));
+            return false;
+        }
     }
-
-    else if (event.delta < 0) {
-        framesToSkip = event.delta;
-        crashedOut = false;
-    }
-    // Uncomment to prevent any default behavior.
     return false;
 }
 
@@ -1576,33 +1669,50 @@ function pointerOverTimeline(x = mouseX, y = mouseY) {
     return timelineEnabled && y >= getTimelineTop();
 }
 
+// The control ring sits at the bottom of the screen: horizontally centred on
+// touch screens, off to the right on desktop.
+// (The essay page places its Next control at the ring's top-right corner
+// from the same numbers; keep positionNextBtn() in index.html in step.)
 function getJoystickGeometry() {
     let r = min(width, height) / 5.5;
 
     let bottomLimit = (timelineEnabled ? getTimelineTop() : height);
 
-    // default: bottom of the screen, horizontally centred
-    let x = joystickPos ? joystickPos.x : width / 2;
-    let y = joystickPos ? joystickPos.y : bottomLimit - r - 12;
+    // on desktop, leave room beside the ring for the Next control at its corner
+    let x = isTouchDevice() ? width / 2 : width - r * 1.4 - 12;
+    let y = bottomLimit - r - 12;
 
-    x = constrain(x, r, width - r);
-    y = constrain(y, r, bottomLimit - r);
-
-    // corner triangles fitted to the circle's bounding box, sized so they
-    // don't overlap the circle (max leg length is r * (2 - sqrt(2)))
+    // the reset and pause buttons are triangles fitted to the bottom corners of
+    // the ring's bounding box, sized so they don't overlap the ring (max leg
+    // length is r * (2 - sqrt(2)))
     let cornerSize = r * 0.55;
 
     return {
         x: x,
         y: y,
         r: r,
+        inner: controlIsDonut() ? r * 0.6 : 0, // the hole holding the ship diagram
         cornerSize: cornerSize,
-        handleX: x + r, // bottom-right corner: move handle
-        handleY: y + r,
-        resetX: x + r, // top-right corner: reset button
-        resetY: y - r
+        resetX: x - r,
+        resetY: y + r,
+        pauseX: x + r,
+        pauseY: y + r
     };
 }
+
+// the control is a ring around the ship until Impulse Mode takes over, when
+// it becomes a whole circle (a map of impulses) and the ship goes away
+function controlIsDonut() {
+    return impulse.phase !== 'aiming';
+}
+
+// presses that count as using the control (the hole is inert)
+function pointInControl(px, py) {
+    let j = getJoystickGeometry();
+    let d = dist(px, py, j.x, j.y);
+    return d <= j.r && d >= j.inner;
+}
+
 
 // pointer input that should drive the rocket (never timeline presses)
 function rocketPointerActive() {
@@ -1610,11 +1720,7 @@ function rocketPointerActive() {
         return false;
     }
 
-    if (isTouchDevice()) {
-        return joystickActive;
-    }
-
-    return mouseIsPressed;
+    return joystickActive;
 }
 
 function boostInputActive() {
@@ -1658,9 +1764,28 @@ function enterImpulse() {
     impulse.phase = 'aiming';
     impulse.dir = null;
     impulse.frames = 0;
-    impulse.pointer = null;
+    impulse.center = createVector(0, 0);
     impulse.dragging = false;
+    impulse.pinch = null;
+    impulse.zoom = 1;
+    impulse.map = null;
     return true;
+
+}
+
+// pausing and Impulse Mode are one idea: where Impulse Mode is available,
+// pausing enters it (and resuming leaves it); otherwise this is a plain pause
+function togglePause() {
+
+    if (crashedOut || impulse.phase === 'burning') return;
+
+    if (impulse.phase === 'aiming') {
+        cancelImpulse(true);
+    } else if (paused) {
+        paused = false;
+    } else if (!enterImpulse()) {
+        paused = true;
+    }
 
 }
 
@@ -1677,8 +1802,9 @@ function cancelImpulse(resume = false) {
     impulse.phase = 'off';
     impulse.dir = null;
     impulse.frames = 0;
-    impulse.pointer = null;
+    impulse.center = null;
     impulse.dragging = false;
+    impulse.pinch = null;
 
     if (resume) {
         paused = impulse.wasPaused;
@@ -1707,52 +1833,349 @@ function lockImpulse() {
 
 }
 
-// burn length from how far the aim is pushed out (1 = the reference reach)
-function impulseFramesFor(fraction) {
-    if (impulse.fixedFrames) return impulse.fixedFrames;
-    return round(max(fraction, 0) * IMPULSE_FRAMES_PER_REACH);
-}
+// the selected impulse is the one under the circle's centre
+function aimImpulse() {
 
-// desktop: the cursor, relative to the ship, sets direction and length
-function aimImpulseFromMouse() {
+    let c = impulse.center;
 
-    let shipScreen = camera.worldToScreen(ship.posHistory[T].x, ship.posHistory[T].y);
-    let offset = createVector(mouseX - shipScreen.x, mouseY - shipScreen.y);
-    let reach = offset.mag();
-
-    if (reach < 4) {
+    if (!c || c.mag() < 0.5) {
         impulse.dir = null;
         impulse.frames = 0;
         return;
     }
 
-    impulse.dir = offset.copy().normalize();
-    impulse.frames = impulseFramesFor(reach / IMPULSE_FULL_REACH);
+    impulse.dir = c.copy().normalize();
+    impulse.frames = round(c.mag());
 
 }
 
-// touch: the control point within the circle, relative to its centre
-function aimImpulseFromPointer() {
+// dragging slides the map under the circle's centre, so what was under the
+// pointer stays under it
+function dragImpulseMap() {
 
     let j = getJoystickGeometry();
-    let offset = impulse.pointer;
+    let k = impulseReach() / j.r;
 
-    if (!offset || offset.mag() < 6) {
-        impulse.dir = null;
-        impulse.frames = 0;
-        return;
+    impulse.center.x -= (mouseX - impulse.lastX) * k;
+    impulse.center.y -= (mouseY - impulse.lastY) * k;
+    impulse.lastX = mouseX;
+    impulse.lastY = mouseY;
+
+}
+
+function startDraggingImpulseMap() {
+    impulse.dragging = true;
+    impulse.lastX = mouseX;
+    impulse.lastY = mouseY;
+}
+
+function impactOutcome(color, speed) {
+    let shade = speed <= LANDING_SPEED ? 1 : 0.28;
+    return [color[0] * shade, color[1] * shade, color[2] * shade, OUTCOME_PLAIN, 0];
+}
+
+// Orbits are a flat fill (the ship's hue about the Earth, tinted towards the
+// Moon's about the Moon). The contour level steps every 15% of apoapsis
+// distance (escapes share one outermost level) and the map draws a line
+// wherever it changes.
+function orbitOutcome(palette, aboutMoon, apo, bodyRadius) {
+
+    let level = apo === Infinity ? 9999 :
+        floor(Math.log(max(apo, bodyRadius) / bodyRadius) / Math.log(1.15));
+    let s = palette.ship, m = palette.moon;
+
+    if (aboutMoon) {
+        return [s[0] * 0.25 + m[0] * 0.2, s[1] * 0.25 + m[1] * 0.2, s[2] * 0.25 + m[2] * 0.2,
+            OUTCOME_MOON_ORBIT, level];
+    }
+    return [s[0] * 0.4, s[1] * 0.4, s[2] * 0.4, OUTCOME_EARTH_ORBIT, level];
+
+}
+
+// Where would the ship be headed after an impulse, as an outcome
+// [r, g, b, kind, contour level] for the impulse map:
+//   safe landing      the body's colour
+//   impact            a darker version of the body's colour
+//   orbit             about the Earth or about the Moon, with apoapsis contours
+// Without the Moon this is a two-body estimate about the Earth; with it, the
+// burn is flown through the same Earth + Moon dynamics as the projection.
+function impulseOutcome(pos, vel, dv, palette) {
+    return moonEnabled ? impulseTrajectoryOutcome(pos, vel, dv, palette) :
+        impulseKeplerOutcome(pos, vel, dv, palette);
+}
+
+function impulseKeplerOutcome(pos, vel, dv, palette) {
+
+    let px = pos.x, py = pos.y;
+    let vx = vel.x + dv.x, vy = vel.y + dv.y;
+
+    let body = bodies[0];
+    let bx = body.pos.x, by = body.pos.y;
+
+    let rx = px - bx, ry = py - by;
+    let wx = vx, wy = vy;
+    let r = Math.hypot(rx, ry);
+    let mu = G * body.mass;
+    let energy = (wx * wx + wy * wy) / 2 - mu / r;
+    let h = rx * wy - ry * wx;
+    let ecc = Math.sqrt(max(0, 1 + 2 * energy * h * h / (mu * mu)));
+
+    let peri, apo;
+    if (energy < 0) {
+        let a = -mu / (2 * energy);
+        peri = a * (1 - ecc);
+        apo = a * (1 + ecc);
+    } else {
+        let a = mu / (2 * max(energy, 1e-9));
+        peri = a * (ecc - 1);
+        apo = Infinity;
     }
 
-    impulse.dir = offset.copy().normalize();
-    impulse.frames = impulseFramesFor(offset.mag() / j.r);
+    let approaching = energy < 0 || (rx * wx + ry * wy) < 0;
+    if (peri < body.radius && approaching) {
+        return impactOutcome(palette.earth, Math.sqrt(max(0, 2 * (energy + mu / body.radius))));
+    }
+
+    return orbitOutcome(palette, false, apo, body.radius);
 
 }
 
-function setImpulsePointerFromTouch() {
+// the radial band the Moon sweeps through, with its radius as margin
+let moonBand = null;
 
-    let j = getJoystickGeometry();
-    // not limited to the circle: dragging past its edge keeps lengthening the burn
-    impulse.pointer = createVector(mouseX - j.x, mouseY - j.y);
+function moonDistanceBand() {
+    if (!moonBand || moonBand.len !== moonOrbit.length) {
+        let lo = Infinity, hi = 0;
+        for (let i = 0; i < moonOrbit.length; i += 20) {
+            let d = dist(moonOrbit[i].x, moonOrbit[i].y, bodies[0].pos.x, bodies[0].pos.y);
+            lo = min(lo, d);
+            hi = max(hi, d);
+        }
+        moonBand = { len: moonOrbit.length, lo: lo - bodies[1].radius, hi: hi + bodies[1].radius };
+    }
+    return moonBand;
+}
+
+// Fly the burn through the same Earth + Moon dynamics as the trajectory
+// projection and classify where it ends up, with the same rules: a landing or
+// impact within half a ship length of a surface, a lap of the Earth (orbit
+// about the Earth) or a lap of the Moon while inside its hill sphere (orbit
+// about the Moon), whichever comes first. Escapes and anything that doesn't
+// resolve within the projection horizon count as unbound.
+function impulseTrajectoryOutcome(pos, vel, dv, palette) {
+
+    let earth = bodies[0], moonBody = bodies[1];
+    let muE = G * earth.mass, muM = G * moonBody.mass;
+    let ex = earth.pos.x, ey = earth.pos.y;
+    let len = moonOrbit.length;
+    let horizon = Math.min(maxProjectionFrames || len, IMPULSE_MAP_HORIZON);
+    let escapeR = moonDistanceBand().hi * 3;
+    let escapeR2 = escapeR * escapeR;
+    let hill2 = moonHillSphereRadius * moonHillSphereRadius;
+    let earthHit = sq(earth.radius + ship.length / 2);
+    let moonHit = sq(moonBody.radius + ship.length / 2);
+
+    let x = pos.x, y = pos.y;
+    let vx = vel.x + dv.x, vy = vel.y + dv.y;
+
+    let prevEarthAngle = Math.atan2(y - ey, x - ex);
+    let sweptEarth = 0;
+    let r0 = Math.hypot(x - ex, y - ey);
+    let maxEarthR = r0;
+
+    let inHill = false;
+    let prevMoonAngle = 0;
+    let sweptMoon = 0;
+    let maxMoonR = 0;
+
+    for (let i = T + 1; i <= T + horizon; i++) {
+
+        let m = moonOrbit[i % len];
+
+        let rx = ex - x, ry = ey - y;
+        let r2 = rx * rx + ry * ry;
+        let f = muE / (r2 * Math.sqrt(r2));
+        let ax = rx * f, ay = ry * f;
+
+        let mx = m.x - x, my = m.y - y;
+        let d2 = mx * mx + my * my;
+        f = muM / (d2 * Math.sqrt(d2));
+        ax += mx * f;
+        ay += my * f;
+
+        vx += ax; vy += ay;
+        x += vx; y += vy;
+
+        mx = x - m.x; my = y - m.y;
+        d2 = mx * mx + my * my;
+        if (d2 < moonHit) {
+            let mv = moonOrbitVelHistory[i % len];
+            return impactOutcome(palette.moon, Math.hypot(vx - mv.x, vy - mv.y));
+        }
+
+        rx = x - ex; ry = y - ey;
+        r2 = rx * rx + ry * ry;
+        if (r2 < earthHit) return impactOutcome(palette.earth, Math.hypot(vx, vy));
+        if (r2 > escapeR2) break;
+
+        let r = Math.sqrt(r2);
+        if (r > maxEarthR) maxEarthR = r;
+
+        let a = Math.atan2(ry, rx);
+        let da = Math.abs(a - prevEarthAngle);
+        sweptEarth += da > Math.PI ? TAU - da : da;
+        prevEarthAngle = a;
+        if (sweptEarth > TAU) return orbitOutcome(palette, false, maxEarthR, earth.radius);
+
+        if (d2 < hill2) {
+
+            let moonAngle = Math.atan2(my, mx);
+            let d = Math.sqrt(d2);
+
+            if (!inHill) {
+                inHill = true;
+                sweptMoon = 0;
+                maxMoonR = d;
+            } else {
+                da = Math.abs(moonAngle - prevMoonAngle);
+                sweptMoon += da > Math.PI ? TAU - da : da;
+                if (d > maxMoonR) maxMoonR = d;
+            }
+            prevMoonAngle = moonAngle;
+
+            if (sweptMoon >= TAU) return orbitOutcome(palette, true, maxMoonR, moonBody.radius);
+
+        } else {
+            inHill = false;
+        }
+    }
+
+    return orbitOutcome(palette, false, Infinity, earth.radius);
+
+}
+
+// the map of impulses around the selected one, one cell per impulse. It is
+// rebuilt only when the selection, zoom or moment changes: a coarse version
+// immediately, then finer ones a slice per frame until it is complete
+function updateImpulseMap() {
+
+    let key = impulse.center.x.toFixed(2) + ',' + impulse.center.y.toFixed(2) + ',' + impulse.zoom.toFixed(3) + ',' + T;
+
+    if (!impulse.map) {
+        impulse.map = { key: '', canvas: null, job: null };
+    }
+    let map = impulse.map;
+    if (map.key === key && !map.job) return;
+
+    if (!map.job || map.job.key !== key) {
+        let snap = impulse.snapshot;
+        map.job = {
+            key: key,
+            stage: 0,
+            row: 0,
+            cells: null,
+            pos: snap.pos[T],
+            vel: snap.vel[T],
+            cx: impulse.center.x,
+            cy: impulse.center.y,
+            reach: impulseReach(),
+            palette: {
+                ship: [red(rocketColor), green(rocketColor), blue(rocketColor)],
+                earth: [red(earthColor), green(earthColor), blue(earthColor)],
+                moon: [red(moonColor), green(moonColor), blue(moonColor)]
+            }
+        };
+    }
+
+    let deadline = performance.now() + IMPULSE_MAP_BUDGET_MS;
+    let dv = { x: 0, y: 0 };
+
+    while (map.job) {
+
+        let job = map.job;
+        let n = IMPULSE_MAP_STAGES[job.stage];
+
+        if (!job.cells) {
+            job.cells = new Array(n * n);
+            job.row = 0;
+        }
+
+        // the first stage always finishes, so the map always matches the selection
+        while (job.row < n && (job.stage === 0 || performance.now() < deadline)) {
+
+            let v = (job.row + 0.5) / n * 2 - 1;
+
+            for (let i = 0; i < n; i++) {
+
+                let u = (i + 0.5) / n * 2 - 1;
+                if (u * u + v * v > 1.05) continue;
+
+                dv.x = (job.cx + u * job.reach) * ship.rocketAcc;
+                dv.y = (job.cy + v * job.reach) * ship.rocketAcc;
+                job.cells[job.row * n + i] = impulseOutcome(job.pos, job.vel, dv, job.palette);
+            }
+            job.row++;
+        }
+
+        if (job.row < n) return;
+
+        map.canvas = renderImpulseCells(job.cells, n, job.palette);
+        map.key = job.key;
+
+        job.stage++;
+        job.cells = null;
+        if (job.stage >= IMPULSE_MAP_STAGES.length) {
+            map.job = null;
+        } else if (performance.now() >= deadline) {
+            return;
+        }
+    }
+
+}
+
+// outcomes to pixels, with the contour lines and the Earth/Moon orbit boundary
+function renderImpulseCells(cells, n, palette) {
+
+    let canvas = document.createElement('canvas');
+    canvas.width = canvas.height = n;
+    let ctx = canvas.getContext('2d');
+    let image = ctx.createImageData(n, n);
+
+    // contour lines sit where the apoapsis level changes between neighbouring
+    // cells orbiting the same body; a brighter line marks where the orbit
+    // switches between the Earth and the Moon
+    let line = palette.ship.map(c => 140 + c * 0.45);
+    let at = (i, j) => i < n && j < n ? cells[j * n + i] : null;
+    let neighbourDiffers = (c, other) => {
+        if (!other || other[3] === OUTCOME_PLAIN) return 0;
+        if (other[3] !== c[3]) return 2;
+        return other[4] !== c[4] ? 1 : 0;
+    };
+
+    for (let j = 0; j < n; j++) {
+        for (let i = 0; i < n; i++) {
+
+            let c = cells[j * n + i];
+            if (!c) continue;
+
+            let o = (j * n + i) * 4;
+            let rgb = c;
+
+            if (c[3] !== OUTCOME_PLAIN) {
+                let edge = max(neighbourDiffers(c, at(i + 1, j)), neighbourDiffers(c, at(i, j + 1)));
+                if (edge === 2) rgb = [235, 235, 235];
+                else if (edge === 1) rgb = line;
+            }
+
+            image.data[o] = rgb[0];
+            image.data[o + 1] = rgb[1];
+            image.data[o + 2] = rgb[2];
+            image.data[o + 3] = 255;
+        }
+    }
+
+    ctx.putImageData(image, 0, 0);
+    return canvas;
 
 }
 
@@ -1761,11 +2184,7 @@ function updateImpulseMode() {
 
     if (impulse.phase === 'aiming') {
 
-        if (isTouchDevice()) {
-            aimImpulseFromPointer();
-        } else {
-            aimImpulseFromMouse();
-        }
+        aimImpulse();
 
         if (impulse.dir && impulse.frames > 0) {
             ship.applyImpulse(impulse.dir, impulse.frames);
@@ -1797,17 +2216,17 @@ function updateImpulseMode() {
 
 }
 
+// the Burn and Resume buttons stack to the left of the circle
 function getImpulseButtons() {
 
     let j = getJoystickGeometry();
-    let bw = min(130, width * 0.4);
+    let bw = max(60, min(130, j.x - j.r - 24));
     let bh = 40;
-    let gap = 10;
-    let y = max(4, j.y - j.r - 12 - bh);
+    let x = j.x - j.r - 12 - bw;
 
     return {
-        cancel: { x: j.x - gap / 2 - bw, y: y, w: bw, h: bh },
-        burn: { x: j.x + gap / 2, y: y, w: bw, h: bh }
+        burn: { x: x, y: j.y - bh - 5, w: bw, h: bh },
+        cancel: { x: x, y: j.y + 5, w: bw, h: bh }
     };
 
 }
@@ -1819,31 +2238,22 @@ function pointInRect(x, y, r) {
 // presses while aiming; true if the press was used
 function handleImpulsePress() {
 
-    if (isTouchDevice()) {
-
-        let b = getImpulseButtons();
-        if (pointInRect(mouseX, mouseY, b.cancel)) {
-            cancelImpulse(true);
-            return true;
-        }
-        if (pointInRect(mouseX, mouseY, b.burn)) {
-            lockImpulse();
-            return true;
-        }
-
-        let j = getJoystickGeometry();
-        if (dist(mouseX, mouseY, j.x, j.y) <= j.r) {
-            impulse.dragging = true;
-            setImpulsePointerFromTouch();
-            return true;
-        }
-
-        return false;
+    let b = getImpulseButtons();
+    if (pointInRect(mouseX, mouseY, b.cancel)) {
+        cancelImpulse(true);
+        return true;
+    }
+    if (pointInRect(mouseX, mouseY, b.burn)) {
+        lockImpulse();
+        return true;
     }
 
-    // desktop: a click burns, wherever the cursor is aimed
-    lockImpulse();
-    return true;
+    if (pointInControl(mouseX, mouseY)) {
+        startDraggingImpulseMap();
+        return true;
+    }
+
+    return false;
 
 }
 
@@ -1881,6 +2291,8 @@ function resetSimulation() {
     impulse.phase = 'off';
     impulse.snapshot = null;
     impulse.dir = null;
+    impulse.center = null;
+    impulse.dragging = false;
     impulse.waitForRelease = false;
     ship.reset();
 }
@@ -1905,38 +2317,40 @@ function mousePressed() {
         return false;
     }
 
-    if (impulse.phase === 'aiming' && handleImpulsePress()) {
-        return false;
-    }
+    let j = getJoystickGeometry();
+    let dCenter = dist(mouseX, mouseY, j.x, j.y);
 
-    if (isTouchDevice()) {
-
-        let j = getJoystickGeometry();
-        let dCenter = dist(mouseX, mouseY, j.x, j.y);
-
-        if (dCenter > j.r && dist(mouseX, mouseY, j.resetX, j.resetY) <= j.cornerSize) {
+    if (dCenter > j.r) {
+        if (dist(mouseX, mouseY, j.resetX, j.resetY) <= j.cornerSize) {
             resetSimulation();
             return false;
         }
-
-        if (dCenter > j.r && dist(mouseX, mouseY, j.handleX, j.handleY) <= j.cornerSize) {
-            joystickHandleDrag = createVector(j.x - mouseX, j.y - mouseY);
+        if (dist(mouseX, mouseY, j.pauseX, j.pauseY) <= j.cornerSize) {
+            togglePause();
             return false;
         }
+    }
 
-        if (dCenter <= j.r) {
-            if (impulseReplacesThrust() && enterImpulse()) {
-                // the first press only pauses; a second one aims
-                impulse.enteredByPress = true;
-            } else if (!impulseReplacesThrust()) {
-                joystickActive = true;
-                controlMode = TOUCH;
-            }
-        }
+    if (impulse.phase === 'aiming') {
+        handleImpulsePress();
         return false;
     }
 
-    controlMode = MOUSE;
+    // presses anywhere else on the screen do nothing
+    if (pointInControl(mouseX, mouseY)) {
+        if (impulseReplacesThrust()) {
+            // pressing the control pauses into Impulse Mode, and the same
+            // press can already start sliding the map
+            if (enterImpulse()) {
+                startDraggingImpulseMap();
+            }
+        } else {
+            joystickActive = true;
+            controlMode = TOUCH;
+        }
+    }
+
+    return false;
 
 }
 
@@ -1949,13 +2363,8 @@ function mouseDragged() {
         return false;
     }
 
-    if (joystickHandleDrag) {
-        joystickPos = createVector(mouseX + joystickHandleDrag.x, mouseY + joystickHandleDrag.y);
-        return false;
-    }
-
-    if (impulse.phase === 'aiming' && impulse.dragging && !impulse.enteredByPress) {
-        setImpulsePointerFromTouch();
+    if (impulse.phase === 'aiming' && impulse.dragging) {
+        dragImpulseMap();
         return false;
     }
 
@@ -1969,11 +2378,10 @@ function mouseReleased() {
     }
 
     joystickActive = false;
-    joystickHandleDrag = false;
     timelineScrub.active = false;
     timelineScrub.accum = 0;
     impulse.dragging = false;
-    impulse.enteredByPress = false;
+    impulse.pinch = null;
     impulse.waitForRelease = false;
 
 }
@@ -1982,17 +2390,37 @@ function mouseReleased() {
 // which iOS Safari doesn't fire during press-and-hold or drags. Defining the
 // touch handlers makes p5 call these directly on real touches (with
 // mouseX/mouseY already updated to the touch position).
+function touchDistance() {
+    return dist(touches[0].x, touches[0].y, touches[1].x, touches[1].y);
+}
+
 function touchStarted() {
+    if (impulse.phase === 'aiming' && touches.length >= 2) {
+        impulse.pinch = touchDistance();
+        impulse.dragging = false;
+        return false;
+    }
     mousePressed();
     return false;
 }
 
 function touchMoved() {
+    if (impulse.pinch && touches.length >= 2) {
+        let d = touchDistance();
+        if (d > 0) zoomImpulseMap(d / impulse.pinch);
+        impulse.pinch = d;
+        return false;
+    }
     mouseDragged();
     return false;
 }
 
 function touchEnded() {
+    if (impulse.pinch) {
+        if (touches.length < 2) impulse.pinch = null;
+        impulse.dragging = false;
+        return false;
+    }
     mouseReleased();
     return false;
 }
@@ -2013,12 +2441,8 @@ function keyPressed(event) {
         fullscreen(true);
     }
 
-    if (key == 'i' || key == 'I') {
-        if (impulse.phase === 'aiming') {
-            cancelImpulse(true);
-        } else {
-            enterImpulse();
-        }
+    if (key == 'i' || key == 'I' || key == 'p' || key == 'P') {
+        togglePause();
     }
 
     if (keyCode == ESCAPE) {
@@ -2027,10 +2451,6 @@ function keyPressed(event) {
 
     if (key == 'r') {
         resetSimulation();
-    }
-
-    if (key == 'p' & !crashedOut && impulse.phase === 'off') {
-        paused = !paused; // toggles
     }
 
     if (key == 'd') {
@@ -2052,13 +2472,16 @@ function drawFrame() {
     // camera.drawBbox();
     camera.applyToMatrix();
 
+    // in-sim text stays the same size on screen whatever the zoom
+    textSize(12 / camera.scaleFactor);
+
     // Rendering in camera
 
     // stars and moon-orbit dots (prerendered, static in world space)
     if (!staticWorldBuffer) {
         buildStaticWorldBuffer();
     }
-    image(staticWorldBuffer, -staticWorldBufferHalf, -staticWorldBufferHalf);
+    drawStaticWorldBuffer();
 
     if (gravLights) {
         push();
@@ -2114,11 +2537,11 @@ function drawFrame() {
     // camera
     pop();
 
-    if (isTouchDevice()) {
-        drawVirtualJoystick();
-    }
+    drawVirtualJoystick();
 
     drawImpulseHUD();
+
+    drawFpsIndicator();
 
 }
 
@@ -2128,74 +2551,100 @@ function drawVirtualJoystick() {
 
     push();
 
-    // transparent base circle
-    noStroke();
-    fill(255, joystickActive ? 20 : 10);
-    circle(j.x, j.y, j.r * 2);
+    // transparent base: a ring around the ship's diagram (a full disc once
+    // Impulse Mode takes over)
+    let ctx = drawingContext;
+    ctx.save();
+    ctx.fillStyle = "rgba(255, 255, 255, " + (joystickActive ? 0.08 : 0.04) + ")";
+    ctx.beginPath();
+    ctx.arc(j.x, j.y, j.r, 0, TAU);
+    if (j.inner > 0) {
+        ctx.moveTo(j.x + j.inner, j.y);
+        ctx.arc(j.x, j.y, j.inner, 0, TAU, true);
+    }
+    ctx.fill("evenodd");
+    ctx.restore();
 
-    noFill();
-    stroke(255, joystickActive ? 90 : 50);
-    strokeWeight(2);
-    circle(j.x, j.y, j.r * 2);
+    let aiming = impulse.phase === 'aiming' && impulse.center;
 
-    // transparent rocket at the center, showing the current orientation
-    drawingContext.save();
-    drawingContext.globalAlpha = joystickActive ? 0.55 : 0.3;
+    if (aiming) {
 
-    translate(j.x, j.y);
-    scale(j.r / ship.length);
-    ship.drawShipBody(0, 0, 255);
+        // the map of impulses, clipped to the circle: each cell is the
+        // outcome of the impulse it stands for
+        updateImpulseMap();
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(j.x, j.y, j.r, 0, TAU);
+        ctx.clip();
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(impulse.map.canvas, j.x - j.r, j.y - j.r, j.r * 2, j.r * 2);
+        ctx.restore();
 
-    drawingContext.restore();
+    } else {
 
-    // marker for where the joystick is being pressed
-    if (joystickActive) {
-        let d = createVector(mouseX - j.x, mouseY - j.y);
-        d.limit(j.r);
-        noStroke();
-        fill(255, 80);
-        circle(j.x + d.x, j.y + d.y, j.r / 3);
+        // transparent rocket at the center, showing the current orientation
+        drawingContext.save();
+        drawingContext.globalAlpha = joystickActive ? 0.55 : 0.3;
+
+        translate(j.x, j.y);
+        scale(j.r / ship.length);
+        ship.drawShipBody(0, 0, 255);
+
+        drawingContext.restore();
+
+        // marker for where the joystick is being pressed
+        if (joystickActive) {
+            let d = createVector(mouseX - j.x, mouseY - j.y);
+            d.limit(j.r);
+            noStroke();
+            fill(255, 80);
+            circle(j.x + d.x, j.y + d.y, j.r / 3);
+        }
+
     }
 
-    // Impulse Mode: the control point stays where it was left
-    if (impulse.phase === 'aiming' && impulse.pointer) {
-        stroke(255, 90);
+    noFill();
+    stroke(255, joystickActive || aiming ? 90 : 50);
+    strokeWeight(2);
+    circle(j.x, j.y, j.r * 2);
+    if (j.inner > 0) {
+        stroke(255, joystickActive ? 60 : 30);
+        circle(j.x, j.y, j.inner * 2);
+    }
+
+    if (aiming) {
+
+        // the selected impulse sits under the centre; a cross marks where
+        // no impulse at all would be
+        stroke(255, 230);
         strokeWeight(2);
-        let shown = impulse.pointer.copy().limit(j.r);
-        line(j.x, j.y, j.x + shown.x, j.y + shown.y);
-        noStroke();
-        fill(255, 150);
-        circle(j.x + shown.x, j.y + shown.y, j.r / 3);
+        circle(j.x, j.y, j.r * 0.16);
+
+        let zx = j.x - impulse.center.x / impulseReach() * j.r;
+        let zy = j.y - impulse.center.y / impulseReach() * j.r;
+        if (dist(zx, zy, j.x, j.y) < j.r - 6) {
+            let q = j.r * 0.06;
+            stroke(255, 160);
+            strokeWeight(1.5);
+            line(zx - q, zy, zx + q, zy);
+            line(zx, zy - q, zx, zy + q);
+        }
+
     }
 
     let s = j.cornerSize;
 
-    // move handle: triangle fitted to the bottom-right corner of the bounding box
-    stroke(255, joystickHandleDrag ? 180 : 70);
-    strokeWeight(2);
-    fill(255, joystickHandleDrag ? 50 : 15);
-    triangle(j.handleX, j.handleY,
-        j.handleX - s, j.handleY,
-        j.handleX, j.handleY - s);
-
-    // diagonal double-headed arrow glyph
-    let aIn = s * 0.42;
-    let aOut = s * 0.12;
-    drawArrow(createVector(j.handleX - aIn, j.handleY - aIn),
-        createVector(j.handleX - aOut, j.handleY - aOut), s * 0.16);
-    drawArrow(createVector(j.handleX - aOut, j.handleY - aOut),
-        createVector(j.handleX - aIn, j.handleY - aIn), s * 0.16);
-
-    // reset button: triangle fitted to the top-right corner of the bounding box
+    // reset button: triangle fitted to the bottom-left corner of the ring's bounding box
     stroke(255, 70);
+    strokeWeight(2);
     fill(255, 15);
     triangle(j.resetX, j.resetY,
-        j.resetX - s, j.resetY,
-        j.resetX, j.resetY + s);
+        j.resetX + s, j.resetY,
+        j.resetX, j.resetY - s);
 
     // circular-arrow glyph
-    let cx = j.resetX - s * 0.33;
-    let cy = j.resetY + s * 0.33;
+    let cx = j.resetX + s * 0.33;
+    let cy = j.resetY - s * 0.33;
     let d = s * 0.5;
     let a1 = TAU * 0.35;
     noFill();
@@ -2208,7 +2657,29 @@ function drawVirtualJoystick() {
     line(ax, ay, ax + cos(back - 0.5) * hl, ay + sin(back - 0.5) * hl);
     line(ax, ay, ax + cos(back + 0.5) * hl, ay + sin(back + 0.5) * hl);
 
-    if (impulse.phase === 'aiming') {
+    // pause button: the mirror image, at the bottom-right corner (a play
+    // triangle while paused)
+    stroke(255, 70);
+    strokeWeight(2);
+    fill(255, 15);
+    triangle(j.pauseX, j.pauseY,
+        j.pauseX - s, j.pauseY,
+        j.pauseX, j.pauseY - s);
+
+    let px = j.pauseX - s * 0.33;
+    let py = j.pauseY - s * 0.33;
+    noStroke();
+    fill(255, 150);
+    if (paused) {
+        let q = s * 0.16;
+        triangle(px - q * 0.8, py - q * 1.2, px - q * 0.8, py + q * 1.2, px + q * 1.2, py);
+    } else {
+        let q = s * 0.1;
+        rect(px - q * 1.7, py - q * 1.6, q * 1.3, q * 3.2);
+        rect(px + q * 0.4, py - q * 1.6, q * 1.3, q * 3.2);
+    }
+
+    if (aiming) {
         drawImpulseButtons();
     }
 
@@ -2230,7 +2701,7 @@ function drawImpulseButtons() {
     rect(b.cancel.x, b.cancel.y, b.cancel.w, b.cancel.h, 8);
     noStroke();
     fill(255, 200);
-    text("Cancel", b.cancel.x + b.cancel.w / 2, b.cancel.y + b.cancel.h / 2);
+    text("Resume", b.cancel.x + b.cancel.w / 2, b.cancel.y + b.cancel.h / 2);
 
     stroke(255, ready ? 200 : 60);
     strokeWeight(2);
@@ -2259,16 +2730,14 @@ function drawImpulseHUD() {
     if (impulse.phase === 'aiming') {
 
         fill(255, 230);
-        let fixed = impulse.fixedFrames ? ", fixed length" : "";
         if (impulse.dir && impulse.frames > 0) {
-            text("IMPULSE: burn of " + impulse.frames + " frames" + fixed, x, y);
+            text("PAUSED — burn of " + impulse.frames + " frames", x, y);
         } else {
-            text(touch ? "IMPULSE: press inside the circle to aim" :
-                "IMPULSE: move the cursor to aim, click to burn", x, y);
+            text("PAUSED — drag the circle to choose an impulse", x, y);
         }
         if (!touch) {
             fill(255, 140);
-            text("I or Esc to cancel", x, y + 22);
+            text("P or Esc to resume", x, y + 22);
         }
 
     } else if (impulse.phase === 'burning') {
@@ -2279,7 +2748,7 @@ function drawImpulseHUD() {
     } else if (impulse.phase === 'off' && impulse.exclusive) {
 
         fill(255, 120);
-        text(touch ? "Tap the circle to set up a burn" : "Press I to set up a burn", x, y);
+        text(touch ? "Press the circle (or pause) to set up a burn" : "Click the circle (or press P) to set up a burn", x, y);
 
     }
 
@@ -2417,11 +2886,9 @@ function disableMobileGestureConflicts() {
     // if iOS cancels a touch (e.g. a system gesture), release any held inputs
     const releaseHeldInputs = () => {
         joystickActive = false;
-        joystickHandleDrag = false;
         timelineScrub.active = false;
         timelineScrub.accum = 0;
         impulse.dragging = false;
-        impulse.enteredByPress = false;
     };
     window.addEventListener('touchcancel', releaseHeldInputs);
 

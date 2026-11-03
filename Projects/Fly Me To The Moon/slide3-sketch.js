@@ -16,12 +16,12 @@
 //   start       the target altitude to climb to before burning prograde
 //   climbed     reached that altitude (projection switches on)
 //   orbit       the projected trajectory is a full orbit
-//   impulse     Impulse Mode is available, with a fixed burn duration
+//   impulse     Impulse Mode is available (the reader sets direction and length)
 //   firedUp     burned radially outward after orbiting (before prograde)
 //   apoRaised   a prograde burn raised the apoapsis
 //   circHigher  circularised at a higher altitude
 //   lowered     a retrograde burn lowered the periapsis
-//   uncapped    the whole orbit is lowered; burn duration is now free, and
+//   uncapped    the whole orbit is lowered, and
 //               target band 1 appears
 //   band1done   held band 1
 //   band2       target band 2 appears
@@ -52,9 +52,6 @@ const STATE_ORDER = ['start', 'climbed', 'orbit', 'impulse', 'firedUp', 'apoRais
     'circHigher', 'lowered', 'uncapped', 'band1done', 'band2', 'band2done',
     'band3', 'done'];
 
-// the burn length (in simulation frames) of an Impulse Mode burn while the
-// reader only controls its direction
-const FIXED_BURN_FRAMES = 15;
 
 // orbit snapshots the conditions are measured against
 let refApo = 0;
@@ -222,7 +219,7 @@ function enterState(name, viaEvent) {
     showTrajectory = index >= STATE_ORDER.indexOf('climbed');
 
     impulse.available = index >= STATE_ORDER.indexOf('impulse');
-    impulse.fixedFrames = index >= STATE_ORDER.indexOf('uncapped') ? null : FIXED_BURN_FRAMES;
+
 
     snapshotRefs(name, viaEvent);
     snapshotRefsOnBurnEnd = viaEvent && impulse.phase === 'burning';
@@ -304,19 +301,7 @@ function setup() {
     gravFieldImg = generateEarthOnlyGravityField();
     polarImg = generateEarthOnlyPolarImage();
 
-    for (let i = 0; i < 3000; i++) {
-
-        stars.push(
-            new Star(
-                createVector(
-                    random(-gridSize / 2, gridSize / 2), random(-gridSize / 2, gridSize / 2)
-                ),
-                random(100, 255),
-                random(0.3, 3.5)
-            )
-        );
-
-    }
+    stars = generateRocketStars();
 
     for (let i = 0; i < 100; i++) {
         exhaustPlumeLengthRandomCycle.push(random(0.9, 1.1));

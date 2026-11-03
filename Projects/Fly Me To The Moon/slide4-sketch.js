@@ -82,7 +82,7 @@ function setup() {
 
     impulse.available = true;
     impulse.exclusive = true;
-    impulse.fixedFrames = null;
+
 
     rocketColor = color("#ff00b3ff");
     earthColor = color("#00ffffff");
@@ -111,19 +111,7 @@ function setup() {
     let m2 = bodies[1].mass;
     moonHillSphereRadius = a * Math.cbrt(m2 / 3 * (m1 + m2));
 
-    for (let i = 0; i < 3000; i++) {
-
-        stars.push(
-            new Star(
-                createVector(
-                    random(-gridSize / 2, gridSize / 2), random(-gridSize / 2, gridSize / 2)
-                ),
-                random(100, 255),
-                random(0.3, 3.5)
-            )
-        );
-
-    }
+    stars = generateRocketStars();
 
     for (let i = 0; i < 100; i++) {
         exhaustPlumeLengthRandomCycle.push(random(0.9, 1.1));

@@ -23,6 +23,7 @@
 // input handlers are overridden below.
 
 let earthR = 2000;
+const TARGET_FPS = 60; // flight times are shown in seconds at this framerate
 let surfaceG = 0.01;
 let mu; // gravitational parameter = surfaceG * earthR^2
 let omega; // interior (uniform density) oscillation frequency = sqrt(mu / earthR^3)
@@ -326,15 +327,24 @@ function setup() {
 
     gravityImg = generateSlingGravityField();
 
-    // starfield, bucketed by size so each frame draws a few batched passes
-    for (let i = 0; i < 1600; i++) {
-        slingStars.push({
-            x: random(-9000, 9000),
-            y: random(-9000, 9000),
-            brightness: random(100, 255),
-            size: floor(random(0, 3))
-        });
+    // the shared sky (same scale relative to the Earth as in the rocket
+    // sketches), bucketed by size and brightness so each frame draws a few
+    // batched passes
+    let skyBuckets = {};
+    for (let s of generateStarField(earthR)) {
+        let sizeBucket = min(5, floor((s.size / (earthR / 100) - 0.3) / 3.2 * 6));
+        let brightBucket = min(2, floor((s.brightness - 100) / 155 * 3));
+        let key = sizeBucket * 3 + brightBucket;
+        if (!skyBuckets[key]) {
+            skyBuckets[key] = {
+                weight: (0.3 + (sizeBucket + 0.5) * 3.2 / 6) * earthR / 100,
+                alpha: 100 + (brightBucket + 0.5) * 155 / 3,
+                pts: []
+            };
+        }
+        skyBuckets[key].pts.push(s.x, s.y);
     }
+    slingStars = Object.values(skyBuckets);
 
     cam.x = towerTop.x;
     cam.y = towerTop.y;
@@ -1210,12 +1220,16 @@ function updateCamera() {
     }
     cam.rot += d * rotLerp;
 
-    // however relaxed the glide, no ball (nor the slingshot) may leave the screen
-    if (ghostScene) {
+    // however relaxed the glide, no ball (nor the slingshot) may leave the screen;
+    // after a landing the ball that just came down must stay in frame too
+    let zoomingOut = inFlight && !chase && !ghostScene;
+    if (ghostScene || zoomingOut) {
         let c = Math.cos(cam.rot), sn = Math.sin(cam.rot);
         let m = height * 0.06;
         let needed = Infinity;
-        let pts = balls.filter(b => !b.landed).map(b => b.pos).concat([towerTop]);
+        let pts = ghostScene
+            ? balls.filter(b => !b.landed).map(b => b.pos).concat([towerTop])
+            : balls.filter(b => b.kind === 'primary').map(b => b.pos);
         for (let p of pts) {
             let dx = p.x - cam.x, dy = p.y - cam.y;
             let rx = dx * c - dy * sn;
@@ -1292,15 +1306,21 @@ function draw() {
     scale(cam.scale);
     translate(-cam.x, -cam.y);
 
-    // stars, batched by size bucket
-    for (let bucket = 0; bucket < 3; bucket++) {
-        stroke(255, 120 + bucket * 60);
-        strokeWeight((bucket + 1) * 1.1 / cam.scale);
-        beginShape(POINTS);
-        for (let st of slingStars) {
-            if (st.size === bucket) vertex(st.x, st.y);
+    // stars, batched by size and brightness (in world units, so they scale with
+    // the Earth); one canvas path per bucket, skipping those off screen
+    let starReach = Math.hypot(width, height) / 2 / cam.scale + 20;
+    let ctx = drawingContext;
+    noStroke();
+    for (let bucket of slingStars) {
+        let w = bucket.weight;
+        ctx.fillStyle = "rgba(255,255,255," + (bucket.alpha / 255).toFixed(3) + ")";
+        ctx.beginPath();
+        for (let i = 0; i < bucket.pts.length; i += 2) {
+            let sx = bucket.pts[i], sy = bucket.pts[i + 1];
+            if (Math.abs(sx - cam.x) > starReach || Math.abs(sy - cam.y) > starReach) continue;
+            ctx.rect(sx - w / 2, sy - w / 2, w, w);
         }
-        endShape();
+        ctx.fill();
     }
 
     // gravity glow, including the interior of the distributed-mass Earth
@@ -1366,7 +1386,7 @@ function draw() {
         textSize(12 / cam.scale);
         textAlign(CENTER, BOTTOM);
         if (!ghostRunMode || ball.kind === 'drop') {
-            text(ball.timer, 0, -(ballRadius + 4));
+            text((ball.timer / TARGET_FPS).toFixed(1) + " s", 0, -(ballRadius + 4));
         }
         if (ball.kind === 'primary') {
             textAlign(CENTER, TOP);
@@ -1417,6 +1437,12 @@ function draw() {
     pop();
 
     drawHud();
+
+    if (!ghostMode) {
+        drawSlingBar();
+    }
+
+    drawFpsIndicator();
 
 }
 
@@ -1509,6 +1535,61 @@ function drawOrbitMarks() {
 
 }
 
+// the slingshot bar takes the place of the control circle: a horizontal track
+// the width of the circle, with the handle at its right end until it is pulled
+// left. The track is as long as the final stage's draw-back.
+function getSlingBar() {
+    let j = getJoystickGeometry();
+    return { left: j.x - j.r, right: j.x + j.r, y: j.y, len: j.r * 2 };
+}
+
+function slingBarMaxPull() {
+    return 55 + (powerLevels.length - 1) * 12;
+}
+
+function pointerOnSlingBar() {
+    let b = getSlingBar();
+    return mouseX >= b.left - 24 && mouseX <= b.right + 24 &&
+        abs(mouseY - b.y) <= 36;
+}
+
+function dragSlingBarTo(x) {
+    let b = getSlingBar();
+    let wanted = (b.right - x) / b.len * slingBarMaxPull();
+
+    // clamp: the sling only pulls back, up to this stage's draw-back
+    pullDist = constrain(wanted, 0, currentMaxPull());
+    slingBallPos = p5.Vector.sub(slingRelease, rightDir.copy().mult(pullDist));
+}
+
+function drawSlingBar() {
+
+    let b = getSlingBar();
+    let shownPull = shotState === 'releasing' ? pullDist * (1 - releaseProgress) : pullDist;
+    let usable = currentMaxPull() / slingBarMaxPull() * b.len;
+    let handleX = b.right - shownPull / slingBarMaxPull() * b.len;
+
+    push();
+    strokeCap(ROUND);
+    noFill();
+
+    // the part of the track this slingshot can reach, then the part that
+    // later upgrades will open up
+    stroke(255, 50);
+    strokeWeight(6);
+    line(b.left, b.y, b.right, b.y);
+    stroke(255, 130);
+    line(b.right - usable, b.y, b.right, b.y);
+
+    let c = stageColors[stage];
+    noStroke();
+    fill(red(c), green(c), blue(c), draggingSling ? 255 : 210);
+    circle(handleX, b.y, draggingSling ? 40 : 34);
+
+    pop();
+
+}
+
 function getFFButton() {
     let w = 96;
     let h = 64;
@@ -1554,9 +1635,9 @@ function drawHud() {
         if (ghostMode) {
             hint = null;
         } else if (wideReady) {
-            hint = "Drag the slingshot ball left and release.\nKeep reading to upgrade the slingshot.";
+            hint = "Drag the slingshot bar left and release.\nKeep reading to upgrade the slingshot.";
         } else {
-            hint = "Drag the slingshot ball left and release.";
+            hint = "Drag the slingshot bar left and release.";
         }
         if (hint) text(hint, width / 2, 14);
     }
@@ -1636,13 +1717,11 @@ function mousePressed() {
     // surface-removed scenes are played, not launched
     if (ghostMode) return false;
 
-    let w = pointerWorld();
-    let grabRadius = max(30, 30 / cam.scale);
-
     if (shotState !== 'ready') return false;
 
-    if (p5.Vector.dist(w, slingBallPos) < grabRadius) {
+    if (pointerOnSlingBar()) {
         draggingSling = true;
+        dragSlingBarTo(mouseX);
     }
 
     return false;
@@ -1654,13 +1733,7 @@ function mouseDragged() {
 
     if (!draggingSling) return false;
 
-    let w = pointerWorld();
-
-    // clamp: the sling only pulls back left, orthogonal to 'down'
-    let offset = p5.Vector.sub(w, slingRelease);
-    pullDist = constrain(-offset.dot(rightDir), 0, currentMaxPull());
-
-    slingBallPos = p5.Vector.sub(slingRelease, rightDir.copy().mult(pullDist));
+    dragSlingBarTo(mouseX);
 
     return false;
 }
