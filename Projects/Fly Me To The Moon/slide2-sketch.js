@@ -2,6 +2,7 @@ function setup() {
 
     pixelDensity(1);
     createCanvas(windowWidth, windowHeight);
+    textFont(SIM_FONT);
     disableMobileGestureConflicts();
 
     // 'what goes up must come down': gravity visible, a limited fuel budget,
@@ -72,6 +73,8 @@ function draw() {
     if (boostInputActive() && ship.getFuelRemaining() > 0) {
         launched = true;
     }
+
+    updateFastForward();
 
     if (framesToSkip < 0) {
 

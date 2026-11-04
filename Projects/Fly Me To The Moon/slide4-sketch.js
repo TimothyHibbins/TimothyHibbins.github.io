@@ -73,6 +73,7 @@ function setup() {
 
     pixelDensity(1);
     createCanvas(windowWidth, windowHeight);
+    textFont(SIM_FONT);
     disableMobileGestureConflicts();
 
     gravLights = true;
@@ -135,6 +136,8 @@ function draw() {
     if (boostInputActive() && ship.getFuelRemaining() > 0) {
         launched = true;
     }
+
+    updateFastForward();
 
     if (framesToSkip < 0) {
 

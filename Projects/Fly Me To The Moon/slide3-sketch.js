@@ -264,6 +264,7 @@ function setup() {
 
     pixelDensity(1);
     createCanvas(windowWidth, windowHeight);
+    textFont(SIM_FONT);
     disableMobileGestureConflicts();
 
     gravLights = true;
@@ -460,7 +461,7 @@ function drawWorldOverlay() {
 
     noStroke();
     fill(48, 255, 144, 220);
-    textFont("menlo");
+    textFont(SIM_FONT);
     textAlign(CENTER, BOTTOM);
     let note = BAND_TARGETS[essayState] ? (inBand ? " — hold it!" : "") : " ✓";
     text("target orbit " + n + "/3" + note,
@@ -477,6 +478,8 @@ function draw() {
     if (boostInputActive() && ship.getFuelRemaining() > 0) {
         launched = true;
     }
+
+    updateFastForward();
 
     if (framesToSkip < 0) {
 

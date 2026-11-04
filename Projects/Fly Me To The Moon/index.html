@@ -9,6 +9,30 @@
     <title>Fly Me To The Moon</title>
 </head>
 <style>
+    @font-face {
+        font-family: "SourceSerif4";
+        src: url("../../Fonts/Source_Serif_4/SourceSerif4-VariableFont_opsz,wght.ttf") format("truetype");
+        font-weight: 200 900;
+        font-style: normal;
+        font-display: swap;
+    }
+
+    @font-face {
+        font-family: "SourceSerif4";
+        src: url("../../Fonts/Source_Serif_4/SourceSerif4-Italic-VariableFont_opsz,wght.ttf") format("truetype");
+        font-weight: 200 900;
+        font-style: italic;
+        font-display: swap;
+    }
+
+    @font-face {
+        font-family: "JetBrainsMono";
+        src: url("../../Fonts/JetBrains_Mono/JetBrainsMono-VariableFont_wght.ttf") format("truetype");
+        font-weight: 100 800;
+        font-style: normal;
+        font-display: swap;
+    }
+
     :root {
         --essay-height: 25vh;
         --essay-height: 25dvh;
@@ -81,7 +105,7 @@
     /* debugging aid: show each text unit's numerical code */
     .essay-line::before {
         content: "[" attr(data-unit) "] ";
-        font-family: "Menlo", monospace;
+        font-family: "JetBrainsMono", "Menlo", monospace;
         font-size: 10px;
         color: #999;
         vertical-align: super;
@@ -89,6 +113,19 @@
 
     #essayContent ul {
         margin-left: 13px;
+    }
+
+    #essayContent {
+        font-family: "SourceSerif4", Georgia, serif;
+    }
+
+    /* headings in small caps, keeping full capitals for the initials */
+    #essayContent h1,
+    #essayContent h2 {
+        font-family: "SourceSerif4", Georgia, serif;
+        font-weight: 600;
+        font-variant-caps: small-caps;
+        letter-spacing: 0.04em;
     }
 
     /* first-time reading: nothing beyond the furthest unit reached */
@@ -174,7 +211,7 @@
         background-color: rgba(255, 255, 255, 0.07);
         color: rgba(255, 255, 255, 0.5);
         border-radius: 50%;
-        font-family: "Menlo", monospace;
+        font-family: "JetBrainsMono", "Menlo", monospace;
         cursor: grab;
         touch-action: none;
         -webkit-user-select: none;
@@ -1011,11 +1048,11 @@
     </div>
 
     <div id="simPane">
-        <iframe class="sim" src="slide1-sketch.html?v=20261103n"></iframe>
-        <iframe class="sim hiddenSim" src="slingshot-sketch.html?v=20261103n"></iframe>
-        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261103n"></iframe>
-        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261103n&mode=free"></iframe>
-        <iframe class="sim hiddenSim" src="slide4-sketch.html?v=20261103n"></iframe>
+        <iframe class="sim" src="slide1-sketch.html?v=20261103r"></iframe>
+        <iframe class="sim hiddenSim" src="slingshot-sketch.html?v=20261103r"></iframe>
+        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261103r"></iframe>
+        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261103r&mode=free"></iframe>
+        <iframe class="sim hiddenSim" src="slide4-sketch.html?v=20261103r"></iframe>
     </div>
 
     <button id="fullscreenBtn" onclick="toggleFullscreen()">⛶</button>

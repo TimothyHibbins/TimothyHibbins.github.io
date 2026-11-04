@@ -106,7 +106,57 @@ let displayPathChange = false;
 
 let framesToSkip = 0;
 
+// fast-forwarding to a point picked on the live trajectory: the frame aimed
+// for (null when not fast-forwarding), and whether the pointer that picked
+// it is still down and can slide the target along the trajectory
+let ffTarget = null;
+let ffDragging = false;
+
 let T = 0;
+
+// the simulation runs at a target 60 frames per second; distances shown to the
+// reader are in units of 10 px
+const FRAMES_PER_SECOND = 60;
+const PX_PER_UNIT = 10;
+
+function secondsText(frames, digits = 1) {
+    return round(frames / FRAMES_PER_SECOND, digits) + " s";
+}
+
+function unitsText(px, digits = 1) {
+    return round(px / PX_PER_UNIT, digits) + " units";
+}
+
+// px per frame -> units per second
+function speedText(pxPerFrame) {
+    return round(pxPerFrame * FRAMES_PER_SECOND / PX_PER_UNIT, 1) + " units/s";
+}
+
+// the colour with its rgb scaled (a dimmer shade at the same alpha)
+function dimmed(c, k) {
+    return color(red(c) * k, green(c) * k, blue(c) * k, alpha(c));
+}
+
+// A line dashed between two brightnesses of one colour, each dash dashLen
+// long: the line is drawn dim, then the bright dashes are drawn over it.
+function drawDashedLine(x1, y1, x2, y2, c, dashLen = PX_PER_UNIT, weight = 1) {
+
+    let length = dist(x1, y1, x2, y2);
+    if (length < 0.01) return;
+
+    // very long lines would need too many dashes; widen them to stay cheap
+    dashLen = max(dashLen, length / 1500);
+
+    strokeWeight(weight);
+    stroke(dimmed(c, 0.45));
+    line(x1, y1, x2, y2);
+
+    stroke(c);
+    drawingContext.setLineDash([dashLen, dashLen]);
+    line(x1, y1, x2, y2);
+    drawingContext.setLineDash([]);
+
+}
 
 let particles = [];
 
@@ -144,6 +194,7 @@ const PALETTE = {
     window: '#e5a3d0ff',
     trajectory: '#ff57fcd6',
     thrust: '#ff9f1cff',
+    crash: '#ff4d4dff',
     white: '#ffffffff'
 };
 
@@ -297,7 +348,7 @@ function drawFpsIndicator() {
     push();
     noStroke();
     fill(255, 160);
-    textFont('menlo');
+    textFont(SIM_FONT);
     textSize(12);
     textAlign(LEFT, BOTTOM);
     text(round(fpsSmoothed) + " fps", 10, height - 10);
@@ -348,6 +399,13 @@ const APO_LEVEL_CAP = Math.floor(Math.log(40) / APO_LEVEL_STEP);
 
 // impact speed (relative to the body) up to which a landing is safe
 const LANDING_SPEED = 0.5;
+
+// text in the simulations (the @font-face lives in style.css)
+// p5 quotes the whole string as one family name, so no fallback list here
+const SIM_FONT = 'JetBrainsMono';
+if (document.fonts && document.fonts.load) {
+    document.fonts.load('12px JetBrainsMono');
+}
 
 const OUTCOME_PLAIN = 0;
 const OUTCOME_EARTH_ORBIT = 1;
@@ -672,40 +730,20 @@ class Ship {
         return max(0, maxFuel - burned);
     }
 
-    drawShipBody(x, y, alphaValue, ghost = false) {
+    // orientation: a direction vector (the ship's current heading by default)
+    drawShipBody(x, y, alphaValue, orientation = this.orientationHistory[T]) {
 
         let l = this.length;
         let w = this.sWidth;
 
         push();
         translate(x, y);
-        rotate(this.orientationHistory[T].heading() + TAU / 4);
+        rotate(orientation.heading() + TAU / 4);
 
         noStroke();
-        if (this.boostingHistory[T]) {
 
-            let trailLength = l * 2 * exhaustPlumeLengthRandomCycle[T % exhaustPlumeLengthRandomCycle.length];
-            let t = trailLength;
-
-            let fireColor = color(PALETTE.fire);
-            // fireColor.setAlpha(alphaValue);
-            if (ghost) {
-                fireColor.setRed(0)
-            };
-            fill(fireColor);
-            beginShape();
-            vertex(0, t);
-            vertex(-w / 2.5, l / 2.5);
-            vertex(w / 2.5, l / 2.5);
-            vertex(0, t);
-            endShape();
-        }
-
-        let hullColor = rocketColor;
+        let hullColor = color(rocketColor);
         hullColor.setAlpha(alphaValue);
-        if (ghost) {
-            hullColor.setRed(0)
-        };
         fill(hullColor);
         rectMode(CENTER);
         //rect(x, y, l/3, l);
@@ -784,7 +822,15 @@ class Ship {
     drawTrajectory(path = this.posHistory, orbitingMoon = this.shipOrbitingMoon,
         orbitingMoonEnd = this.shipOrbitingMoonEndOfFirstOrbit, alpha = 255) {
 
-        let lineColor = color(PALETTE.trajectory);
+        let baseColor = color(PALETTE.trajectory);
+        let brightColor = color(baseColor);
+        let dimColor = dimmed(baseColor, 0.45);
+        brightColor.setAlpha(alpha);
+        dimColor.setAlpha(alpha);
+        let brightFaint = color(brightColor), dimFaint = color(dimColor);
+        brightFaint.setAlpha(alpha * 50 / 255);
+        dimFaint.setAlpha(alpha * 50 / 255);
+
         let frameSkip = 5;
         let len = path.length;
 
@@ -800,12 +846,13 @@ class Ship {
             }
 
             let posRelativeToMoon = p5.Vector.sub(path[PT], moonOrbit[PT % moonOrbit.length]);
-            let drawInHillSphere = posRelativeToMoon.mag() < moonHillSphereRadius ||
-                (orbitingMoon && PT < orbitingMoonEnd);
+            let drawInHillSphere = trajectorySegmentNearMoon(path, PT, orbitingMoon, orbitingMoonEnd);
+
+            // the line alternates brightness every second of simulation time
+            let bright = floor(PT / FRAMES_PER_SECOND) % 2 == 0;
 
             strokeWeight(3);
-            lineColor.setAlpha(alpha);
-            stroke(lineColor);
+            stroke(bright ? brightColor : dimColor);
 
             if (drawInHillSphere) {
 
@@ -814,8 +861,7 @@ class Ship {
                 line(bodies[1].pos.x + posRelativeToMoon.x, bodies[1].pos.y + posRelativeToMoon.y,
                     bodies[1].pos.x + nextPosRelativeToMoon.x, bodies[1].pos.y + nextPosRelativeToMoon.y);
 
-                lineColor.setAlpha(alpha * 50 / 255);
-                stroke(lineColor);
+                stroke(bright ? brightFaint : dimFaint);
 
             }
 
@@ -828,7 +874,7 @@ class Ship {
 
         fill(rocketColor);
         noStroke();
-        textFont("menlo");
+        textFont(SIM_FONT);
         textAlign(LEFT, BOTTOM);
 
         let projectionDuration = this.posHistory.length - T;
@@ -836,28 +882,24 @@ class Ship {
         if (this.trajectoryType == 'Orbit') {
 
             text("Orbit\n" +
-                "Period: " + round(projectionDuration / 100, 1) + " hectoframes",
+                "Period: " + secondsText(projectionDuration),
                 pos.x + offset, pos.y - offset);
 
             text(
-                "Periapsis: " + round(this.periapsisAlt) + "px",
+                "Periapsis: " + unitsText(this.periapsisAlt),
                 this.periapsis.x + offset, this.periapsis.y + offset);
 
             text(
-                "Apoapsis: " + round(this.apoapsisAlt) + "px",
+                "Apoapsis: " + unitsText(this.apoapsisAlt),
                 this.apoapsis.x + offset, this.apoapsis.y + offset);
 
             // periapsis
             let surfaceIntersect = bodies[0].getSurfaceIntersectForAltitudeLine(this.periapsis);
-            strokeWeight(1);
-            stroke(rocketColor);
-            line(surfaceIntersect.x, surfaceIntersect.y, this.periapsis.x, this.periapsis.y);
+            drawDashedLine(surfaceIntersect.x, surfaceIntersect.y, this.periapsis.x, this.periapsis.y, rocketColor);
 
             // apoapsis
             surfaceIntersect = bodies[0].getSurfaceIntersectForAltitudeLine(this.apoapsis);
-            strokeWeight(1);
-            stroke(rocketColor);
-            line(surfaceIntersect.x, surfaceIntersect.y, this.apoapsis.x, this.apoapsis.y);
+            drawDashedLine(surfaceIntersect.x, surfaceIntersect.y, this.apoapsis.x, this.apoapsis.y, rocketColor);
 
         } else if (this.trajectoryType == 'Safe Landing' || this.trajectoryType == 'Impact') {
 
@@ -865,8 +907,8 @@ class Ship {
                 "Safe Landing Trajectory" : "Impact Trajectory (Too Fast To Land)";
 
             text(title + "\n" +
-                "Time to impact: " + round(projectionDuration / 100, 1) + " hectoframes\n" +
-                "Impact velocity: " + round(this.impactSpeed * 100, 1) + " px/hectoframe",
+                "Time to impact: " + secondsText(projectionDuration) + "\n" +
+                "Impact velocity: " + speedText(this.impactSpeed),
                 pos.x + offset, pos.y - offset);
 
         } else if (this.trajectoryType == 'Escape') {
@@ -875,8 +917,8 @@ class Ship {
             let escapeSpeed = Math.sqrt(2 * G * bodies[0].mass / r);
 
             text("Escape Trajectory\n" +
-                "Speed: " + round(this.velHistory[T].mag() * 100, 1) + " px/hectoframe\n" +
-                "Escape velocity here: " + round(escapeSpeed * 100, 1) + " px/hectoframe",
+                "Speed: " + speedText(this.velHistory[T].mag()) + "\n" +
+                "Escape velocity here: " + speedText(escapeSpeed),
                 pos.x + offset, pos.y - offset);
 
         }
@@ -887,7 +929,7 @@ class Ship {
             let lunarOnly = this.trajectoryType == 'Lunar Orbit';
 
             text("Lunar Orbit\n" +
-                "Period: " + round(this.moonOrbitPeriod / 100, 1) + " hectoframes",
+                "Period: " + secondsText(this.moonOrbitPeriod),
                 pos.x + offset + (lunarOnly ? 0 : 150 / camera.scaleFactor), pos.y - offset);
 
             for (let [label, rel, alt] of [
@@ -898,20 +940,64 @@ class Ship {
                 let surface = bodies[1].getSurfaceIntersectForAltitudeLine(point);
 
                 noStroke();
-                text(label + ": " + round(alt) + "px", point.x + offset, point.y + offset);
+                text(label + ": " + unitsText(alt), point.x + offset, point.y + offset);
 
-                strokeWeight(1);
-                stroke(rocketColor);
-                line(surface.x, surface.y, point.x, point.y);
+                drawDashedLine(surface.x, surface.y, point.x, point.y, rocketColor);
 
             }
 
         }
     }
 
+    // Where the projection ends in a landing or a crash: a ghost of the ship
+    // as it would sit landed, or at its heading with a cross where it hits.
+    drawProjectedImpact(path, orientations, type, alpha = 255) {
+
+        if (type != 'Safe Landing' && type != 'Impact') return;
+
+        let end = path.length - 1;
+        let hit = null, hitPos = null, nearest = Infinity;
+        for (let [b, body] of bodies.entries()) {
+            let bp = b == 1 ? moonOrbit[end % moonOrbit.length] : body.pos;
+            let alt = p5.Vector.dist(path[end], bp) - body.radius;
+            if (alt < nearest) {
+                nearest = alt;
+                hit = body;
+                hitPos = bp;
+            }
+        }
+        if (!hit) return;
+
+        let outward = p5.Vector.sub(path[end], hitPos).normalize();
+
+        drawingContext.save();
+        drawingContext.globalAlpha = 0.45 * alpha / 255;
+
+        if (type == 'Safe Landing') {
+            let rest = p5.Vector.add(hitPos, outward.copy().mult(hit.radius + this.length / 2));
+            this.drawShipBody(rest.x, rest.y, 255, outward);
+            drawingContext.restore();
+            return;
+        }
+
+        this.drawShipBody(path[end].x, path[end].y, 255, orientations[end]);
+        drawingContext.restore();
+
+        // a cross on the surface where it hits
+        let surface = p5.Vector.add(hitPos, outward.copy().mult(hit.radius));
+        let s = this.length * 0.35;
+        let crossColor = color(PALETTE.crash);
+        crossColor.setAlpha(alpha);
+        stroke(crossColor);
+        strokeWeight(3);
+        line(surface.x - s, surface.y - s, surface.x + s, surface.y + s);
+        line(surface.x - s, surface.y + s, surface.x + s, surface.y - s);
+
+    }
+
     drawArrows(pos) {
 
-        textFont("menlo");
+        textFont(SIM_FONT);
         textAlign(LEFT, CENTER);
 
         let moonPos = moonOrbit[T % moonOrbit.length];
@@ -1042,14 +1128,18 @@ class Ship {
             if (showTrajectory) {
                 this.drawTrajectory(real.pos, real.shipOrbitingMoon,
                     real.shipOrbitingMoonEndOfFirstOrbit);
+                this.drawProjectedImpact(real.pos, real.orientation, real.trajectoryType);
             }
             if (impulse.dir && impulse.frames > 0) {
+                let faint = showTrajectory ? 110 : 255;
                 this.drawTrajectory(this.posHistory, this.shipOrbitingMoon,
-                    this.shipOrbitingMoonEndOfFirstOrbit, showTrajectory ? 110 : 255);
+                    this.shipOrbitingMoonEndOfFirstOrbit, faint);
+                this.drawProjectedImpact(this.posHistory, this.orientationHistory, this.trajectoryType, faint);
             }
 
         } else if (showTrajectory) {
             this.drawTrajectory();
+            this.drawProjectedImpact(this.posHistory, this.orientationHistory, this.trajectoryType);
         }
 
         let offset = this.length / 2;
@@ -1066,12 +1156,17 @@ class Ship {
             this.drawArrows(pos);
         }
 
+        // altitude: a dashed line from the ship down to the nearest surface
+        let nearest = bodies[closestBody];
+        let surface = nearest.getSurfaceIntersectForAltitudeLine(pos);
+        drawDashedLine(surface.x, surface.y, pos.x, pos.y, color(PALETTE.white));
+
         fill('#ffffff');
         noStroke();
-        textFont("menlo");
+        textFont(SIM_FONT);
         textAlign(LEFT, TOP);
 
-        text("Alt: " + round(p5.Vector.dist(pos, bodies[closestBody].pos) - bodies[closestBody].radius) + " px", pos.x + offset, pos.y + offset);
+        text("Alt: " + unitsText(p5.Vector.dist(pos, nearest.pos) - nearest.radius), pos.x + offset, pos.y + offset);
 
         let fuelString;
         if (maxFuel == Infinity) {
@@ -1082,15 +1177,13 @@ class Ship {
         fill(rocketColor);
         text("Fuel: " + fuelString, pos.x + offset, pos.y + offset + 18 / camera.scaleFactor);
 
-        // fill("#00ff22ff");
+        updateExhaust();
+        drawExhaust(this);
 
-        // offset = 3;
-        // text(
-        //   "\nVel: " + round(ship.vel.mag() * 100) + " px/hectoframe" + "\nAcc: " + ship.acc.mag(),
-        //   velArrowEndpoint.x + offset, velArrowEndpoint.y);
-
-
-        this.drawShipBody(pos.x, pos.y, 255);
+        // a crashed ship is replaced by its explosion
+        if (!crashedOut) {
+            this.drawShipBody(pos.x, pos.y, 255);
+        }
 
         if (showArrows && arrowMode != ARROWS_INWARD) {
             this.drawArrows(pos);
@@ -1550,6 +1643,249 @@ function updateThrustSound(active) {
     thrustNoise.amp(active ? 0.25 : 0, 0.12);
 }
 
+// Exhaust: one particle leaves the rear of the ship per frame of burn, thrown
+// backwards, pulled by gravity, fading over one second and vanishing on
+// hitting a planet. The particles are a pure function of the ship's history,
+// so they are stepped along as T advances and rebuilt whenever T jumps (scrubs,
+// fast-forwards, resets).
+const EXHAUST_LIFE = FRAMES_PER_SECOND;
+const EXHAUST_SPEED = 1; // px/frame, relative to the ship
+let exhaust = { T: -1, sig: '', list: [] };
+
+function exhaustRandom(seed, n) {
+    let x = Math.sin(seed * 127.1 + n * 311.7) * 43758.5453;
+    return x - Math.floor(x);
+}
+
+function exhaustBirth(t) {
+
+    let o = ship.orientationHistory[t];
+    let p = ship.posHistory[t];
+    let v = ship.velHistory[t];
+    let rear = ship.length / 2.4;
+    let spread = 0.3;
+    let side = (exhaustRandom(t, 1) - 0.5) * 2 * spread;
+    let along = (exhaustRandom(t, 2) - 0.5) * spread;
+
+    // the ship's heading o, and the direction across it
+    let ox = o.x / (o.mag() || 1), oy = o.y / (o.mag() || 1);
+    let speed = EXHAUST_SPEED + along;
+
+    exhaust.list.push({
+        x: p.x - ox * rear, y: p.y - oy * rear,
+        vx: v.x - ox * speed - oy * side, vy: v.y - oy * speed + ox * side,
+        age: 0
+    });
+}
+
+// move every particle on to frame t, dropping the old and the crashed
+function exhaustStep(t) {
+
+    let moon = moonOrbit[t % moonOrbit.length];
+    let list = exhaust.list;
+    let kept = [];
+
+    for (let p of list) {
+
+        let ax = 0, ay = 0;
+        for (let b = 0; b < bodies.length; b++) {
+            let bx = b == 1 ? moon.x : bodies[b].pos.x;
+            let by = b == 1 ? moon.y : bodies[b].pos.y;
+            let dx = bx - p.x, dy = by - p.y;
+            let d2 = dx * dx + dy * dy;
+            if (d2 < 1e-6) continue;
+            let d = Math.sqrt(d2);
+            let f = G * bodies[b].mass / d2;
+            ax += dx / d * f;
+            ay += dy / d * f;
+        }
+
+        p.vx += ax;
+        p.vy += ay;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.age++;
+
+        if (p.age >= EXHAUST_LIFE) continue;
+
+        let hit = false;
+        for (let b = 0; b < bodies.length && !hit; b++) {
+            if (b == 1 && !moonEnabled) continue;
+            let bx = b == 1 ? moon.x : bodies[b].pos.x;
+            let by = b == 1 ? moon.y : bodies[b].pos.y;
+            hit = Math.hypot(p.x - bx, p.y - by) < bodies[b].radius;
+        }
+        if (!hit) kept.push(p);
+    }
+
+    exhaust.list = kept;
+}
+
+function updateExhaust() {
+
+    let boosting = ship.boostingHistory[T] === true;
+    let sig = boosting + ':' + ship.posHistory[T].x;
+
+    if (exhaust.T === T && exhaust.sig === sig) return;
+
+    if (exhaust.T === T - 1 && T > 0) {
+        // the usual case: one frame on
+        exhaustStep(T);
+        if (boosting) exhaustBirth(T);
+    } else {
+        exhaust.list = [];
+        for (let t = max(0, T - EXHAUST_LIFE); t <= T; t++) {
+            if (t > max(0, T - EXHAUST_LIFE)) exhaustStep(t);
+            if (ship.boostingHistory[t] === true) exhaustBirth(t);
+        }
+    }
+
+    exhaust.T = T;
+    exhaust.sig = sig;
+}
+
+function drawExhaust(sh) {
+
+    let hot = color(255), fire = paletteColors.fire;
+    let size = sh.sWidth * 0.5;
+
+    noStroke();
+    for (let p of exhaust.list) {
+        // white-hot at birth, cooling to the fire colour, dimming linearly
+        let cool = min(1, p.age / 15);
+        let a = 255 * (1 - p.age / EXHAUST_LIFE);
+        fill(lerp(255, red(fire), cool), lerp(255, green(fire), cool), lerp(255, blue(fire), cool), a);
+        circle(p.x, p.y, size);
+    }
+}
+
+// The crash: a flash, a shockwave ring and a burst of debris thrown out from
+// the point of impact, with a bang. Driven by how long the ship has been
+// crashed (counted in drawn frames, as time is frozen at a crash).
+let explosion = null;
+
+function playExplosionSound() {
+
+    if (typeof p5.Noise === 'undefined' || typeof p5.Oscillator === 'undefined') return;
+
+    let crack = new p5.Noise('white');
+    let rumble = new p5.Noise('brown');
+    let thump = new p5.Oscillator('sine');
+
+    crack.amp(0); rumble.amp(0); thump.amp(0);
+    thump.freq(120);
+    crack.start(); rumble.start(); thump.start();
+
+    crack.amp(0.5, 0.005);
+    rumble.amp(1, 0.01);
+    thump.amp(0.8, 0.01);
+    thump.freq(30, 0.6);
+
+    setTimeout(() => {
+        crack.amp(0, 0.3);
+        rumble.amp(0, 1.6);
+        thump.amp(0, 0.7);
+    }, 60);
+
+    setTimeout(() => {
+        crack.stop(); rumble.stop(); thump.stop();
+    }, 2500);
+}
+
+function startExplosion() {
+
+    let pos = ship.posHistory[T];
+    let nearest = bodies[0];
+    let nearestAlt = Infinity;
+    for (let [b, body] of bodies.entries()) {
+        if (b == 1 && !moonEnabled) continue;
+        let alt = p5.Vector.dist(pos, body.pos) - body.radius;
+        if (alt < nearestAlt) {
+            nearestAlt = alt;
+            nearest = body;
+        }
+    }
+
+    // debris fans out from the surface it hit
+    let outward = atan2(pos.y - nearest.pos.y, pos.x - nearest.pos.x);
+    let colours = [PALETTE.white, PALETTE.thrust, PALETTE.rocket, '#ffe066ff', PALETTE.window];
+    let debris = [];
+    for (let i = 0; i < 70; i++) {
+        let a = outward + (Math.random() - 0.5) * PI * 1.2;
+        let s = 0.4 + Math.random() * Math.random() * 4;
+        debris.push({
+            vx: cos(a) * s, vy: sin(a) * s,
+            life: 40 + Math.random() * 70,
+            size: 1.5 + Math.random() * 3,
+            col: colours[floor(Math.random() * colours.length)],
+            streak: Math.random() < 0.3
+        });
+    }
+
+    explosion = { x: pos.x, y: pos.y, age: 0, debris: debris, outward: outward };
+    playExplosionSound();
+}
+
+function drawExplosion() {
+
+    if (!crashedOut) {
+        explosion = null;
+        return;
+    }
+    if (!explosion) {
+        startExplosion();
+    }
+
+    let e = explosion;
+    let age = e.age++;
+    // stays readable however far the camera is zoomed out
+    let scale = max(ship.length, 16 / camera.scaleFactor);
+
+    push();
+    translate(e.x, e.y);
+
+    // flash
+    if (age < 22) {
+        let k = age / 22;
+        noStroke();
+        fill(255, 230, 160, 255 * (1 - k) * (1 - k));
+        circle(0, 0, scale * (0.8 + 3.5 * k));
+        fill(255, 150, 40, 200 * (1 - k));
+        circle(0, 0, scale * (0.5 + 2.2 * k));
+    }
+
+    // shockwave ring
+    if (age < 45) {
+        let k = age / 45;
+        noFill();
+        stroke(255, 255, 255, 200 * (1 - k));
+        strokeWeight(2 / camera.scaleFactor);
+        circle(0, 0, scale * (0.5 + 7 * (1 - (1 - k) * (1 - k))));
+    }
+
+    // debris and fading embers, slowing as they go
+    for (let d of e.debris) {
+        if (age >= d.life) continue;
+        let fade = 1 - age / d.life;
+        let travel = (1 - Math.pow(0.95, age)) / 0.05;
+        let x = d.vx * travel * scale / 10;
+        let y = d.vy * travel * scale / 10;
+        let c = color(d.col);
+        c.setAlpha(255 * fade);
+        if (d.streak) {
+            stroke(c);
+            strokeWeight(d.size * 0.5 / camera.scaleFactor * min(1, scale / 30 + 0.5));
+            line(x, y, x - d.vx * 3 * scale / 30, y - d.vy * 3 * scale / 30);
+        } else {
+            noStroke();
+            fill(c);
+            circle(x, y, d.size * scale / 30 * (0.5 + fade));
+        }
+    }
+
+    pop();
+}
+
 function drawArrow(p1, p2, headLength = 5) {
 
     line(p1.x, p1.y, p2.x, p2.y);
@@ -1721,6 +2057,86 @@ class Camera {
 
     }
 
+}
+
+// whether the trajectory segment starting at frame PT is the part drawn
+// relative to the moon (inside its hill sphere) rather than in the fixed frame
+function trajectorySegmentNearMoon(path, PT, orbitingMoon, orbitingMoonEnd) {
+    let rel = p5.Vector.sub(path[PT], moonOrbit[PT % moonOrbit.length]);
+    return rel.mag() < moonHillSphereRadius || (orbitingMoon && PT < orbitingMoonEnd);
+}
+
+const TRAJECTORY_PICK_PX = 28;
+// frames simulated per draw while fast-forwarding; adapts so slow devices
+// keep a usable framerate and fast ones skip quickly
+let ffChunk = 20;
+
+// the frame on the live trajectory nearest the pointer (null if the pointer
+// isn't within reach of its fixed-frame part)
+function pickTrajectoryFrame(px, py) {
+
+    if (!showTrajectory || !launched || crashedOut || impulse.phase !== 'off') {
+        return null;
+    }
+
+    let path = ship.posHistory;
+    let step = 5;
+    let w = camera.screenToWorld(px, py);
+    let reach = TRAJECTORY_PICK_PX / camera.scaleFactor;
+    let best = reach * reach;
+    let bestFrame = null;
+
+    for (let PT = (floor(T / step) + 1) * step; PT < path.length; PT += step) {
+
+        let next = min(PT + step, path.length - 1);
+        if (next <= PT) {
+            break;
+        }
+
+        if (trajectorySegmentNearMoon(path, PT, ship.shipOrbitingMoon,
+            ship.shipOrbitingMoonEndOfFirstOrbit)) {
+            continue;
+        }
+
+        let a = path[PT], b = path[next];
+        let abx = b.x - a.x, aby = b.y - a.y;
+        let len2 = abx * abx + aby * aby;
+        let t = len2 > 0 ? constrain(((w.x - a.x) * abx + (w.y - a.y) * aby) / len2, 0, 1) : 0;
+        let dx = a.x + abx * t - w.x, dy = a.y + aby * t - w.y;
+        let d2 = dx * dx + dy * dy;
+
+        if (d2 < best) {
+            best = d2;
+            bestFrame = PT + round(t * (next - PT));
+        }
+    }
+
+    return bestFrame;
+}
+
+// called at the top of each sketch's draw(): feeds a chunk of frames toward
+// the picked target so the fast-forward starts at once and stays responsive
+function updateFastForward() {
+
+    if (ffTarget === null) {
+        return;
+    }
+
+    let stop = T >= ffTarget || !launched || crashedOut ||
+        impulse.phase !== 'off' || joystickActive || boostInputActive();
+    if (stop) {
+        ffTarget = null;
+        ffDragging = false;
+        return;
+    }
+
+    if (deltaTime > 40) {
+        ffChunk = max(4, ffChunk * 0.7);
+    } else if (deltaTime < 25) {
+        ffChunk = min(80, ffChunk * 1.2);
+    }
+
+    framesToSkip = max(framesToSkip, min(ffTarget - T, ceil(ffChunk)));
 }
 
 function getGravitationalAccelerationFromAllBodies(object) {
@@ -2598,6 +3014,8 @@ function scrubTimelineBy(dxPixels) {
 
 function resetSimulation() {
     T = 0;
+    ffTarget = null;
+    ffDragging = false;
     launched = false;
     crashedOut = false;
     paused = false;
@@ -2662,6 +3080,16 @@ function mousePressed() {
     if (pointInControl(mouseX, mouseY)) {
         joystickActive = true;
         controlMode = TOUCH;
+        ffTarget = null;
+        return false;
+    }
+
+    // a press near the live trajectory fast-forwards to that point; dragging
+    // slides the target along it
+    let frame = pickTrajectoryFrame(mouseX, mouseY);
+    if (frame !== null) {
+        ffTarget = frame;
+        ffDragging = true;
     }
 
     return false;
@@ -2682,6 +3110,14 @@ function mouseDragged() {
         return false;
     }
 
+    if (ffDragging) {
+        let frame = pickTrajectoryFrame(mouseX, mouseY);
+        if (frame !== null && frame > T) {
+            ffTarget = frame;
+        }
+        return false;
+    }
+
 }
 
 function mouseReleased() {
@@ -2692,6 +3128,7 @@ function mouseReleased() {
     }
 
     joystickActive = false;
+    ffDragging = false;
     timelineScrub.active = false;
     timelineScrub.accum = 0;
     impulse.dragging = false;
@@ -2800,7 +3237,10 @@ function drawFrame() {
     if (gravLights) {
         push();
         // translate(-width / 2, -height / 2);
-        rotate((T % moonOrbit.length / moonOrbit.length * TAU));
+        // only the Moon's glow moves; an Earth-only field stays put
+        if (moonEnabled) {
+            rotate((T % moonOrbit.length / moonOrbit.length * TAU));
+        }
 
         image(gravFieldImg, -gravFieldImg.width / 2, -gravFieldImg.height / 2);
         pop();
@@ -2826,6 +3266,8 @@ function drawFrame() {
     // line(surfaceIntersect.x, surfaceIntersect.y, ship.posHistory[T].x, ship.posHistory[T].y);
 
     ship.draw();
+
+    drawExplosion();
 
     // strokeWeight(5);
     // stroke("#fff");
@@ -3234,7 +3676,7 @@ function drawImpulseHUD() {
 
         fill(255, 230);
         if (impulse.dir && impulse.frames > 0) {
-            text("PAUSED — burn of " + impulse.frames + " frames", x, y);
+            text("PAUSED — burn of " + secondsText(impulse.frames, 2), x, y);
         } else {
             text("PAUSED — drag the circle to choose an impulse", x, y);
         }
@@ -3358,8 +3800,8 @@ function drawTimeline() {
 
     fill('#ffffff');
     noStroke();
-    textFont("menlo");
-    let tString = "T = " + round(T / 100, 1) + " hf";
+    textFont(SIM_FONT);
+    let tString = "T = " + secondsText(T);
     if (paused) {
         tString += " (PAUSED)";
     }

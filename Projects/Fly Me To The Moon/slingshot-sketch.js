@@ -32,6 +32,64 @@ let landR; // radius at which balls touch down
 let towerH = 69;
 let ballRadius = 6;
 
+// Cats stand in for the balls: cat.svg, scaled so its head circle (outer edge
+// of the stroke) matches the ball's radius, with the magenta fill recoloured
+// to the ball's colour. Until the file has loaded, plain circles are drawn.
+const CAT_FILL = '#ed1e79';
+const CAT = { w: 1013.522, h: 878.763, cx: 505.123, cy: 458.697, r: 413.565 + 6.5 };
+let catSvg = null;
+const catSprites = {}; // one rasterised sprite per colour
+fetch('cat.svg').then(r => r.text()).then(t => { catSvg = t; }).catch(() => { });
+
+function catSprite(col) {
+
+    if (!catSvg) return null;
+
+    let hex = '#' + [red(col), green(col), blue(col)]
+        .map(v => round(v).toString(16).padStart(2, '0')).join('');
+    let entry = catSprites[hex];
+
+    if (!entry) {
+        entry = catSprites[hex] = { canvas: null };
+        let svg = catSvg.replace(new RegExp(CAT_FILL, 'gi'), hex)
+            .replace('<svg ', '<svg width="' + CAT.w + '" height="' + CAT.h + '" ');
+        let img = new Image();
+        img.onload = () => {
+            let c = document.createElement('canvas');
+            c.width = 512;
+            c.height = Math.round(512 * CAT.h / CAT.w);
+            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+            entry.canvas = c;
+        };
+        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    }
+
+    return entry.canvas;
+
+}
+
+// a cat centred on (x, y), kept upright on screen whatever the camera's rotation
+function drawCat(x, y, col, alphaValue) {
+
+    let sprite = catSprite(col);
+
+    if (!sprite) {
+        noStroke();
+        fill(red(col), green(col), blue(col), alphaValue);
+        circle(x, y, ballRadius * 2);
+        return;
+    }
+
+    let k = ballRadius / CAT.r;
+    push();
+    translate(x, y);
+    rotate(-cam.rot);
+    drawingContext.globalAlpha = alphaValue / 255;
+    drawingContext.drawImage(sprite, -CAT.cx * k, -CAT.cy * k, CAT.w * k, CAT.h * k);
+    pop();
+
+}
+
 let towerAngle = -Math.PI / 2; // tower at the top of the earth
 let towerBase, towerTop, upDir, rightDir;
 
@@ -264,6 +322,7 @@ function setup() {
 
     pixelDensity(1);
     createCanvas(windowWidth, windowHeight);
+    textFont(SIM_FONT);
     disableMobileGestureConflicts();
 
     mu = surfaceG * earthR * earthR;
@@ -1066,6 +1125,7 @@ function markCompletedOrbits() {
 function updateCamera() {
 
     let cx, cy, targetScale, targetRot = 0;
+    let maxScale = 1.6;
     let posLerp = 0.08, scaleLerp = 0.08, rotLerp = 0.08;
 
     const fitBox = (minX, maxX, minY, maxY) => {
@@ -1119,13 +1179,18 @@ function updateCamera() {
         fitBox(minX, maxX, minY, maxY);
     };
 
+    // the tower fills two thirds of the screen height; the view only backs
+    // off if the pulled-back sling would leave the screen sideways
     const fitCloseup = () => {
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        for (let p of [towerTop, towerBase, slingBallPos, dropArmEnd]) {
+        let minX = Infinity, maxX = -Infinity;
+        for (let p of [slingBallPos, slingRelease, dropArmEnd]) {
             minX = min(minX, p.x); maxX = max(maxX, p.x);
-            minY = min(minY, p.y); maxY = max(maxY, p.y);
         }
-        fitBox(minX, maxX, minY, maxY);
+        cx = (minX + maxX) / 2;
+        cy = (towerBase.y + towerTop.y) / 2;
+        let margin = height / 10;
+        targetScale = min(height * 2 / 3 / towerH, (width - 2 * margin) / max(maxX - minX, 1));
+        maxScale = 20;
     };
 
     let inFlight = (shotState === 'flying' || shotState === 'done');
@@ -1178,7 +1243,7 @@ function updateCamera() {
         fitCloseup();
     }
 
-    targetScale = constrain(targetScale, 0.02, 1.6);
+    targetScale = constrain(targetScale, 0.02, maxScale);
 
     // Travel around the planet rather than straight through it: when both
     // the current and target view centres are out near the surface, blend
@@ -1374,15 +1439,13 @@ function draw() {
         for (let p of ball.trail) vertex(p.x, p.y);
         endShape();
 
-        noStroke();
-        fill(red(ball.col), green(ball.col), blue(ball.col), ball.alpha);
-        circle(ball.pos.x, ball.pos.y, ballRadius * 2);
+        drawCat(ball.pos.x, ball.pos.y, ball.col, ball.alpha);
 
         // labels stay upright regardless of the camera's rotation
         push();
         translate(ball.pos.x, ball.pos.y);
         rotate(-cam.rot);
-        textFont("menlo");
+        textFont(SIM_FONT);
         textSize(12 / cam.scale);
         textAlign(CENTER, BOTTOM);
         if (!ghostRunMode || ball.kind === 'drop') {
@@ -1426,11 +1489,8 @@ function draw() {
         line(prongUp.x, prongUp.y, ballPos.x, ballPos.y);
         line(prongDn.x, prongDn.y, ballPos.x, ballPos.y);
 
-        noStroke();
-        fill(stageColors[stage]);
-        circle(ballPos.x, ballPos.y, ballRadius * 2);
-        fill(dropColorSling);
-        circle(dropArmEnd.x, dropArmEnd.y, ballRadius * 2);
+        drawCat(ballPos.x, ballPos.y, stageColors[stage], 255);
+        drawCat(dropArmEnd.x, dropArmEnd.y, dropColorSling, 255);
 
     }
 
@@ -1486,7 +1546,7 @@ function drawBallArrows(ball, labelled) {
 
     if (labelled) {
         let labels = [["gravity", gravTip, gravCol], ["velocity", velTip, velCol], ["net force", netTip, netCol]];
-        textFont("menlo");
+        textFont(SIM_FONT);
         textSize(12 * k);
         textAlign(LEFT, CENTER);
         noStroke();
@@ -1523,7 +1583,7 @@ function drawOrbitMarks() {
                     rotate(-cam.rot);
                     noStroke();
                     fill(255);
-                    textFont("menlo");
+                    textFont(SIM_FONT);
                     textSize(12 * k);
                     textAlign(LEFT, CENTER);
                     text(label, 12 * k, 0);
@@ -1615,7 +1675,7 @@ function drawHud() {
 
     fill(255);
     noStroke();
-    textFont("menlo");
+    textFont(SIM_FONT);
     textAlign(LEFT, TOP);
     textSize(14);
 
