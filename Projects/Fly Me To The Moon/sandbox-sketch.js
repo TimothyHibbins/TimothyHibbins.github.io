@@ -11,6 +11,7 @@ function setup() {
     showTrajectory = true;
     showTrajectoryDescription = true;
     showArrows = true;
+    persistSimState = true;
 
     initPalette();
 

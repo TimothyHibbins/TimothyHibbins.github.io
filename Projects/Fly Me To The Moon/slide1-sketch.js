@@ -266,7 +266,7 @@ function draw() {
 
     // drawPlayBack();
 
-    // drawTimeline();
+    drawTimeline();
 
 
 }

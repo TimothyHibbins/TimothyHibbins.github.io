@@ -58,7 +58,13 @@ const KEYS = 'keys';
 const TOUCH = 'touch'; // the on-screen control ring (pressed with a finger or the mouse)
 let controlMode = KEYS;
 
-const TIMELINE_FRAMES_PER_PIXEL = 5;
+// the timeline's scale (frames per pixel) is the reader's to stretch or squeeze
+const TIMELINE_FPP_DEFAULT = 5;
+const TIMELINE_FPP_MIN = 1;
+const TIMELINE_FPP_MAX = 60;
+let timelineFpp = TIMELINE_FPP_DEFAULT;
+// a press that moves less than this many pixels is a tap, not a drag
+const TIMELINE_TAP_SLOP = 5;
 
 // true while a press that started inside the control ring is held
 let joystickActive = false;
@@ -71,6 +77,7 @@ window.addEventListener('message', (event) => {
     let data = event.data;
     if (data && data.type === 'essayLineActive') {
         essayActiveLine = data;
+        if (data.timelineShown !== undefined) timelineShown = !!data.timelineShown;
         if (typeof window.onEssayLineActive === 'function') {
             window.onEssayLineActive(data);
         }
@@ -80,15 +87,21 @@ window.addEventListener('message', (event) => {
 // timeline scrubbing (click/drag or touch over the timeline strip)
 // only interactive in sketches that actually call drawTimeline()
 let timelineEnabled = false;
-// the timeline is hidden everywhere for now; with it off, nothing reserves
-// the strip at the bottom of the screen (camera, joystick, scrubbing)
-const TIMELINE_VISIBLE = false;
+// with the timeline off, nothing reserves the strip at the bottom of the
+// screen (camera, joystick, scrubbing) and time can't be shifted by hand.
+// In the essay, the page switches it on at the unit that introduces it.
+let timelineShown = window.parent === window;
 let timelineScrub = {
     active: false,
+    startX: 0,
     lastX: 0,
     accum: 0,
-    moved: 0
+    moved: 0,
+    tapFrame: 0,
+    pinch: null
 };
+// time shifts made by the wheel hold playback for a moment, as dragging does
+let lastWheelScrubMs = -1000;
 
 let cameraMode;
 
@@ -106,11 +119,18 @@ let displayPathChange = false;
 
 let framesToSkip = 0;
 
-// fast-forwarding to a point picked on the live trajectory: the frame aimed
-// for (null when not fast-forwarding), and whether the pointer that picked
-// it is still down and can slide the target along the trajectory
+// seeking to a frame, forwards or back (a tap on the timeline, a reset): the
+// frame aimed for (null when not seeking), whether to reset the simulation
+// on arrival at the start, and whether this draw moved time (so it renders)
 let ffTarget = null;
+let seekThenReset = false;
+let seekStepped = false;
+// picking a point on the live trajectory to fast-forward to is switched off
+// for now; ffDragging is whether the pointer that picked it is still down
+const TRAJECTORY_CLICK_SEEK = false;
 let ffDragging = false;
+// whether the ship has flown since the last reset (so a reset has a flight to rewind)
+let flightRecorded = false;
 
 let T = 0;
 
@@ -119,17 +139,34 @@ let T = 0;
 const FRAMES_PER_SECOND = 60;
 const PX_PER_UNIT = 10;
 
+// Readouts always show their decimal place (e.g. "3.0", never "3"), so the
+// text doesn't change width as values pass through round numbers.
+function fixedText(value, digits = 1) {
+    let s = Number(value).toFixed(digits);
+    return s === "-0.0" || s === "-0.00" ? s.slice(1) : s;
+}
+
 function secondsText(frames, digits = 1) {
-    return round(frames / FRAMES_PER_SECOND, digits) + " s";
+    return fixedText(frames / FRAMES_PER_SECOND, digits) + " s";
 }
 
 function unitsText(px, digits = 1) {
-    return round(px / PX_PER_UNIT, digits) + " units";
+    return fixedText(px / PX_PER_UNIT, digits) + " units";
+}
+
+// eccentricity from the closest and furthest distances from the body's centre
+function eccentricityFromRadii(rPeri, rApo) {
+    return rApo + rPeri > 0 ? max(0, (rApo - rPeri) / (rApo + rPeri)) : 0;
+}
+
+function eccentricityText(e) {
+    let label = e < 0.1 ? "Circular" : e < 0.6 ? "Elliptical" : "Highly Elliptical";
+    return fixedText(e, 2) + " (" + label + ")";
 }
 
 // px per frame -> units per second
 function speedText(pxPerFrame) {
-    return round(pxPerFrame * FRAMES_PER_SECOND / PX_PER_UNIT, 1) + " units/s";
+    return fixedText(pxPerFrame * FRAMES_PER_SECOND / PX_PER_UNIT, 1) + " units/s";
 }
 
 // the colour with its rgb scaled (a dimmer shade at the same alpha)
@@ -683,6 +720,8 @@ class Ship {
         this.periapsis = this.posHistory[0].copy();
         this.periapsisAlt = false;
         this.apoapsisAlt = false;
+        this.periapsisFrame = 0;
+        this.apoapsisFrame = 0;
 
         this.trajectoryType = false;
         this.shipOrbitingMoon = false;
@@ -706,6 +745,8 @@ class Ship {
         this.periapsis = this.initialPos.copy();
         this.periapsisAlt = false;
         this.apoapsisAlt = false;
+        this.periapsisFrame = 0;
+        this.apoapsisFrame = 0;
 
         this.trajectoryType = false;
         this.shipOrbitingMoon = false;
@@ -870,6 +911,56 @@ class Ship {
         }
     }
 
+    // While the essay explains the timeline's slices: the part of the render
+    // that the timeline's current slice shows. A slice is one degree of angle
+    // from the Moon's direction (on the ship's side), from the Earth's centre
+    // out to the strip's top altitude, so that wedge is picked out here.
+    drawSliceHighlight() {
+
+        if (!essayActiveLine || essayActiveLine.highlight !== 'timelineSlice') return;
+
+        let earth = bodies[0].pos;
+        let first = T - (T % timelineStep());
+
+        // the same angle the timeline reads its slice at (see drawTimeline)
+        let shipRel = this.posHistory[first].copy().sub(earth);
+        let moonRel = moonOrbit[first % moonOrbit.length].copy().sub(earth);
+        let signedTheta = atan2(moonRel.x * shipRel.y - moonRel.y * shipRel.x,
+            moonRel.x * shipRel.x + moonRel.y * shipRel.y);
+        let side = signedTheta < 0 ? -1 : 1;
+        let bin = floor(degrees(abs(signedTheta)));
+
+        let moonNow = moonOrbit[T % moonOrbit.length].copy().sub(earth).heading();
+        let a0 = moonNow + side * radians(bin);
+        let a1 = moonNow + side * radians(bin + 1);
+        let R = timelineSliceRadius();
+
+        let pulse = 0.5 + 0.5 * sin(millis() / 250);
+
+        push();
+        translate(earth.x, earth.y);
+
+        fill(255, 220, 80, 70 + 60 * pulse);
+        stroke(255, 220, 80, 200 + 55 * pulse);
+        strokeWeight(max(1.5, 2 / camera.scaleFactor));
+        beginShape();
+        vertex(0, 0);
+        let arcSteps = 8;
+        for (let k = 0; k <= arcSteps; k++) {
+            let a = lerp(a0, a1, k / arcSteps);
+            vertex(R * cos(a), R * sin(a));
+        }
+        endShape(CLOSE);
+
+        // a degree is hair-thin near the planet: keep a visible centre line
+        stroke(255, 220, 80, 230);
+        strokeWeight(max(3, 4 / camera.scaleFactor));
+        let am = (a0 + a1) / 2;
+        line(0, 0, R * cos(am), R * sin(am));
+        pop();
+
+    }
+
     drawTrajectoryDescription(pos, offset) {
 
         fill(rocketColor);
@@ -881,8 +972,12 @@ class Ship {
 
         if (this.trajectoryType == 'Orbit') {
 
+            let eccentricity = eccentricityFromRadii(
+                bodies[0].radius + this.periapsisAlt, bodies[0].radius + this.apoapsisAlt);
+
             text("Orbit\n" +
-                "Period: " + secondsText(projectionDuration),
+                "Period: " + secondsText(projectionDuration) + "\n" +
+                "Eccentricity: " + eccentricityText(eccentricity),
                 pos.x + offset, pos.y - offset);
 
             text(
@@ -928,8 +1023,12 @@ class Ship {
             let moonPos = bodies[1].pos;
             let lunarOnly = this.trajectoryType == 'Lunar Orbit';
 
+            let lunarEccentricity = eccentricityFromRadii(
+                bodies[1].radius + this.moonPeriAlt, bodies[1].radius + this.moonApoAlt);
+
             text("Lunar Orbit\n" +
-                "Period: " + secondsText(this.moonOrbitPeriod),
+                "Period: " + secondsText(this.moonOrbitPeriod) + "\n" +
+                "Eccentricity: " + eccentricityText(lunarEccentricity),
                 pos.x + offset + (lunarOnly ? 0 : 150 / camera.scaleFactor), pos.y - offset);
 
             for (let [label, rel, alt] of [
@@ -1189,6 +1288,8 @@ class Ship {
             this.drawArrows(pos);
         }
 
+        this.drawSliceHighlight();
+
     }
 
     projectTrajectory(boost = false, orientationShift = false, boostThrottle = 1) {
@@ -1248,9 +1349,11 @@ class Ship {
 
             this.periapsis = this.posHistory[T].copy();
             this.periapsisAlt = bodies[0].getAltitude(this.periapsis);
+            this.periapsisFrame = T;
 
             this.apoapsis = this.posHistory[T].copy();
             this.apoapsisAlt = bodies[0].getAltitude(this.apoapsis);
+            this.apoapsisFrame = T;
 
 
         }
@@ -1393,9 +1496,11 @@ class Ship {
                     if (alt < this.periapsisAlt) {
                         this.periapsis = this.posHistory[i].copy();
                         this.periapsisAlt = alt;
+                        this.periapsisFrame = i;
                     } else if (alt > this.apoapsisAlt) {
                         this.apoapsis = this.posHistory[i].copy();
                         this.apoapsisAlt = alt;
+                        this.apoapsisFrame = i;
                     }
 
                 }
@@ -1565,6 +1670,8 @@ class Ship {
             periapsisAlt: this.periapsisAlt,
             apoapsis: this.apoapsis.copy(),
             apoapsisAlt: this.apoapsisAlt,
+            periapsisFrame: this.periapsisFrame,
+            apoapsisFrame: this.apoapsisFrame,
             shipOrbitingMoon: this.shipOrbitingMoon,
             shipOrbitingMoonEndOfFirstOrbit: this.shipOrbitingMoonEndOfFirstOrbit,
             moon: {
@@ -1602,6 +1709,8 @@ class Ship {
         this.periapsisAlt = snap.periapsisAlt;
         this.apoapsis = snap.apoapsis.copy();
         this.apoapsisAlt = snap.apoapsisAlt;
+        this.periapsisFrame = snap.periapsisFrame;
+        this.apoapsisFrame = snap.apoapsisFrame;
         this.shipOrbitingMoon = snap.shipOrbitingMoon;
         this.shipOrbitingMoonEndOfFirstOrbit = snap.shipOrbitingMoonEndOfFirstOrbit;
         this.moonPeriAlt = snap.moon.periAlt;
@@ -1747,7 +1856,7 @@ function updateExhaust() {
 function drawExhaust(sh) {
 
     let hot = color(255), fire = paletteColors.fire;
-    let size = sh.sWidth * 0.5;
+    let size = sh.sWidth * 0.22;
 
     noStroke();
     for (let p of exhaust.list) {
@@ -2000,6 +2109,25 @@ class Camera {
         let dy = abs(shipPos.y - centre.y) + ship.length / 2;
         scaleFactor = min(scaleFactor, halfW / dx, halfH / dy);
 
+        // the live trajectory, when shown, stays entirely in frame
+        if (showTrajectory && !crashedOut) {
+            let paths = [ship.posHistory];
+            if (impulse.phase === 'aiming' && impulse.snapshot) paths.push(impulse.snapshot.pos);
+            for (let path of paths) {
+                let last = path.length - 1;
+                for (let i = T; i <= last; i += 5) {
+                    let p = path[i];
+                    scaleFactor = min(scaleFactor, halfW / max(abs(p.x - centre.x), 1),
+                        halfH / max(abs(p.y - centre.y), 1));
+                }
+                if (last > T) {
+                    let p = path[last];
+                    scaleFactor = min(scaleFactor, halfW / max(abs(p.x - centre.x), 1),
+                        halfH / max(abs(p.y - centre.y), 1));
+                }
+            }
+        }
+
         if (moonEnabled) {
             let reach = this.moonOrbitReach() + 4;
             scaleFactor = min(scaleFactor,
@@ -2114,20 +2242,97 @@ function pickTrajectoryFrame(px, py) {
     return bestFrame;
 }
 
+// whether the ship is sitting still on a body at frame f (not in flight)
+function frameAtRest(f) {
+
+    let v = ship.velHistory[f];
+    if (!v) return false;
+    if (v.mag() < 1e-6) return true;
+
+    if (moonEnabled && moonOrbitVelHistory.length > 0 && bodies[1]) {
+        let moonPos = moonOrbit[f % moonOrbit.length];
+        let nearMoon = p5.Vector.dist(ship.posHistory[f], moonPos) - bodies[1].radius < ship.length;
+        return nearMoon && p5.Vector.dist(v, moonOrbitVelHistory[f % moonOrbitVelHistory.length]) < 1e-6;
+    }
+
+    return false;
+
+}
+
+// head for a frame of the flight, forwards (simulated ahead, a chunk per
+// draw) or back (rewound along the recorded history)
+function seekToFrame(frame) {
+
+    frame = constrain(round(frame), 0, max(0, ship.posHistory.length - 1));
+
+    if (frame === T || (frame > T && (!launched || crashedOut))) {
+        return false;
+    }
+
+    if (impulse.phase === 'burning') {
+        return false;
+    }
+
+    cancelImpulse();
+    ffTarget = frame;
+    ffDragging = false;
+    seekThenReset = false;
+    return true;
+
+}
+
+function endSeek() {
+
+    let reset = seekThenReset && T === 0;
+    ffTarget = null;
+    ffDragging = false;
+    seekThenReset = false;
+
+    if (reset) {
+        resetSimulation();
+    }
+
+}
+
 // called at the top of each sketch's draw(): feeds a chunk of frames toward
-// the picked target so the fast-forward starts at once and stays responsive
+// the seek target so it starts at once and stays responsive
 function updateFastForward() {
+
+    seekStepped = false;
 
     if (ffTarget === null) {
         return;
     }
 
-    let stop = T >= ffTarget || !launched || crashedOut ||
-        impulse.phase !== 'off' || joystickActive || boostInputActive();
-    if (stop) {
-        ffTarget = null;
-        ffDragging = false;
+    let remaining = ffTarget - T;
+    let backwards = remaining < 0;
+    let interrupted = impulse.phase !== 'off' ||
+        (!seekThenReset && (joystickActive || boostInputActive())) ||
+        (!backwards && (!launched || crashedOut));
+
+    if (remaining === 0 || interrupted) {
+        endSeek();
         return;
+    }
+
+    if (backwards) {
+
+        // ease out: big strides far from the target, small ones on arrival
+        let step = min(-remaining, max(8, ceil(-remaining * 0.08)));
+        T -= step;
+
+        if (crashedOut) {
+            crashedOut = false;
+            paused = false;
+        }
+        launched = !frameAtRest(T);
+        seekStepped = true;
+
+        if (T === ffTarget) {
+            endSeek();
+        }
+        return;
+
     }
 
     if (deltaTime > 40) {
@@ -2136,7 +2341,7 @@ function updateFastForward() {
         ffChunk = min(80, ffChunk * 1.2);
     }
 
-    framesToSkip = max(framesToSkip, min(ffTarget - T, ceil(ffChunk)));
+    framesToSkip = max(framesToSkip, min(remaining, ceil(ffChunk)));
 }
 
 function getGravitationalAccelerationFromAllBodies(object) {
@@ -2190,8 +2395,12 @@ class Particle {
     }
 }
 
-// The wheel no longer scrubs time; inside the impulse circle it zooms the map
+// The wheel shifts time (a notch is a stretch of frames); over the timeline
+// it stretches or squeezes the timeline instead, and inside the impulse
+// circle it zooms the map
 function mouseWheel(event) {
+
+    if (impulse.phase === 'burning') return false;
 
     if (impulse.phase === 'aiming') {
         let j = getJoystickGeometry();
@@ -2200,7 +2409,52 @@ function mouseWheel(event) {
             return false;
         }
     }
+
+    if (pointerOverTimeline()) {
+        zoomTimeline(exp(event.delta * 0.002));
+        return false;
+    }
+
+    let frames = constrain(event.delta, -200, 200);
+    if (frames === 0 || !timelineShown) return false;
+
+    ffTarget = null;
+    seekThenReset = false;
+    cancelImpulse();
+    lastWheelScrubMs = millis();
+
+    if (frames > 0) {
+        if (launched && !crashedOut) {
+            framesToSkip = frames;
+        }
+    } else {
+        framesToSkip = frames;
+        crashedOut = false;
+    }
+
     return false;
+}
+
+// factor > 1 squeezes the timeline (more frames per pixel), < 1 stretches it
+function zoomTimeline(factor) {
+    timelineFpp = constrain(timelineFpp * factor, TIMELINE_FPP_MIN, TIMELINE_FPP_MAX);
+}
+
+// the frame under a screen x on the timeline (as drawn: the playhead is at
+// the centre, on the frame the strip is anchored to)
+function timelineFrameAt(x) {
+    let step = timelineStep();
+    return (T - (T % step)) + (x - width / 2) * timelineFpp;
+}
+
+// frames covered by each slice the timeline draws
+function timelineStep() {
+    return max(1, floor(timelineFpp));
+}
+
+// distance from the Earth's centre that the top of a timeline slice stands for
+function timelineSliceRadius() {
+    return floor(bodies[0].radius + ship.apoapsisAlt + 100);
 }
 
 function isTouchDevice() {
@@ -2986,15 +3240,38 @@ function handleImpulsePress() {
 
 }
 
+// The soundtrack plays from the essay page (see soundtrack.js); the
+// simulation iframes report their time to it and let a gesture start it.
+function parentSoundtrack() {
+
+    try {
+        return window.parent !== window ? window.parent.soundtrackPlayer : null;
+    } catch (err) {
+        return null; // the parent isn't reachable (opened on its own)
+    }
+
+}
+
+function updateSoundtrack(simTime) {
+    let player = parentSoundtrack();
+    // time is stopped while paused or crashed, and while the timeline is held
+    if (player) player.update(window, simTime, paused || crashedOut || timelineScrub.active);
+}
+
+function unlockSoundtrack() {
+    let player = parentSoundtrack();
+    if (player) player.unlock();
+}
+
 function timelineScrubActive() {
-    return timelineScrub.active;
+    return timelineScrub.active || seekStepped || millis() - lastWheelScrubMs < 150;
 }
 
 // drag the timeline like scrubbing in video software:
 // dragging right moves the strip right, i.e. backwards in time
 function scrubTimelineBy(dxPixels) {
 
-    timelineScrub.accum += -dxPixels * TIMELINE_FRAMES_PER_PIXEL;
+    timelineScrub.accum += -dxPixels * timelineFpp;
 
     let frames = Math.trunc(timelineScrub.accum);
     if (frames == 0) {
@@ -3012,10 +3289,23 @@ function scrubTimelineBy(dxPixels) {
     }
 }
 
-function resetSimulation() {
+// animated: rewind to the start first (instantly if already there)
+function resetSimulation(animated = false) {
+
+    if (animated && T > 0 && flightRecorded && impulse.phase !== 'burning') {
+        cancelImpulse();
+        joystickActive = false;
+        ffTarget = 0;
+        ffDragging = false;
+        seekThenReset = true;
+        return;
+    }
+
     T = 0;
     ffTarget = null;
     ffDragging = false;
+    seekThenReset = false;
+    flightRecorded = false;
     launched = false;
     crashedOut = false;
     paused = false;
@@ -3029,18 +3319,151 @@ function resetSimulation() {
     ship.reset();
 }
 
+//
+// Remembering the flight across page reloads (opt in with persistSimState).
+// Only the ship's state at the current frame is kept, a few hundred bytes
+// saved about once a second, not the history: a restored flight begins with
+// the ship at rest on the pad before the moment it was saved.
+//
+
+let persistSimState = false;
+let simStateChecked = false;
+let lastSimSaveMs = 0;
+
+function simStateKey() {
+    return 'flyMeToTheMoon:sim:' + location.pathname + location.search;
+}
+
+function vecToArray(v) {
+    return [v.x, v.y];
+}
+
+function saveSimState() {
+
+    try {
+        if (window.parent !== window && window.parent.simSavingDisabled) return;
+    } catch (err) { /* the parent isn't reachable */ }
+
+    try {
+        let onMoon = ship.bodyLandedOn === bodies[1];
+        if (crashedOut || impulse.phase === 'burning' || (!launched && !onMoon)) {
+            // nothing worth coming back to (or mid-burn, so keep the last save)
+            if (impulse.phase !== 'burning') {
+                localStorage.removeItem(simStateKey());
+            }
+            return;
+        }
+
+        let burned = 0;
+        for (let i = 0; i <= T && i < ship.boostingHistory.length; i++) {
+            if (ship.boostingHistory[i]) burned++;
+        }
+
+        localStorage.setItem(simStateKey(), JSON.stringify({
+            T: T,
+            launched: launched,
+            paused: paused,
+            pos: vecToArray(ship.posHistory[T]),
+            vel: vecToArray(ship.velHistory[T]),
+            orientation: vecToArray(ship.orientationHistory[T]),
+            onMoon: onMoon,
+            landingPos: vecToArray(ship.landingPos),
+            burned: burned
+        }));
+    } catch (err) { /* storage unavailable or full: nothing to remember with */ }
+
+}
+
+function restoreSimState() {
+
+    let saved = null;
+    try {
+        saved = JSON.parse(localStorage.getItem(simStateKey()) || 'null');
+    } catch (err) {
+        return;
+    }
+    if (!saved || !Array.isArray(saved.pos)) return;
+
+    // the Moon's place depends on T modulo its orbit length, so keep that and
+    // make room for the fuel already burned
+    let len = moonOrbit.length;
+    let newT = saved.T % len;
+    if (newT < saved.burned) {
+        newT += len * ceil((saved.burned - newT) / len);
+    }
+
+    let pad = ship.initialPos;
+    let padPos = [], padVel = [], padAcc = [], padOrient = [], padBoost = [];
+    for (let i = 0; i < newT; i++) {
+        padPos.push(pad.copy());
+        padVel.push(createVector(0, 0));
+        padAcc.push(createVector(0, 0));
+        padOrient.push(ship.initialOrientation.copy());
+        padBoost.push(i < saved.burned);
+    }
+
+    ship.reset();
+    ship.posHistory = padPos.concat([createVector(...saved.pos)]);
+    ship.velHistory = padVel.concat([createVector(...saved.vel)]);
+    ship.accHistory = padAcc.concat([createVector(0, 0)]);
+    ship.orientationHistory = padOrient.concat([createVector(...saved.orientation)]);
+    ship.boostingHistory = padBoost.concat([false]);
+    ship.bodyLandedOn = saved.onMoon ? bodies[1] : bodies[0];
+    ship.landingPos = createVector(...saved.landingPos);
+
+    T = newT;
+    launched = saved.launched;
+    paused = saved.paused;
+    crashedOut = false;
+    framesToSkip = 0;
+    impulse.phase = 'off';
+    impulse.live = null;
+
+}
+
+// called at the end of each draw: restores once, then saves at most each second
+function persistSimTick() {
+
+    if (!persistSimState) return;
+
+    if (!simStateChecked) {
+        simStateChecked = true;
+        restoreSimState();
+        window.addEventListener('pagehide', saveSimState);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) saveSimState();
+        });
+        return;
+    }
+
+    let now = millis();
+    if (now - lastSimSaveMs > 1000) {
+        lastSimSaveMs = now;
+        saveSimState();
+    }
+
+}
+
 function mousePressed() {
 
     // browsers require a user gesture before audio can start
     if (typeof userStartAudio === 'function') {
         userStartAudio();
     }
+    unlockSoundtrack();
 
     if (pointerOverTimeline()) {
+        if (impulse.phase === 'burning') {
+            return false;
+        }
+        ffTarget = null;
+        seekThenReset = false;
         timelineScrub.active = true;
+        timelineScrub.startX = mouseX;
         timelineScrub.lastX = mouseX;
         timelineScrub.accum = 0;
         timelineScrub.moved = 0;
+        timelineScrub.tapFrame = timelineFrameAt(mouseX);
         cancelImpulse();
         return false;
     }
@@ -3054,7 +3477,7 @@ function mousePressed() {
 
     if (dCenter > j.r) {
         if (dist(mouseX, mouseY, j.resetX, j.resetY) <= j.cornerSize) {
-            resetSimulation();
+            resetSimulation(true);
             return false;
         }
     }
@@ -3081,15 +3504,18 @@ function mousePressed() {
         joystickActive = true;
         controlMode = TOUCH;
         ffTarget = null;
+        seekThenReset = false;
         return false;
     }
 
     // a press near the live trajectory fast-forwards to that point; dragging
     // slides the target along it
-    let frame = pickTrajectoryFrame(mouseX, mouseY);
-    if (frame !== null) {
-        ffTarget = frame;
-        ffDragging = true;
+    if (TRAJECTORY_CLICK_SEEK) {
+        let frame = pickTrajectoryFrame(mouseX, mouseY);
+        if (frame !== null) {
+            ffTarget = frame;
+            ffDragging = true;
+        }
     }
 
     return false;
@@ -3099,9 +3525,13 @@ function mousePressed() {
 function mouseDragged() {
 
     if (timelineScrub.active) {
-        timelineScrub.moved += abs(mouseX - timelineScrub.lastX);
-        scrubTimelineBy(mouseX - timelineScrub.lastX);
-        timelineScrub.lastX = mouseX;
+        // a small movement is still a tap; past that the press becomes a
+        // drag, which scrubs by the whole distance from where it started
+        timelineScrub.moved = max(timelineScrub.moved, abs(mouseX - timelineScrub.startX));
+        if (timelineScrub.moved >= TIMELINE_TAP_SLOP) {
+            scrubTimelineBy(mouseX - timelineScrub.lastX);
+            timelineScrub.lastX = mouseX;
+        }
         return false;
     }
 
@@ -3122,15 +3552,16 @@ function mouseDragged() {
 
 function mouseReleased() {
 
-    // a tap (press without dragging) on the timeline toggles pause
-    if (timelineScrub.active && timelineScrub.moved < 5 && !crashedOut) {
-        paused = !paused;
+    // a tap (press without dragging) on the timeline seeks to that position
+    if (timelineScrub.active && timelineScrub.moved < TIMELINE_TAP_SLOP) {
+        seekToFrame(timelineScrub.tapFrame);
     }
 
     joystickActive = false;
     ffDragging = false;
     timelineScrub.active = false;
     timelineScrub.accum = 0;
+    timelineScrub.pinch = null;
     impulse.dragging = false;
     impulse.pinch = null;
     impulse.waitForRelease = false;
@@ -3145,7 +3576,26 @@ function touchDistance() {
     return dist(touches[0].x, touches[0].y, touches[1].x, touches[1].y);
 }
 
+function touchesOverTimeline() {
+    return touches.length >= 2 &&
+        pointerOverTimeline(touches[0].x, touches[0].y) &&
+        pointerOverTimeline(touches[1].x, touches[1].y);
+}
+
 function touchStarted() {
+
+    // two fingers on the timeline pinch it; the first finger's press is
+    // then no longer a tap or a drag
+    if (touchesOverTimeline()) {
+        timelineScrub.pinch = touchDistance();
+        timelineScrub.active = false;
+        timelineScrub.accum = 0;
+        return false;
+    }
+    if (timelineScrub.active && touches.length >= 2) {
+        return false;
+    }
+
     if (impulse.phase === 'aiming' && touches.length >= 2) {
         impulse.pinch = touchDistance();
         impulse.dragging = false;
@@ -3156,6 +3606,12 @@ function touchStarted() {
 }
 
 function touchMoved() {
+    if (timelineScrub.pinch && touches.length >= 2) {
+        let d = touchDistance();
+        if (d > 0) zoomTimeline(timelineScrub.pinch / d);
+        timelineScrub.pinch = d;
+        return false;
+    }
     if (impulse.pinch && touches.length >= 2) {
         let d = touchDistance();
         if (d > 0) zoomImpulseMap(d / impulse.pinch);
@@ -3167,6 +3623,10 @@ function touchMoved() {
 }
 
 function touchEnded() {
+    if (timelineScrub.pinch) {
+        if (touches.length < 2) timelineScrub.pinch = null;
+        return false;
+    }
     if (impulse.pinch) {
         if (touches.length < 2) impulse.pinch = null;
         impulse.dragging = false;
@@ -3214,8 +3674,10 @@ function drawFrame() {
 
     background(0);
 
+    if (launched) flightRecorded = true;
+
     updateThrustSound((!paused || impulse.phase === 'burning') && !crashedOut && launched &&
-        !timelineScrub.active && ship.boostingHistory[T] === true);
+        !timelineScrubActive() && ffTarget === null && ship.boostingHistory[T] === true);
 
     // Camera
 
@@ -3729,9 +4191,13 @@ function drawPlayBack() {
 
 function drawTimeline() {
 
-    if (!TIMELINE_VISIBLE) return;
+    // the draw's last steps: the soundtrack hears the time it ended on, and
+    // the flight is remembered
+    updateSoundtrack(T);
+    persistSimTick();
 
-    timelineEnabled = true;
+    timelineEnabled = timelineShown;
+    if (!timelineShown) return;
 
     push();
     clip(timelineMask);
@@ -3740,20 +4206,23 @@ function drawTimeline() {
     fill(0);
     rect(0, height - h, width, h);
 
-    framesPerPixel = TIMELINE_FRAMES_PER_PIXEL;
+    let step = timelineStep();
+    let framesPerPixel = timelineFpp;
+    let sliceW = max(1, step / framesPerPixel);
 
     sliceMinAlt = 0;
-    sliceMaxAlt = floor(bodies[0].radius + ship.apoapsisAlt + 100);
+    sliceMaxAlt = timelineSliceRadius();
 
-    // only draw the slices that are actually on screen (1px per framesPerPixel frames)
-    let anchor = T - (T % framesPerPixel);
-    let halfSpanFrames = (ceil(width / 2) + 1) * framesPerPixel;
-    let PTstart = max(0, anchor - halfSpanFrames);
+    // only draw the slices that are actually on screen; the strip is anchored
+    // to a multiple of the slice length so slices don't shimmer as T advances
+    let anchor = T - (T % step);
+    let halfSpanFrames = (ceil(width / 2) + 2) * framesPerPixel;
+    let PTstart = max(0, anchor - ceil(halfSpanFrames / step) * step);
     let PTend = min(ship.posHistory.length, anchor + halfSpanFrames);
 
-    for (let PT = PTstart; PT < PTend; PT += framesPerPixel) {
+    for (let PT = PTstart; PT < PTend; PT += step) {
 
-        let x = width / 2 + (PT - (T - (T % framesPerPixel))) / framesPerPixel;
+        let x = width / 2 + (PT - anchor) / framesPerPixel;
 
         relativePos = ship.posHistory[PT].copy().sub(bodies[0].pos);
         moonPosRelativeToEarth = moonOrbit[PT % moonOrbit.length].copy().sub(bodies[0].pos);
@@ -3770,7 +4239,7 @@ function drawTimeline() {
         image(
             polarImg, // img
             0, 0, // dx, dy
-            1, h, //dWidth, dHeight
+            sliceW, h, //dWidth, dHeight
             floor(degrees(theta)), 0, // sx, sy
             1, sliceMaxAlt // sWidth, sHeight
         );
@@ -3797,6 +4266,26 @@ function drawTimeline() {
     stroke("#ffffffff");
     strokeWeight(1);
     line(x, height - h * 9 / 10, x, height);
+
+    // the frames of the orbit's periapsis and apoapsis, as in the main view
+    if (ship.trajectoryType == 'Orbit') {
+        push();
+        let anchorFrame = T - (T % step);
+        textFont(SIM_FONT);
+        textSize(10);
+        textAlign(LEFT, BOTTOM);
+        for (let [frame, label] of [[ship.periapsisFrame, 'Periapsis'], [ship.apoapsisFrame, 'Apoapsis']]) {
+            let fx = width / 2 + (frame - anchorFrame) / framesPerPixel;
+            if (fx < 0 || fx > width) continue;
+            stroke(rocketColor);
+            strokeWeight(1);
+            drawDashedLine(fx, height - h, fx, height, rocketColor, 4, 1);
+            noStroke();
+            fill(rocketColor);
+            text(label, fx + 3, height - 2);
+        }
+        pop();
+    }
 
     fill('#ffffff');
     noStroke();

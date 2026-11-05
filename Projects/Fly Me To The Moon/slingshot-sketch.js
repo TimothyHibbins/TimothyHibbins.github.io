@@ -1125,15 +1125,19 @@ function markCompletedOrbits() {
 function updateCamera() {
 
     let cx, cy, targetScale, targetRot = 0;
-    let maxScale = 1.6;
+    // the closeup's zoom (tower at two thirds of the screen height) is the
+    // most any view zooms in, so the flight and trajectory views open at the
+    // same scale the stretch-back ends on
+    let closeupScale = height * 2 / 3 / towerH;
+    let maxScale = closeupScale;
     let posLerp = 0.08, scaleLerp = 0.08, rotLerp = 0.08;
 
     const fitBox = (minX, maxX, minY, maxY) => {
         cx = (minX + maxX) / 2;
         cy = (minY + maxY) / 2;
         let margin = height / 10; // the same inset on every side
-        let spreadX = max(maxX - minX, 160);
-        let spreadY = max(maxY - minY, 160);
+        let spreadX = max(maxX - minX, towerH * 1.5);
+        let spreadY = max(maxY - minY, towerH * 1.5);
         targetScale = min((width - 2 * margin) / spreadX, (height - 2 * margin) / spreadY);
     };
 
@@ -1221,7 +1225,9 @@ function updateCamera() {
         let mid = p5.Vector.mult(radial, earthR + alt / 2);
         cx = mid.x;
         cy = mid.y;
-        targetScale = min(1.6, height * 0.78 / max(alt + 150, 260));
+        // at tower height this is exactly the closeup's zoom, easing out as
+        // the ball climbs so ball and ground stay in frame
+        targetScale = min(closeupScale, height * 0.7 / max(alt, towerH));
 
         // fast-forward covers ground quickly: lock the camera to the ball
         posLerp = fastForward ? 1 : 0.3;
@@ -1439,6 +1445,14 @@ function draw() {
         for (let p of ball.trail) vertex(p.x, p.y);
         endShape();
 
+        // altitude: a dashed white line down to the surface, as in the rocket sim
+        if (ball.kind === 'primary' && !ball.landed) {
+            let r = max(ball.pos.mag(), 1);
+            let surface = p5.Vector.mult(ball.pos, earthR / r);
+            drawDashedLine(surface.x, surface.y, ball.pos.x, ball.pos.y, color(255),
+                max(PX_PER_UNIT, 4 / cam.scale), 1 / cam.scale);
+        }
+
         drawCat(ball.pos.x, ball.pos.y, ball.col, ball.alpha);
 
         // labels stay upright regardless of the camera's rotation
@@ -1449,11 +1463,11 @@ function draw() {
         textSize(12 / cam.scale);
         textAlign(CENTER, BOTTOM);
         if (!ghostRunMode || ball.kind === 'drop') {
-            text((ball.timer / TARGET_FPS).toFixed(1) + " s", 0, -(ballRadius + 4));
+            text(secondsText(ball.timer), 0, -(ballRadius + 4));
         }
         if (ball.kind === 'primary') {
             textAlign(CENTER, TOP);
-            text("alt " + max(0, round(ball.pos.mag() - earthR)), 0, ballRadius + 6);
+            text("Alt: " + unitsText(max(0, ball.pos.mag() - earthR)), 0, ballRadius + 6);
         }
         pop();
     }
@@ -1566,27 +1580,34 @@ function drawOrbitMarks() {
 
     let k = 1 / cam.scale;
 
+    // as in the rocket sim: a dashed line from the surface out to the point,
+    // labelled with its altitude (one label set, on the most eccentric orbit)
     for (let m of orbitMarks) {
 
-        let kinds = [["apogee", m.apo], ["perigee", m.peri]];
+        let kinds = [["Apogee", m.apo], ["Perigee", m.peri]];
 
         for (let [label, points] of kinds) {
             for (let p of points) {
-                noFill();
-                stroke(255, 230);
-                strokeWeight(1.5 * k);
-                circle(p.x, p.y, 14 * k);
+
+                let lineCol = color(red(m.col), green(m.col), blue(m.col));
+                let surface = p5.Vector.mult(p, earthR / max(p.mag(), 1));
+                drawDashedLine(surface.x, surface.y, p.x, p.y, lineCol,
+                    max(PX_PER_UNIT, 4 * k), 1.5 * k);
 
                 if (m.label) {
                     push();
                     translate(p.x, p.y);
                     rotate(-cam.rot);
                     noStroke();
-                    fill(255);
+                    fill(lineCol);
                     textFont(SIM_FONT);
                     textSize(12 * k);
                     textAlign(LEFT, CENTER);
-                    text(label, 12 * k, 0);
+                    text(label + ": " + unitsText(p.mag() - earthR), 12 * k, 0);
+                    if (label === "Apogee" && p === points[0] && m.peri.length) {
+                        let e = eccentricityFromRadii(m.peri[0].mag(), p.mag());
+                        text("Eccentricity: " + eccentricityText(e), 12 * k, 16 * k);
+                    }
                     pop();
                 }
             }
@@ -1763,6 +1784,8 @@ function pointerOnPlayButton() {
 }
 
 function mousePressed() {
+
+    unlockSoundtrack();
 
     if (pointerOnFFButton()) {
         fastForward = true;

@@ -7,6 +7,12 @@
     <link rel="stylesheet" href="../../mystyle.css">
     <link rel="icon" type="image/x-icon" href="favicon.png">
     <title>Fly Me To The Moon</title>
+    <script>
+        // lets the stylesheet lay out touch devices differently
+        if (('ontouchstart' in window) || navigator.maxTouchPoints > 0) {
+            document.documentElement.classList.add('touch');
+        }
+    </script>
 </head>
 <style>
     @font-face {
@@ -37,6 +43,12 @@
         --essay-height: 25vh;
         --essay-height: 25dvh;
         --accent: #ff00b3;
+    }
+
+    /* on touch screens the text pane is a little taller */
+    html.touch {
+        --essay-height: 30vh;
+        --essay-height: 30dvh;
     }
 
     html,
@@ -134,6 +146,7 @@
     }
 
     /* units sit flush against one another; only the highlight separates them */
+    #essayContent .unit,
     #essayContent p,
     #essayContent ul {
         margin-top: 0;
@@ -515,6 +528,7 @@
             padding-right: 14px;
         }
 
+        #essayContent .unit,
         #essayContent p,
         #essayContent li {
             font-size: 16px;
@@ -631,7 +645,7 @@
 
                 <p>
                     Welcome! In this essay, you will learn how to fly to the Moon. But this isn't just any old slab of
-                    text, it's living, breathing, <em>interactive, and playable</em> essay, which means you
+                    text, it's a living, breathing, <em>interactive, and playable</em> essay, which means you
                     won't just read about it; you'll actually fly your very own rocketship in the simulation below. The
                     words of
                     the essay will be up here, but rather than having to scroll, new words will appear by themselves as
@@ -661,19 +675,25 @@
                     appeared,
                     —and the state of the simulation associated with them will be restored.
                 </p>
-                <p data-platform="desktop">
-                    So, time for liftoff!
+                <!-- Text that differs by device lives in one unit: a .unit holding a
+                     data-platform="desktop" and a data-platform="touch" version;
+                     the one for the other kind of device is removed on load. -->
+                <div class="unit">
+                    <div data-platform="desktop">
+                        So, time for liftoff!
 
-                    Click inside the control ring in the direction you want to to fire the rocket (i.e. press at the top
-                    if you
-                    want to go up by firing down towards the ground).
-                </p>
-                <p data-platform="touch">
-                    So, time for liftoff.
+                        Click inside the control ring in the direction you want to to fire the rocket (i.e. press at
+                        the top if you
+                        want to go up by firing down towards the ground).
+                    </div>
+                    <div data-platform="touch">
+                        So, time for liftoff.
 
-                    Tap on the control circle in the direction you want to fire the rocket (i.e. press at the top if you
-                    want to go up by firing down towards the ground).
-                </p>
+                        Tap on the control circle in the direction you want to fire the rocket (i.e. press at the top
+                        if you
+                        want to go up by firing down towards the ground).
+                    </div>
+                </div>
 
                 <p>You'll want to takeoff straight up away from the surface of the Earth.</p>
 
@@ -777,18 +797,20 @@
                      launch-ready slingshot at power N, landed:N the aftermath of
                      that launch. Units without one keep the previous state. -->
 
-                <p id="sling-start" data-state="ready:0">Let's perform an experiment. If we drop a ball off of this
-                    tower, and launch another ball sideways
+                <p id="sling-start" data-state="ready:0">Let's perform an experiment. If we drop a cat off of this
+                    tower, and launch another cat sideways
                     from the tower with a slingshot, how long will it take each of them to land?
+                    Don't worry, cats always land on their feet.
                     Have a guess, and pull back on the slingshot to launch.</p>
 
-                <p class="message" data-event="slingSameTime" data-state="landed:0" hidden>They hit the ground at the
+                <p class="message" data-event="slingSameTime" data-state="landed:0" hidden>They land at the
                     same time. This is
                     because
                     they
                     <em>fall</em> at
                     the same rate, and nothing has been done to slow the fall of either.
-                    We've neglected air resistance, of course, but this would slow the fall of both by the same amount.
+                    Of course, we've assumed spherical cats in a vacuum, but adding air resistance would slow the fall
+                    of both by the same amount.
                 </p>
 
                 <p id="sling-up-1" data-state="ready:1">However, what happens when the Earth's surface starts to curve?
@@ -806,7 +828,7 @@
                     trajectory, but the rate of altitude loss is decreasing
                     as we move faster, because we are getting to take advantage of more and more curvature per second
                     whilst being subject to the same amount of gravity per second. The ground is curving away beneath
-                    the ball at closer and closer rate to that which the ball is falling.</p>
+                    our flying furball at closer and closer rate to that which the cat is falling.</p>
 
                 <p id="sling-up-3" data-state="ready:3">Let's keep upgrading the slingshot and see if we can get the
                     curvature of our
@@ -815,11 +837,11 @@
 
                 <p class="message" data-event="slingFurther" data-state="landed:3" hidden>Further still! The ground is
                     really starting to fall
-                    away beneath the ball now.</p>
+                    away beneath the cat now.</p>
 
                 <p id="sling-up-4" data-state="ready:4">Another upgrade. How far can it get?</p>
 
-                <p class="message" data-event="slingFarSide" data-state="landed:4" hidden>The ball made it all the way
+                <p class="message" data-event="slingFarSide" data-state="landed:4" hidden>The cat made it all the way
                     around to the far side
                     of the planet before touching down!</p>
 
@@ -830,7 +852,8 @@
                 <p class="message" data-event="slingCircular" data-state="landed:5" hidden>Ta-da! We've just achieved
                     orbit. Specifically, a circular orbit.</p>
 
-                <p id="sling-up-ecc" data-state="ready:6">But what happens if we add MORE POWER?</p>
+                <p id="sling-up-ecc" data-state="ready:6">But what happens if we add MORE POWER? Don't worry, it'll be
+                    fine. It's not like a little curiosity ever killed a cat.</p>
 
                 <p class="message" data-event="slingEccentric" data-state="landed:6" hidden>Another orbit! This time,
                     though, we actually
@@ -838,23 +861,24 @@
                     fact—resulting in this egg
                     shaped trajectory. Note that the principle of 'What goes up must come down' is still true!
                     After it
-                    orbits halfway around the Earth to its high point, the ball returns to its initial altitude at the
+                    orbits halfway around the Earth to its high point, our feline daredevil returns to its initial
+                    altitude at the
                     tower before
                     repeating its elliptical circuit. That highest altitude point in an orbit furthest from the Earth
                     is called apoapsis, and the lowest altitude point of closest approach is called periapsis. When
                     talking about Earth orbits, we use the special terms apogee and perigee for these points</p>
-                <p>If we were to launch the ball faster still, we would raise the apogee further.</p>
+                <p>If we were to launch the cat faster still, we would raise the apogee of its orbit further.</p>
 
 
                 <p id="sling-ghost" data-state="ghost-ready">Of course, the only thing separating our beautiful
                     never-ending orbits from our
                     previous short-lived
                     trajectories is that they
-                    eventually hit the ground. What would happen if the balls could pass through the ground like ghosts?
+                    eventually hit the ground. What would happen if our cats could pass through the ground like ghosts?
                 </p>
-                <p data-state="ghost-drop">Let's start by following the dropped ball.</p>
+                <p data-state="ghost-drop">Let's start by following the dropped cat.</p>
                 <p class="message" data-event="slingGhost" data-state="ghost-dropped" hidden>We see that the dropped
-                    ball
+                    cat
                     doesn't stop upon
                     reaching the centre of the earth, but continues until
                     it reaches its initial altitude but on the other side of the Earth—what goes down must come up, it
@@ -863,7 +887,7 @@
                     1-dimensional but still endlessly repeating 'orbit'.</p>
                 <p data-state="ghost-failed">What about our previous launches that failed to complete an orbit?</p>
                 <p class="message" data-event="slingGhostAll" data-state="ghost-failed-done" hidden>We see that, like
-                    the dropped ball, they have two apogees both at the
+                    the dropped cat, they have two apogees both at the
                     initial altitude, but thanks to their initial velocity their orbits are two dimensional (albeit
                     eccentric, which is to say skinny about one dimension rather than circular).</p>
 
@@ -907,7 +931,7 @@
                     like to orbit—this direction is called 'prograde'.
                 </p>
                 <p class="message" data-event="altitudeReached" data-state="climbed" hidden>
-                    Then, we can perform a prograde burn just like how we launched the balls. We need to keep firing
+                    Then, we can perform a prograde burn just like how we launched the cats. We need to keep firing
                     prograde until our collision trajectory becomes a proper orbit. To help you
                     out, we're going to add a projection of your trajectory so you can see how it changes
                     live.
@@ -962,22 +986,31 @@
                     will remain the same. Don't fret though; it turns out you can't achieve the desired higher altitude
                     circular
                     orbit
-                    with just one firing of the rocket (one 'burn'), but this burn is the necessary first step. Lock it
-                    in.
-                <p>What do
-                    you
-                    think
-                    is the second step?</p>
+                    with just one firing of the rocket (one 'burn'), but this burn is the necessary first step.
+                <p>So you don't have to wait to reach a certain position in the orbit, we'll give you direct control
+                    over time.</p>
+                <p id="timeline-intro" data-highlight="timelineSlice">The timeline visual is composed of vertical slices taken out of each frame—past, present and
+                    future—showing the altitude of your
+                    rocketship at that frame.</p>
+                <p>You can drag on the timeline to scrub through time, letting go to resume.</p>
+                <p>Alternatively, you can click on a point on the timeline, and it will automatically fast forward or
+                    rewind to that point.</p>
+                <p>
+                    Finally, you can 'zoom' in or out on the timeline by scrolling in or out with your cursor over the
+                    timeline.
+                </p>
+                <p>Okay, now you can control time, what do you think is the next step to 'circularise' this orbit?</p>
 
                 <p class="message" data-event="circularisedHigher" data-state="circHigher" hidden>Ding ding ding! Your
                     logic is correct again.
                     If firing raises the altitude a half orbit ahead of
                     where we
                     are,
-                    then if we want to raise the periapsis to 'circularise' the orbit, we must do another prograde burn
+                    then if we want to raise the periapsis to circularise the orbit, we must do another prograde burn
                     at
                     the
-                    apoapsis. You now have the manouvre to raise your orbital altitude as much as you like. What if we
+                    <em>apoapsis</em>. You now have the manouvre to raise your orbital altitude as much as you like.
+                    What if we
                     want
                     to lower
                     the altitude? You should be able to figure this one out; what's the opposite of what we did before?
@@ -1048,11 +1081,11 @@
     </div>
 
     <div id="simPane">
-        <iframe class="sim" src="slide1-sketch.html?v=20261103r"></iframe>
-        <iframe class="sim hiddenSim" src="slingshot-sketch.html?v=20261103r"></iframe>
-        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261103r"></iframe>
-        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261103r&mode=free"></iframe>
-        <iframe class="sim hiddenSim" src="slide4-sketch.html?v=20261103r"></iframe>
+        <iframe class="sim" src="slide1-sketch.html?v=20261105c"></iframe>
+        <iframe class="sim hiddenSim" src="slingshot-sketch.html?v=20261105c"></iframe>
+        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261105c"></iframe>
+        <iframe class="sim hiddenSim" src="slide3-sketch.html?v=20261105c&mode=free"></iframe>
+        <iframe class="sim hiddenSim" src="slide4-sketch.html?v=20261105c"></iframe>
     </div>
 
     <button id="fullscreenBtn" onclick="toggleFullscreen()">⛶</button>
@@ -1062,6 +1095,7 @@
     </div>
 
 
+    <script src="soundtrack.js?v=20261105c"></script>
     <script>
         //
         // Scroll-driven essay with an always-active line
@@ -1074,6 +1108,13 @@
 
         const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
+        // the soundtrack: only the simulation on screen steers it, and audio
+        // can only start from a gesture, in this page or in a simulation
+        window.soundtrackPlayer.isActive = (win) =>
+            !!simFrames[activeFrameIndex] && simFrames[activeFrameIndex].contentWindow === win;
+        for (const type of ['pointerdown', 'touchend', 'keydown']) {
+            document.addEventListener(type, () => window.soundtrackPlayer.unlock(), { passive: true });
+        }
         // text written for the other kind of device is dropped entirely
         essayContent.querySelectorAll('[data-platform]').forEach(el => {
             if (el.dataset.platform !== (isTouchDevice ? 'touch' : 'desktop')) el.remove();
@@ -1085,7 +1126,7 @@
 
         // every text unit in document order, including unrevealed and locked ones
         function allUnits() {
-            return Array.from(essayContent.querySelectorAll('h1, h2, p, li'))
+            return Array.from(essayContent.querySelectorAll('h1, h2, p, li, .unit'))
                 .filter(el => el.textContent.trim().length > 0);
         }
 
@@ -1163,6 +1204,16 @@
             }
         }
 
+        // the unit that introduces the timeline: from here on, the simulation
+        // shows it (and time can be shifted by hand)
+        const timelineUnit = document.getElementById('timeline-intro');
+
+        function timelineShownAt(el) {
+            if (!timelineUnit) return false;
+            const all = allUnits();
+            return all.indexOf(el) >= all.indexOf(timelineUnit);
+        }
+
         function setActiveLine(el) {
             if (activeLine) activeLine.classList.remove('active-line');
             activeLine = el;
@@ -1200,6 +1251,8 @@
                     line: lineIndex,
                     lineInSection: sectionLines.indexOf(el),
                     id: el.id || null,
+                    highlight: el.dataset.highlight || null,
+                    timelineShown: timelineShownAt(el),
                     passedIds: passedIds
                 }, '*');
             }
@@ -1222,6 +1275,7 @@
             if (frameIndex === activeFrameIndex) return;
             activeFrameIndex = frameIndex;
             simFrames.forEach((f, i) => f.classList.toggle('hiddenSim', i !== frameIndex));
+            if (typeof positionNextBtn === 'function') positionNextBtn();
         }
 
         essayPane.addEventListener('scroll', updateActiveLine, { passive: true });
@@ -1230,7 +1284,12 @@
 
         function scrollLineToFocus(el) {
             const r = el.getBoundingClientRect();
-            const top = essayPane.scrollTop + (r.top + r.height / 2 - focalY());
+            const paneTop = essayPane.getBoundingClientRect().top;
+            // centred on the focal line, unless the unit is tall enough that
+            // this would push its top out of the pane: the top stays in view
+            const centred = r.top + r.height / 2 - focalY();
+            const topInView = r.top - paneTop - 8;
+            const top = essayPane.scrollTop + Math.min(centred, topInView);
             if ('scrollBehavior' in document.documentElement.style) {
                 essayPane.scrollTo({ top: top, behavior: 'smooth' });
             } else {
@@ -1241,7 +1300,7 @@
 
         // click/tap a line to make it active
         essayContent.addEventListener('click', (e) => {
-            const el = e.target.closest('h1, h2, p, li');
+            const el = e.target.closest('h1, h2, p, li, .unit');
             if (el && lines.includes(el)) {
                 scrollLineToFocus(el);
             }
@@ -1283,7 +1342,13 @@
                 return null;
             }
 
-            const next = all[i + 1];
+            // an outcome that can happen in several ways leads on past the
+            // outcomes that didn't happen
+            let j = i + 1;
+            if (all[i].hasAttribute('data-optional')) {
+                while (all[j] && all[j].hidden && all[j].hasAttribute('data-optional')) j++;
+            }
+            const next = all[j];
             return next && !next.hidden ? next : null;
         }
 
@@ -1303,15 +1368,18 @@
         }
 
         // The control sits at the top-right corner of the simulation's control
-        // ring, whose geometry (radius, centred horizontally, 12px off the
-        // bottom) is defined by getJoystickGeometry() in shared.js.
+        // ring, whose geometry (radius, centred horizontally, 12px above the
+        // timeline strip, or the bottom of the pane where there is none) is
+        // defined by getJoystickGeometry() in shared.js.
         function positionNextBtn() {
+            const FRAMES_WITHOUT_TIMELINE = [1]; // the slingshot
             const pane = document.getElementById('simPane').getBoundingClientRect();
             const ringR = Math.min(pane.width, pane.height) / 5.5;
             const size = ringR * 0.64;
             const ringX = isTouchDevice ? pane.left + pane.width / 2 : pane.left + pane.width - ringR * 1.4 - 12;
+            const timelineH = FRAMES_WITHOUT_TIMELINE.includes(activeFrameIndex) ? 0 : pane.height / 10;
             const cx = ringX + ringR;
-            const cy = pane.bottom - 12 - 2 * ringR;
+            const cy = pane.bottom - timelineH - 12 - 2 * ringR;
             nextBtn.style.width = nextBtn.style.height = size + 'px';
             nextBtn.style.left = (cx - size / 2) + 'px';
             nextBtn.style.top = (cy - size / 2) + 'px';
@@ -1461,6 +1529,14 @@
         // the main path (data-optional) stay out until they actually happen.
         function resetEssayProgress() {
             try { localStorage.removeItem(BOOKMARK_KEY); } catch (e) { /* ignore */ }
+            // forget remembered flights too, and stop the simulations saving
+            // again as the page unloads
+            window.simSavingDisabled = true;
+            try {
+                Object.keys(localStorage)
+                    .filter(k => k.startsWith('flyMeToTheMoon:sim:'))
+                    .forEach(k => localStorage.removeItem(k));
+            } catch (e) { /* ignore */ }
             location.reload();
         }
 

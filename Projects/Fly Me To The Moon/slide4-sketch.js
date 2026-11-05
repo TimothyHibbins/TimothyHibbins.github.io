@@ -80,6 +80,7 @@ function setup() {
     showTrajectory = true;
     showTrajectoryDescription = true;
     showArrows = true;
+    persistSimState = true;
 
     impulse.available = true;
     impulse.exclusive = true;
